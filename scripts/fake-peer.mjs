@@ -3,6 +3,7 @@
 // usage: node scripts/fake-peer.mjs join <code> | pull | push-card | push-sender <code>
 //        host (가짜 남편이 가구를 만들고 초대 코드 출력) | push-hyundai (가짜 남편의 현대카드 결제)
 //        leave (이 가짜 기기를 서버에서 지움 — 운영 서버 시험 뒤 정리)
+//        demo (host 뒤 에뮬레이터가 아내로 합류하면, 스토어 화면용 예시 장부를 채움 — 로컬 중계에서만)
 // 환경 변수: RELAY(기본 로컬 8787), PEER_STATE(상태 파일)
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -128,6 +129,69 @@ if (cmd === "join") {
 } else if (cmd === "leave") {
   await call("DELETE", "/v1/devices/me", st.token);
   console.log("left: device removed from relay");
+} else if (cmd === "demo") {
+  if (!RELAY.includes("127.0.0.1") && !RELAY.includes("localhost")) throw new Error("demo는 로컬 중계에서만");
+  const key = unb64(st.hk);
+  // 합류한 아내 구성원 id 찾기
+  const r = await call("GET", `/v1/spaces/${st.space}/ops?after=0`, st.token);
+  let wife = null;
+  for (const op of r.ops) {
+    try { const o = JSON.parse(open(key, op.env, aad(st.space, op.ek)).toString()); if (o.t === "member" && o.v?.name === "아내") wife = o.id; } catch {}
+  }
+  if (!wife) throw new Error("아내 구성원을 아직 못 찾았어요(에뮬레이터가 먼저 합류해야 함)");
+  const H = st.memberId, M = "motherMember0000000000";
+  // 에뮬레이터 시간대(UTC)에서 자연스러운 시각으로 보이게 UTC로 만듭니다.
+  const day = (d, h = 12, m = 0) => Date.UTC(2026, 10, d, h, m);
+  const prev = (mo, d, h = 12) => Date.UTC(2026, 10 - mo, d, h, 0);
+  const items = [
+    ["member", M, { name: "어머니", role: "sender", color: 2, deviceIds: [], allowance: 0, order: 2, removed: false }],
+    ["account", "husbandCard00000000000", { name: "현대카드", type: "card", ownerId: H, institution: "현대카드", hidden: true }],
+    ["account", "accHyundai000000000000", { name: "현대카드 M", type: "card", ownerId: H, institution: "현대카드", last4: "1234", cycleStartDay: 1, billingDay: 14, order: 0 }],
+    ["account", "accShinhan000000000000", { name: "신한카드 Deep", type: "card", ownerId: wife, institution: "신한카드", last4: "5678", cycleStartDay: 1, billingDay: 25, order: 1 }],
+    ["account", "accKB00000000000000000", { name: "생활비 통장", type: "bank", ownerId: null, institution: "KB국민은행", anchor: 3840000, anchorAt: day(1, 8), order: 2 }],
+    ["account", "accSave000000000000000", { name: "청년 적금", type: "save", ownerId: wife, institution: "카카오뱅크", anchor: 6200000, anchorAt: day(1, 8), order: 3 }],
+    ["account", "accCash000000000000000", { name: "지갑 현금", type: "cash", ownerId: null, anchor: 120000, anchorAt: day(1, 8), order: 4 }],
+    ["account", "accMomCard000000000000", { name: "현대카드", type: "card", ownerId: M, institution: "현대카드", cycleStartDay: 1, order: 5 }],
+    ["household", "home", { name: "우리집", monthStartDay: 1, budget: 2500000 }],
+    ["budget", "b.c.food", { categoryId: "c.food", amount: 700000 }],
+    ["budget", "b.c.cafe", { categoryId: "c.cafe", amount: 120000 }],
+    ["budget", "b.c.shopping", { categoryId: "c.shopping", amount: 300000 }],
+    ["recurring", "recNetflix000000000000", { name: "넷플릭스", kind: "e", amount: 13500, categoryId: "c.subscription", accountId: "accHyundai000000000000", memberId: H, period: "m", day: 20, month: 1, startAt: prev(3, 1), paused: false }],
+    ["recurring", "recMgmt000000000000000", { name: "아파트 관리비", kind: "e", amount: 231000, categoryId: "c.housing", accountId: "accKB00000000000000000", memberId: null, period: "m", day: 25, month: 1, startAt: prev(3, 1), paused: false }],
+    ["goal", "goalJeju0000000000000", { name: "제주도 가족 여행", target: 2000000, icon: "travel", color: 0, entries: [{ at: prev(2, 5), amount: 500000, memo: "" }, { at: prev(1, 5), amount: 500000, memo: "" }, { at: day(5), amount: 300000, memo: "" }], done: false, order: 0 }],
+  ];
+  let n = 0;
+  const t = (id, kind, amount, at, acc, cat, merchant, member, extra = {}) => items.push(["txn", "demo" + String(n++).padStart(18, "0"),
+    { kind, amount, at, accountId: acc, categoryId: cat, merchant, memo: "", memberId: member, source: extra.source ?? "push", installment: extra.inst ?? 0,
+      cumulative: extra.cum ?? null, issuer: extra.issuer ?? null, cardLabel: extra.label ?? null, receiptIds: [], private: false,
+      createdBy: "demo", createdAt: at, needsReview: false, toAccountId: extra.to ?? null }]);
+  const HY = ["accHyundai000000000000", { issuer: "현대카드", label: "현대카드(1234)" }], SH = ["accShinhan000000000000", { issuer: "신한카드", label: "신한카드(5678)" }];
+  t(0, "i", 3850000, day(10, 9), "accKB00000000000000000", "c.salary", "(주)도란 급여", H, { source: "sms", issuer: "KB국민은행" });
+  t(0, "i", 2400000, day(15, 9), "accKB00000000000000000", "c.salary", "11월 급여", wife, { source: "sms", issuer: "KB국민은행" });
+  const spend = [
+    [1, "c.food", "이마트 성수점", 86400, wife, SH], [2, "c.cafe", "스타벅스 성수점", 12300, H, HY], [2, "c.transit", "카카오T", 8900, H, HY],
+    [3, "c.food", "배달의민족", 32500, wife, SH], [4, "c.shopping", "쿠팡", 45900, wife, SH], [5, "c.medical", "온누리약국", 21000, M, ["accMomCard000000000000", { issuer: "현대카드", label: "현대카드(9012)" }]],
+    [6, "c.cafe", "블루보틀", 14000, wife, SH], [7, "c.food", "본죽 성수점", 18000, H, HY], [8, "c.leisure", "CGV 왕십리", 28000, H, HY],
+    [8, "c.food", "고깃집 숯불당", 67000, H, HY], [9, "c.childcare", "키즈카페 놀이터", 24000, wife, SH], [10, "c.car", "GS칼텍스 주유", 78000, H, HY],
+    [11, "c.beauty", "올리브영", 38500, wife, SH], [12, "c.food", "컬리", 54200, wife, SH], [13, "c.cafe", "메가커피", 4500, H, HY],
+    [13, "c.telecom", "SKT 통신요금", 59000, H, HY], [14, "c.household", "다이소", 12000, wife, SH], [15, "c.food", "홈플러스", 92300, wife, SH],
+    [15, "c.gift", "꽃집 플라워", 45000, H, HY], [16, "c.education", "교보문고", 31000, wife, SH], [16, "c.food", "김밥천국", 9500, M, ["accMomCard000000000000", { issuer: "현대카드", label: "현대카드(9012)" }]],
+    [17, "c.cafe", "스타벅스 성수점", 12300, H, HY], [17, "c.food", "배달의민족", 27800, wife, SH],
+  ];
+  let cumH = 0;
+  for (const [d, cat, m, amt, who, [acc, ex]] of spend) {
+    if (who === H) cumH += amt;
+    t(0, "e", amt, day(d, 8 + (d * 5) % 13, (d * 7) % 60), acc, cat, m, who, { ...ex, cum: who === H ? 380000 + cumH : null });
+  }
+  t(0, "t", 412000, day(14, 6), "accKB00000000000000000", null, "현대카드 카드값", H, { source: "sms", issuer: "KB국민은행", to: "accHyundai000000000000" });
+  // 지난 달들 추이
+  const hist = [[1, 1980000], [2, 2240000], [3, 2110000], [4, 2350000], [5, 1890000]];
+  for (const [mo, total] of hist) {
+    const cats = [["c.food", 0.36], ["c.shopping", 0.16], ["c.cafe", 0.06], ["c.transit", 0.08], ["c.housing", 0.12], ["c.leisure", 0.08], ["c.etc", 0.14]];
+    for (const [c, f] of cats) t(0, "e", Math.round(total * f / 100) * 100, prev(mo, 10 + cats.indexOf(cats.find((x) => x[0] === c))), "accKB00000000000000000", c, ({ "c.food": "장보기", "c.shopping": "온라인 쇼핑", "c.cafe": "카페", "c.transit": "교통", "c.housing": "관리비", "c.leisure": "여가", "c.etc": "기타" })[c], H, { source: "manual" });
+  }
+  for (let i = 0; i < items.length; i += 100) await push(st, key, items.slice(i, i + 100));
+  console.log("demo seeded:", items.length, "ops; wife", wife);
 } else if (cmd === "push-sender") {
   // 어머니 폰 흉내: sender 초대를 받아 링크 키로 카드 내역 하나를 보냄
   const mom = { };

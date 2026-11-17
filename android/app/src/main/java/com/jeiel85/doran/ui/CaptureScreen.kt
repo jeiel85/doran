@@ -108,7 +108,7 @@ fun CaptureScreen(nav: Nav) {
                 ToggleRow("앱 알림 읽기", "카드사·은행 앱, 카카오톡 알림톡", Icons.Rounded.NotificationsActive, P.c.pine, settings.capturePush) { on ->
                     Hub.local.update { it.copy(capturePush = on) }
                 }
-                ToggleRow("문자 읽기", if (com.jeiel85.doran.BuildConfig.SMS_RECEIVER) "카드사·은행 문자" else "문자 앱에 뜨는 카드·은행 문자 알림", Icons.Rounded.Sms, P.c.pine, settings.captureSms) { on ->
+                ToggleRow("문자 읽기", if (com.jeiel85.doran.BuildConfig.SMS_RECEIVER) "카드사·은행 문자" else "문자 앱에 뜨는 카드·은행 문자 알림 · 그 대화방 알림을 꺼 두면 못 읽어요", Icons.Rounded.Sms, P.c.pine, settings.captureSms) { on ->
                     Hub.local.update { it.copy(captureSms = on) }
                 }
                 apps.forEach { pkg ->
