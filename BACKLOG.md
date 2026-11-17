@@ -8,7 +8,7 @@
 - [x] 릴리스 키스토어(.keystore/doran-release.jks, 인증서 SHA-256 c3f2d7c9…ba452582) · G드라이브 `모바일 앱 개발/Doran/릴리즈 키스토어/` 백업·cmp 확인
 - [x] 중계 서버 https://doran-relay.jeiel85.workers.dev (D1 doran-relay, APAC)
 - [x] v0.1.0 릴리스 · 하드닝 후보 jeiel85/doran#1
-- [ ] Firebase(실시간 알림) — design/FIREBASE_SETUP.md, 사용자 Google 계정 콘솔에서 프로젝트 생성 필요 → v0.1.1
+- [x] Firebase(실시간 알림) 프로젝트 `doran-e8c18`(Gemini·애널리틱스 끔), 중계 FCM_SERVICE_ACCOUNT 설정 → v0.1.1. 에뮬레이터에서 결제 → 아내 폰 알림 약 4초 확인
 - [ ] 실기기 2대(남편 S24, 아내 폰): design/VERIFY.md 전체 (S24 무선 ADB 100.91.54.15 무응답이라 로컬 설치 못 함)
 - [ ] 자가 업데이트 실기기 확인: v0.1.0 설치 폰이 v0.1.1을 받아 설치하는지
 
