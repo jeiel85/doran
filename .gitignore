@@ -22,3 +22,4 @@ relay/.dev.vars
 dist/
 design/art/logs/
 design/art/raw/
+fake-peer-state.json

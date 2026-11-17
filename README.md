@@ -80,5 +80,8 @@ cd relay && npm install && npm test
 ```
 
 - 에뮬레이터에서 PC의 로컬 중계로 시험: `cd relay && npx wrangler d1 migrations apply doran-relay --local && npx wrangler dev --local --port 8787`, 앱은 `./gradlew :app:assembleDebug -Papp.relayUrl=http://10.0.2.2:8787`
+- **두 폰 동기화 시험**(에뮬레이터 한 대 + 가짜 가족 폰): 위 로컬 중계를 띄운 뒤, 에뮬레이터의 가족 → 초대 QR을 화면 캡처에서 읽어
+  `node scripts/fake-peer.mjs join "doran:1:…"` → `pull`(장부 복호화 확인) → `push-card`(가족 카드 내역 → 에뮬레이터 알림 확인).
+  보내기 전용 가족은 "보내 줄 가족 초대" QR로 `push-sender "doran:1:…"`(링크 키로 가구 설정을 바꾸려는 op가 버려지는지도 확인).
 - 그림 리소스 다시 만들기: `python design/make_art.py` (원본·프롬프트: [design/art/SOURCES.md](design/art/SOURCES.md))
 - 실시간 알림(FCM)은 `android/app/google-services.json`과 중계의 `FCM_SERVICE_ACCOUNT` 비밀값이 있어야 켜집니다. 없으면 15분마다·앱을 열 때 동기화합니다.
