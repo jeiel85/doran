@@ -86,5 +86,5 @@ object Notifier {
     }
 
     fun updated(context: Context, version: String) =
-        post(context, 4002, builder(context, UPDATE, "도란 $version 으로 업데이트했어요", "새 버전을 써 보세요").setContentIntent(open(context)))
+        post(context, 4002, builder(context, UPDATE, "도란 ${com.jeiel85.doran.logic.Josa.ro(version)} 업데이트했어요", "새 버전을 써 보세요").setContentIntent(open(context)))
 }
