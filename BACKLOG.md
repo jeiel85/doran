@@ -2,14 +2,15 @@
 
 완료된 작업을 다시 열지 않고 다음으로 넘긴 것들입니다.
 
-## 첫 배포 전에 필요한 것 (사용자 확인 필요)
+## 배포 (2026-11-17 v0.1.0)
 
-- [ ] GitHub 저장소 `jeiel85/doran` 만들기(공개 — 자가 업데이트가 releases/latest를 인증 없이 읽음)
-- [ ] 릴리스 서명 키스토어 생성·G드라이브 백업(전역 지침 "릴리스 키스토어 백업")
-- [ ] 중계 배포: `scripts/deploy-relay.sh` (D1 생성·id 채우기·원격 마이그레이션·배포)
-- [ ] Firebase 프로젝트·Android 앱 등록 → `scripts/finish-firebase.sh` (design/FIREBASE_SETUP.md)
-- [ ] GitHub Pages 켜기(main /docs) — 연결 페이지 `https://jeiel85.github.io/doran/join/`이 QR 설치 흐름에 필요
-- [ ] 실기기 2대(남편 S24, 아내 폰): design/VERIFY.md 전체
+- [x] GitHub 공개 저장소 https://github.com/jeiel85/doran · Pages(main /docs) https://jeiel85.github.io/doran/
+- [x] 릴리스 키스토어(.keystore/doran-release.jks, 인증서 SHA-256 c3f2d7c9…ba452582) · G드라이브 `모바일 앱 개발/Doran/릴리즈 키스토어/` 백업·cmp 확인
+- [x] 중계 서버 https://doran-relay.jeiel85.workers.dev (D1 doran-relay, APAC)
+- [x] v0.1.0 릴리스 · 하드닝 후보 jeiel85/doran#1
+- [ ] Firebase(실시간 알림) — design/FIREBASE_SETUP.md, 사용자 Google 계정 콘솔에서 프로젝트 생성 필요 → v0.1.1
+- [ ] 실기기 2대(남편 S24, 아내 폰): design/VERIFY.md 전체 (S24 무선 ADB 100.91.54.15 무응답이라 로컬 설치 못 함)
+- [ ] 자가 업데이트 실기기 확인: v0.1.0 설치 폰이 v0.1.1을 받아 설치하는지
 
 ## 확인이 필요한 형식
 
