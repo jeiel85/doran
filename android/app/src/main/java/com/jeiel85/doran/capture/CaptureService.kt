@@ -39,7 +39,8 @@ class CaptureService : NotificationListenerService() {
             Hub.init(applicationContext)
             val s = Hub.settings.value
             if (!s.capturePush || pkg in s.mutedPackages) return@launch
-            runCatching { Hub.capture.process(Source.PUSH, pkg, title, text, sbn.postTime) }
+            val label = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrNull()
+            runCatching { Hub.capture.process(Source.PUSH, pkg, title, text, sbn.postTime, label) }
                 .onFailure { Log.w("Capture", "process failed", it) }
         }
     }

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>도란 가족 연결</title>
+<meta name="robots" content="noindex">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' https://cdn.jsdelivr.net; font-src https://cdn.jsdelivr.net; img-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#2e7a62">
+<link rel="icon" href="../assets/icon-192.png">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body data-state="opening">
+<main class="join">
+  <img class="icon" src="../assets/icon-192.png" alt="">
+  <h1 id="title">도란 가족 연결</h1>
+  <p class="lede" id="lede">가족 가계부에 초대받았어요.</p>
+
+  <!-- 1. 설치된 앱에 넘기는 중 -->
+  <section class="card" data-show="opening">
+    <h2><span class="dots">도란을 여는 중</span></h2>
+    <p class="lede">앱이 열리면 연결이 바로 이어져요. 열리지 않으면 아래 버튼을 눌러 주세요.</p>
+    <p class="mt"><a class="btn btn-wide" data-open href="#">도란에서 열기</a></p>
+    <p class="mt center"><a href="#" id="toInstall">도란이 아직 없어요 →</a></p>
+  </section>
+
+  <!-- 2. 앱이 없을 때: 설치 → 같은 링크로 계속 -->
+  <section class="card" data-show="install">
+    <h2>먼저 도란을 설치해 주세요</h2>
+    <p class="lede">설치한 뒤 이 화면으로 돌아와 마지막 버튼을 누르면 가족 가계부에 그대로 연결돼요.</p>
+    <ol class="steps">
+      <li><b>설치 파일을 받아요.</b> Android 10 이상이면 돼요.
+        <a class="btn btn-wide" href="https://github.com/jeiel85/doran/releases/latest/download/doran.apk">도란 받기 (APK)</a></li>
+      <li><b>받은 파일을 열어 설치해요.</b> "출처를 알 수 없는 앱"을 물으면 이번 설치에만 허용해 주세요. 그 뒤 업데이트는 도란이 알아서 해요.</li>
+      <li><b>이 화면으로 돌아와 눌러요.</b> 브라우저 탭에 그대로 남아 있어요.
+        <a class="btn btn-ghost btn-wide" data-open href="#">설치했어요 · 연결 계속하기</a></li>
+    </ol>
+    <p class="note" id="senderNote" hidden>연결한 뒤 도란이 <b>알림 접근</b>을 물어요. 켜 두면 이 폰에 오는 카드·은행 알림이 가족 가계부로 가요.
+      "제한된 설정"이라며 막히면 설정 → 애플리케이션 → 도란 → 오른쪽 위 ⋮ → <b>제한된 설정 허용</b> 뒤 다시 켜 주세요.</p>
+    <p class="fine">초대는 만든 뒤 30분 동안, 한 번만 쓸 수 있어요. 시간이 지났으면 가족에게 새 QR·링크를 부탁해 주세요.</p>
+  </section>
+
+  <!-- 3. Android가 아님 -->
+  <section class="card" data-show="other">
+    <h2>도란은 Android 전용이에요</h2>
+    <p class="lede">카드·은행 알림을 자동으로 읽으려면 Android가 필요해요(iPhone은 다른 앱의 알림을 읽을 수 없어요). Android 폰의 카메라로 이 QR을 다시 찍어 주세요.</p>
+    <p class="mt"><a class="btn btn-ghost btn-wide" href="../">도란 소개 보기</a></p>
+  </section>
+
+  <!-- 4. 망가진 링크 -->
+  <section class="card" data-show="invalid">
+    <h2>연결 정보가 없는 링크예요</h2>
+    <p class="lede">가족 폰의 도란 → 가족 → <b>초대</b>에서 QR을 다시 띄워 달라고 해 주세요.</p>
+    <p class="mt"><a class="btn btn-ghost btn-wide" href="../">도란 소개 보기</a></p>
+  </section>
+
+  <p class="fine">연결 정보는 주소의 # 뒤에만 있어서 이 웹 서버로 전송되지 않아요.</p>
+</main>
+<script src="../assets/join.js"></script>
+</body>
+</html>

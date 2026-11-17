@@ -6,11 +6,10 @@
 
 - [ ] GitHub 저장소 `jeiel85/doran` 만들기(공개 — 자가 업데이트가 releases/latest를 인증 없이 읽음)
 - [ ] 릴리스 서명 키스토어 생성·G드라이브 백업(전역 지침 "릴리스 키스토어 백업")
-- [ ] 중계 배포: `wrangler d1 create doran-relay` → `wrangler.toml` id 교체 → 원격 마이그레이션 → `wrangler deploy`
-- [ ] Firebase 프로젝트·Android 앱 등록 → `google-services.json`, 서비스 계정 → `wrangler secret put FCM_SERVICE_ACCOUNT`
-- [ ] `scripts/release.sh`(포너디 방식: 버전 올림·서명 APK·SHA-256·`doran.apk` 고정 이름·하드닝 이슈)
-- [ ] 실기기 2대(남편 S24, 아내 폰) 설치·연결·현대카드 실제 알림 확인
-- [ ] 초대 화면에 "도란 설치" QR(releases/latest/download/doran.apk)도 함께 보여 주기 — 저장소가 생긴 뒤
+- [ ] 중계 배포: `scripts/deploy-relay.sh` (D1 생성·id 채우기·원격 마이그레이션·배포)
+- [ ] Firebase 프로젝트·Android 앱 등록 → `scripts/finish-firebase.sh` (design/FIREBASE_SETUP.md)
+- [ ] GitHub Pages 켜기(main /docs) — 연결 페이지 `https://jeiel85.github.io/doran/join/`이 QR 설치 흐름에 필요
+- [ ] 실기기 2대(남편 S24, 아내 폰): design/VERIFY.md 전체
 
 ## 확인이 필요한 형식
 

@@ -156,7 +156,7 @@ fun FamilyScreen(nav: Nav) {
         item {
             SoftCard(padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
                 ListRow("QR 찍어서 연결", if (id.inHousehold) "다른 가구에 내 카드 알림을 보내거나, 다른 장부에 합류해요" else "가족 폰에 뜬 QR을 찍어요",
-                    Icons.Rounded.QrCodeScanner, P.c.pine, onClick = { nav.go(Route.Join) })
+                    Icons.Rounded.QrCodeScanner, P.c.pine, onClick = { nav.go(Route.Join()) })
                 id.outLinks.forEach { l ->
                     ListRow("${l.label}에 보내는 중", (l.memberName?.let { "'$it' 이름으로 · " } ?: "") +
                         if (l.issuers.isEmpty()) "읽은 카드·은행 알림 전부" else l.issuers.joinToString(),
@@ -218,7 +218,7 @@ fun InviteScreen(role: String, nav: Nav) {
         if (askName) return@LaunchedEffect
         error = null
         invite = runCatching {
-            if (role == "sender") Pairing.inviteSender(senderName, 1800) else Pairing.inviteMember(600)
+            if (role == "sender") Pairing.inviteSender(senderName, 1800) else Pairing.inviteMember(1800)
         }.onFailure { error = friendly(it) }.getOrNull()
     }
     LaunchedEffect(invite) {
@@ -247,7 +247,7 @@ fun InviteScreen(role: String, nav: Nav) {
                 Text(if (role == "sender") "${senderName}의 폰에서 QR을 찍어 주세요" else "배우자 폰에서 QR을 찍어 주세요",
                     style = MaterialTheme.typography.titleLarge, color = P.c.ink, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(6.dp))
-                Text("도란 설치 → ${if (role == "sender") "'카드 알림을 보내기만 할 거예요'" else "'가족 초대로 합류하기'"} → QR 찍기",
+                Text("폰 기본 카메라로 찍으면 돼요. 도란이 없으면 설치부터 안내하고, 설치하면 바로 이어서 연결돼요.",
                     style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(20.dp))
                 val inv = invite
@@ -270,14 +270,15 @@ fun InviteScreen(role: String, nav: Nav) {
                 }
                 Spacer(Modifier.height(20.dp))
                 if (inv != null && left > 0) {
-                    Text("멀리 있으면 코드를 메시지로 보내도 돼요", style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint)
+                    Text("멀리 있으면 링크를 카톡·문자로 보내도 돼요. 누르면 똑같이 이어져요.", style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint)
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SmallButton("코드 복사") { clipboard.setText(AnnotatedString(inv.code)) }
-                        SmallButton("코드 보내기") {
+                        SmallButton("링크 복사") { clipboard.setText(AnnotatedString(inv.code)) }
+                        SmallButton("링크 보내기") {
+                            val who = if (role == "sender") "카드 알림을 우리 가계부로 보내 주세요" else "같이 가계부를 써요"
                             context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain")
-                                .putExtra(Intent.EXTRA_TEXT, "도란 가족 가계부 연결 코드예요. 도란 → QR 찍어서 연결 → '코드로 연결'에 붙여 넣어 주세요.\n${inv.code}"),
-                                "연결 코드 보내기"))
+                                .putExtra(Intent.EXTRA_TEXT, "도란 가족 가계부 초대예요. $who!\n아래 링크를 누르면 설치와 연결을 안내해요(30분 동안, 한 번만).\n${inv.code}"),
+                                "초대 링크 보내기"))
                         }
                     }
                 }
@@ -291,7 +292,7 @@ fun InviteScreen(role: String, nav: Nav) {
  * 온보딩과 가족 화면이 같은 화면을 씁니다.
  */
 @Composable
-fun JoinPanel(needName: Boolean, onDone: () -> Unit) {
+fun JoinPanel(needName: Boolean, preset: String? = null, onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
     var name by remember { mutableStateOf("") }
@@ -303,7 +304,7 @@ fun JoinPanel(needName: Boolean, onDone: () -> Unit) {
 
     fun connect(text: String) {
         val secret = Pairing.parseCode(text)
-        if (secret == null) { error = "도란 초대 QR이 아니에요"; return }
+        if (secret == null) { error = "도란 초대 QR·링크가 아니에요"; return }
         busy = true; error = null
         scope.launch {
             runCatching { Pairing.join(secret, name) }.onSuccess { joined = it }.onFailure { error = friendly(it) }
@@ -311,6 +312,9 @@ fun JoinPanel(needName: Boolean, onDone: () -> Unit) {
         }
     }
     val scan = rememberLauncherForActivityResult(ScanContract()) { r -> r.contents?.let { connect(it) } }
+    val invited = remember(preset) { Pairing.parse(preset) }
+    // 보내기 전용 초대면 이름은 초대한 가족이 이미 정해 두었습니다(예: 어머니).
+    val askName = needName && invited?.role != "sender"
 
     when (val j = joined) {
         is Pairing.Joined.Household -> Column {
@@ -328,26 +332,44 @@ fun JoinPanel(needName: Boolean, onDone: () -> Unit) {
             PrimaryButton("확인", onClick = onDone)
         }
         null -> Column {
-            if (needName) {
+            if (invited != null) {
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(P.c.pineSoft).padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Image(painterResource(R.drawable.art_family), null, Modifier.size(56.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("${invited.inviter?.let { "${it}님이 보낸 " } ?: ""}초대를 받았어요", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
+                        Text(if (invited.role == "sender") "이 폰의 카드·은행 알림을 가족 가계부로 보내요" else "같은 가계부를 함께 써요",
+                            style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+            }
+            if (askName) {
                 Text("나는 누구인가요?", style = MaterialTheme.typography.titleMedium, color = P.c.ink)
                 Text("가족 폰 알림에 \"아내가 신한카드로 …\"처럼 이 이름이 나와요", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
                 Spacer(Modifier.height(10.dp))
                 NamePicker(name, { name = it }, SELF_NAMES, "내 이름")
                 Spacer(Modifier.height(20.dp))
             }
-            PrimaryButton(if (busy) "연결하는 중…" else "QR 찍어서 연결하기", enabled = !busy && (!needName || name.isNotBlank())) {
+            if (invited != null) {
+                PrimaryButton(if (busy) "연결하는 중…" else "연결하기", enabled = !busy && (!askName || name.isNotBlank())) { connect(preset!!) }
+                error?.let { Text(it, color = P.c.danger, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 10.dp)) }
+                return@Column
+            }
+            PrimaryButton(if (busy) "연결하는 중…" else "QR 찍어서 연결하기", enabled = !busy && (!askName || name.isNotBlank())) {
                 scan.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("가족 폰에 뜬 도란 QR을 비춰 주세요")
                     .setBeepEnabled(false).setOrientationLocked(true))
             }
             error?.let { Text(it, color = P.c.danger, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 10.dp)) }
             Spacer(Modifier.height(8.dp))
-            TextButton({ showCode = !showCode }) { Text(if (showCode) "코드 입력 닫기" else "QR 대신 코드로 연결", color = P.c.inkSoft) }
+            TextButton({ showCode = !showCode }) { Text(if (showCode) "링크 입력 닫기" else "QR 대신 받은 링크로 연결", color = P.c.inkSoft) }
             if (showCode) {
-                Field("연결 코드", code, { code = it }, "doran:1:…")
+                Field("초대 링크", code, { code = it }, "https://jeiel85.github.io/doran/join/#…")
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton({ clipboard.getText()?.text?.let { code = it } }) { Text("붙여 넣기") }
                     Spacer(Modifier.width(8.dp))
-                    SmallButton("연결", enabled = !busy && code.isNotBlank() && (!needName || name.isNotBlank())) { connect(code) }
+                    SmallButton("연결", enabled = !busy && code.isNotBlank() && (!askName || name.isNotBlank())) { connect(code) }
                 }
             }
         }
@@ -355,14 +377,16 @@ fun JoinPanel(needName: Boolean, onDone: () -> Unit) {
 }
 
 @Composable
-fun JoinScreen(nav: Nav) {
+fun JoinScreen(link: String?, nav: Nav) {
     val id by Hub.identity.state.collectAsStateWithLifecycle()
     val needName = remember { id.myMemberId == null }
-    SubScreen("QR 찍어서 연결", { nav.back() }) {
+    SubScreen(if (link != null) "가족 초대" else "QR 찍어서 연결", { nav.back() }) {
         item {
-            Image(painterResource(R.drawable.art_family), null, Modifier.fillMaxWidth().height(150.dp))
-            Spacer(Modifier.height(12.dp))
-            JoinPanel(needName) { nav.back() }
+            if (link == null) {
+                Image(painterResource(R.drawable.art_family), null, Modifier.fillMaxWidth().height(150.dp))
+                Spacer(Modifier.height(12.dp))
+            }
+            JoinPanel(needName, link) { nav.back() }
         }
     }
 }

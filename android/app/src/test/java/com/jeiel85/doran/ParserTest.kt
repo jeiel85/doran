@@ -113,6 +113,26 @@ class ParserTest {
         assertEquals(LocalDateTime.of(2026, 12, 31, 23, 50), r.at)
     }
 
+    @Test fun appNameIdentifiesIssuerWhenTextOmitsIt() {
+        // 카드사 앱 푸시는 본문에 카드사 이름이 없을 수 있음 → 알림을 올린 앱 이름("현대카드")으로 정함
+        val text = "[승인] 홍*동님 12,300원 일시불\n스타벅스 성수점\n누적 523,000원"
+        assertNull(p(text))
+        val r = Parser.parse(text, now, hint = "현대카드")!!
+        assertEquals("현대카드", r.issuer)
+        assertEquals(12_300L, r.amount)
+        assertEquals("스타벅스 성수점", r.merchant)
+        assertEquals("KB국민카드", Parser.parse("9,900원 결제 승인 11/17 08:00 GS25", now, hint = "KB Pay")!!.issuer)
+        // 본문에 카드사가 있으면 앱 이름보다 본문이 우선
+        assertEquals("신한카드", Parser.parse("신한카드 승인 5,000원 편의점", now, hint = "현대카드")!!.issuer)
+    }
+
+    @Test fun adsAndPromotionsAreNotTransactions() {
+        assertNull(p("(광고)[현대카드] 이번 주말 스타벅스 50% 할인! 최대 10,000원 결제 시"))
+        assertNull(Parser.parse("M포인트 이벤트: 30,000원 이상 결제하면 5,000원 캐시백", now, hint = "현대카드"))
+        // 승인 문자에 적립 안내가 붙어 있어도 거래로 읽음
+        assertNotNull(p("현대카드 승인 홍*동 30,000원 일시불 11/17 12:00 이마트 M포인트 300 적립"))
+    }
+
     @Test fun missingDateLeavesNull() {
         val r = p("현대카드 승인 7,000원 일시불 동네빵집")!!
         assertNull(r.at)

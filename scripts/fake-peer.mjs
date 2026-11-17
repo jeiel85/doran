@@ -112,7 +112,8 @@ if (cmd === "join") {
     inviteId: b64(sha256(secret)), role: "member", ttlSec: 1800,
     bundle: seal(hkdf(secret, "doran invite v1"), Buffer.from(JSON.stringify(bundle)), "doran1|invite"),
   });
-  console.log("doran:1:" + b64(secret));
+  // 앱과 같은 초대 링크 형식(Pairing.link): #m.<비밀값>.<초대한 사람 이름>
+  console.log("https://jeiel85.github.io/doran/join/#m." + b64(secret) + "." + b64(Buffer.from("남편")));
 } else if (cmd === "push-hyundai") {
   const key = unb64(st.hk);
   const id = "husbandTxn" + Date.now().toString().slice(-12).padStart(12, "0");

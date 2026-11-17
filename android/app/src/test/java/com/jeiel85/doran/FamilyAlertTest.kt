@@ -74,6 +74,24 @@ class FamilyAlertTest {
         assertFalse(Twins.same(a, b.copy(cancelOf = "a")))
     }
 
+    @Test fun inviteLinksRoundTrip() {
+        val secret = ByteArray(32) { it.toByte() }
+        val link = com.jeiel85.doran.sync.Pairing.link(secret, "sender", "남편")
+        assertTrue(link.startsWith("https://jeiel85.github.io/doran/join/#s."))
+        for (form in listOf(link, "doran://join/" + link.substringAfter('#'),
+                "https://jeiel85.github.io/doran/join/?install=1#" + link.substringAfter('#'), "초대: $link 눌러 주세요")) {
+            val p = com.jeiel85.doran.sync.Pairing.parse(form.substringAfter("초대: ").substringBefore(" 눌러"))!!
+            assertTrue(form, p.secret.contentEquals(secret))
+            assertEquals("sender", p.role)
+            assertEquals("남편", p.inviter)
+        }
+        val legacy = com.jeiel85.doran.sync.Pairing.parse("doran:1:" + com.jeiel85.doran.crypto.Crypto.b64(secret))!!
+        assertTrue(legacy.secret.contentEquals(secret))
+        assertEquals(null, legacy.role)
+        assertEquals(null, com.jeiel85.doran.sync.Pairing.parse("https://jeiel85.github.io/doran/join/#x.abc"))
+        assertEquals(null, com.jeiel85.doran.sync.Pairing.parse("아무 글"))
+    }
+
     @Test fun forwardedTextsFromPersonalNumbersAreIgnored() {
         assertTrue(SmsReceiver.isPersonalNumber("010-1234-5678"))
         assertTrue(SmsReceiver.isPersonalNumber("+821012345678"))

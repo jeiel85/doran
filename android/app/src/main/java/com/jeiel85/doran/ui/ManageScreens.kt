@@ -48,6 +48,7 @@ import com.jeiel85.doran.model.Budget
 import com.jeiel85.doran.model.Category
 import com.jeiel85.doran.model.Goal
 import com.jeiel85.doran.model.GoalEntry
+import com.jeiel85.doran.model.Defaults
 import com.jeiel85.doran.model.Kind
 import com.jeiel85.doran.model.Recurring
 import com.jeiel85.doran.model.T
@@ -542,5 +543,41 @@ fun SearchScreen(nav: Nav) {
                 style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft, modifier = Modifier.padding(8.dp))
         }
         items(results, key = { it.txn.id }) { e -> TxnRow(e, s, false, showDate = true) { nav.go(Route.Entry(txnId = e.txn.id)) } }
+    }
+}
+
+// --- 카테고리별 내역(통계에서 누름) ---------------------------------------------------------------
+
+@Composable
+fun CategoryTxnsScreen(categoryId: String, month: String, nav: Nav) {
+    val s by Hub.ledger.state.collectAsStateWithLifecycle()
+    val id by Hub.identity.state.collectAsStateWithLifecycle()
+    val p = remember(month, s.household.monthStartDay) { Stats.period(java.time.YearMonth.parse(month), s.household.monthStartDay) }
+    val cat = s.category(categoryId)
+    val list = remember(s.version, p, categoryId) {
+        Stats.entries(s, p, id.myMemberId).filter { it.txn.kind != Kind.TRANSFER && (it.txn.categoryId ?: Defaults.EXPENSE_FALLBACK) == categoryId }
+    }
+    SubScreen("${cat?.name ?: "카테고리"} · ${Fmt.month(p.label)}", { nav.back() }) {
+        item {
+            SoftCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CatTile(cat?.icon, 52.dp)
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("${list.size}건", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                        Text(Fmt.won(list.sumOf { it.net }), style = MaterialTheme.typography.headlineSmall.merge(Money), color = P.c.ink)
+                    }
+                    s.budgets[Budget.idFor(categoryId)]?.let { b ->
+                        Text("예산 ${Fmt.compact(b.amount)}", style = MaterialTheme.typography.labelMedium, color = P.c.pine)
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+        }
+        items(list, key = { it.txn.id }) { e ->
+            TxnRow(e, s, false, showDate = true) {
+                if (e.allowanceSummary) nav.go(Route.Allowance) else nav.go(Route.Entry(txnId = e.txn.id))
+            }
+        }
     }
 }

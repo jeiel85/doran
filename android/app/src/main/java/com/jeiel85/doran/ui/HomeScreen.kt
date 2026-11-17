@@ -29,6 +29,11 @@ import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -58,6 +63,7 @@ import com.jeiel85.doran.model.Kind
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(nav: Nav) {
     val s by Hub.ledger.state.collectAsStateWithLifecycle()
@@ -92,6 +98,9 @@ fun HomeScreen(nav: Nav) {
         return
     }
 
+    val refreshScope = rememberCoroutineScope()
+    val update by com.jeiel85.doran.update.Updater.state.collectAsStateWithLifecycle()
+    PullToRefreshBox(isRefreshing = sync.running, onRefresh = { refreshScope.launch { Hub.sync.sync() } }, modifier = Modifier.fillMaxSize()) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 120.dp)) {
         item {
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 8.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -108,6 +117,30 @@ fun HomeScreen(nav: Nav) {
                 }
                 IconButton(onClick = { nav.go(Route.Search) }) { Icon(Icons.Rounded.Search, "검색", tint = P.c.ink) }
                 IconButton(onClick = { nav.go(Route.Settings) }) { Icon(Icons.Rounded.Settings, "설정", tint = P.c.ink) }
+            }
+        }
+
+        updateBanner(update)?.let { (title, sub) ->
+            item {
+                SoftCard(onClick = {
+                    when (val u = update) {
+                        is com.jeiel85.doran.update.UpdateState.NeedsConfirm ->
+                            runCatching { context.startActivity(u.confirm.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                        is com.jeiel85.doran.update.UpdateState.Available ->
+                            refreshScope.launch { com.jeiel85.doran.update.Updater.run(context, userInitiated = true) }
+                        else -> Unit
+                    }
+                }, color = P.c.incomeSoft, padding = PaddingValues(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.SystemUpdate, null, tint = P.c.income)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(title, style = MaterialTheme.typography.titleSmall, color = P.c.ink)
+                            Text(sub, style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
             }
         }
 
@@ -292,6 +325,16 @@ fun HomeScreen(nav: Nav) {
 
         item { Spacer(Modifier.height(18.dp)); SyncLine(sync, id.inHousehold) { Hub.requestSync() } }
     }
+    }
+}
+
+/** 새 버전이 있거나 설치 확인이 필요할 때 홈 맨 위에 띄울 문구. 앱이 떠 있으면 자동 설치를 미루므로(D-8) 여기서 누르게 합니다. */
+private fun updateBanner(u: com.jeiel85.doran.update.UpdateState): Pair<String, String>? = when (u) {
+    is com.jeiel85.doran.update.UpdateState.Available -> "새 버전 ${u.release.version}이 있어요" to "눌러서 바로 설치해요. 장부는 그대로예요"
+    is com.jeiel85.doran.update.UpdateState.NeedsConfirm -> "업데이트 설치를 허락해 주세요" to "${u.release.version} · 처음 한 번만 확인해요"
+    is com.jeiel85.doran.update.UpdateState.Downloading -> "새 버전 받는 중 ${u.percent}%" to u.release.version
+    is com.jeiel85.doran.update.UpdateState.Installing -> "업데이트 설치 중…" to "잠시 뒤 다시 열려요"
+    else -> null
 }
 
 @Composable
@@ -406,12 +449,14 @@ private fun SenderHome(nav: Nav) {
                 Spacer(Modifier.height(10.dp))
                 Text(if (id.outLinks.isEmpty()) "아직 연결된 가족이 없어요"
                 else id.outLinks.joinToString { l -> (l.memberName?.let { "'$it' 이름으로 " } ?: "") + l.label } + "에 보내고 있어요",
-                    style = MaterialTheme.typography.titleMedium, color = P.c.ink)
+                    style = MaterialTheme.typography.headlineSmall, color = P.c.ink)
+                val today = remember(logs) { logs.count { Fmt.date(it.at) == LocalDate.now(Fmt.zone) && it.result.contains("보냄") } }
+                if (id.outLinks.isNotEmpty()) Text("오늘 보낸 카드·은행 알림 ${today}건", style = MaterialTheme.typography.titleMedium, color = P.c.pine)
                 Text(if (captureOn) "카드·은행 알림이 오면 자동으로 보내요" else "알림 접근을 허용해야 보낼 수 있어요",
                     style = MaterialTheme.typography.bodyMedium, color = if (captureOn) P.c.inkSoft else P.c.apricot)
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SmallButton("QR 찍어서 연결") { nav.go(Route.Join) }
+                    SmallButton("QR 찍어서 연결") { nav.go(Route.Join()) }
                     SmallButton("알림 설정") { nav.go(Route.Capture) }
                 }
             }

@@ -29,6 +29,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +59,7 @@ import java.time.LocalDate
 import java.time.YearMonth
 
 /** 내역 탭: 달력(기본)과 목록. 사람·종류 필터를 함께 씁니다. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LedgerScreen(nav: Nav) {
     val s by Hub.ledger.state.collectAsStateWithLifecycle()
@@ -100,10 +105,13 @@ fun LedgerScreen(nav: Nav) {
                     leading = { MemberAvatar(m, 18.dp) }, color = memberColor(m.color))
             }
         }
+        val refreshScope = rememberCoroutineScope()
+        val syncing by Hub.sync.status.collectAsStateWithLifecycle()
+        PullToRefreshBox(isRefreshing = syncing.running, onRefresh = { refreshScope.launch { Hub.sync.sync() } }, modifier = Modifier.weight(1f)) {
         if (calendar) {
             val sel = selected?.let(LocalDate::parse)?.takeIf { YearMonth.from(it) == ym }
             val dayEntries = filtered.filter { !it.allowanceSummary && sel != null && Fmt.date(it.txn.at) == sel }
-            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 120.dp)) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 120.dp)) {
                 item {
                     SoftCard(padding = PaddingValues(10.dp)) {
                         CalendarGrid(ym, byDay, sel) { selected = it.toString() }
@@ -128,7 +136,7 @@ fun LedgerScreen(nav: Nav) {
             }
         } else {
             val days = filtered.groupBy { Fmt.date(it.txn.at) }.toSortedMap(compareByDescending { it })
-            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 120.dp)) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 120.dp)) {
                 if (days.isEmpty()) item { EmptyState(R.drawable.art_empty, "${Fmt.month(ym)} 내역이 없어요", "가운데 + 버튼으로 기록해 보세요") }
                 days.forEach { (d, list) ->
                     item(key = "h$d") {
@@ -138,6 +146,7 @@ fun LedgerScreen(nav: Nav) {
                     items(list, key = { it.txn.id }) { e -> TxnRow(e, s, e.txn.id in unseen) { open(nav, e) } }
                 }
             }
+        }
         }
     }
 }

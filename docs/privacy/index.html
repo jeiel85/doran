@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>도란 개인정보 처리 안내</title>
+<meta name="theme-color" content="#2e7a62">
+<link rel="icon" href="../assets/icon-192.png">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="../assets/site.css">
+<style>main { max-width: 720px; } h2 { font-size: 1.25rem; margin-top: 32px; } p, li { color: var(--ink-soft); } ul { padding-left: 20px; }</style>
+</head>
+<body>
+<main>
+  <p><a href="../">← 도란</a></p>
+  <h1 style="font-size:2rem;margin-top:12px">개인정보 처리 안내</h1>
+  <p class="lede">도란은 가족끼리 쓰는 가계부예요. 아래는 어떤 정보를 어디에 두는지에 대한 설명이에요. (2026-11-17)</p>
+
+  <h2>폰에만 있는 것</h2>
+  <ul>
+    <li>장부 전체(내역·계좌·예산·목표 등)와 영수증 사진 — 폰 안의 앱 저장소에 둬요. 안드로이드 자동 백업으로 옮기지 않아요.</li>
+    <li>읽은 카드·은행 알림 원문 — 형식 점검용으로 그 폰에만 30일 남기고 지워요. 금액·승인 형식이 아닌 알림은 읽자마자 버려요.</li>
+    <li>암호 키 — 안드로이드 키 저장소로 한 번 더 감싸 둬요.</li>
+  </ul>
+
+  <h2>중계 서버(Cloudflare)에 있는 것</h2>
+  <ul>
+    <li>장부 변경 기록과 영수증 사진의 <b>암호문</b>. 가족 폰에서 만든 키로 암호화돼 서버는 금액·가맹점·이름을 볼 수 없어요.</li>
+    <li>기기 id, 접속 토큰의 해시, 알림용 FCM 토큰, 어느 기기가 어느 가계부에 연결됐는지, 각 기록의 크기와 시각.</li>
+    <li>가계부에서 모든 가족 기기가 빠지면 그 가계부의 기록은 지워져요.</li>
+  </ul>
+
+  <h2>Google(FCM)</h2>
+  <p>새 기록이 있다는 "깨우기" 신호만 보내요. 금액·가맹점은 담기지 않고, 알림 문장은 폰이 기록을 푼 뒤 만들어요.</p>
+
+  <h2>GitHub</h2>
+  <p>앱 업데이트 확인을 위해 하루 두 번 GitHub 릴리스 정보를 읽어요. 장부 내용은 보내지 않아요.</p>
+
+  <h2>권한</h2>
+  <ul>
+    <li><b>알림 접근·문자 받기</b>: 카드·은행 알림을 장부에 기록하려고 써요.</li>
+    <li><b>카메라</b>: 가족 연결 QR과 영수증 사진을 찍을 때만.</li>
+    <li><b>알림 표시</b>: 가족 내역·예산 알림.</li>
+    <li><b>앱 설치</b>: 도란 스스로 업데이트할 때만.</li>
+  </ul>
+
+  <h2>지우기</h2>
+  <p>앱을 지우면 폰의 장부가 지워져요. 가족 화면에서 기기를 내보내면 그 기기는 더 이상 장부를 받을 수 없어요.</p>
+</main>
+</body>
+</html>

@@ -11,21 +11,50 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /**
- * 가족 연결 (DECISIONS.md D-3·D-6, design/PROTOCOL.md "초대").
- * QR/코드 = "doran:1:" + 32바이트 비밀값. 서버에는 SHA-256(비밀값)과, 비밀값에서 만든 키로 봉한 묶음만 맡깁니다.
+ * 가족 연결 (DECISIONS.md D-3·D-6·D-15, design/PROTOCOL.md "초대").
+ * QR은 웹 링크 `https://jeiel85.github.io/doran/join/#<m|s>.<비밀값>.<초대한 사람 이름>`입니다. 폰 기본 카메라로 찍으면
+ * 안내 페이지가 도란을 열거나(설치돼 있으면) 설치부터 안내합니다. 비밀값은 # 뒤에만 있어 웹 서버로 가지 않습니다.
+ * 서버에는 SHA-256(비밀값)과, 비밀값에서 만든 키로 봉한 묶음만 맡깁니다.
  */
 object Pairing {
-    private const val PREFIX = "doran:1:"
+    const val LINK = "https://jeiel85.github.io/doran/join/#"
+    private const val LEGACY = "doran:1:"
+    private const val APP_LINK = "doran://join/"
 
     data class Invite(val code: String, val inviteId: String, val expiresAt: Long, val role: String)
 
-    fun parseCode(text: String): ByteArray? {
-        val t = text.trim()
-        val i = t.indexOf(PREFIX)
-        if (i < 0) return null
-        val raw = t.substring(i + PREFIX.length).takeWhile { it.isLetterOrDigit() || it == '-' || it == '_' }
-        return runCatching { Crypto.unb64(raw) }.getOrNull()?.takeIf { it.size == 32 }
+    /** 링크·앱 링크·옛 코드 어느 것이든 받아 비밀값과 (있으면) 역할·초대한 사람을 꺼냅니다. */
+    data class Parsed(val secret: ByteArray, val role: String?, val inviter: String?) {
+        override fun equals(other: Any?) = other is Parsed && other.secret.contentEquals(secret)
+        override fun hashCode() = secret.contentHashCode()
     }
+
+    fun link(secret: ByteArray, role: String, inviter: String): String =
+        LINK + "${if (role == "sender") "s" else "m"}.${Crypto.b64(secret)}" +
+            inviter.trim().take(12).takeIf { it.isNotEmpty() }?.let { ".${Crypto.b64(it.toByteArray())}" }.orEmpty()
+
+    fun parse(text: String?): Parsed? {
+        val t = text?.trim() ?: return null
+        fun secretOf(raw: String) = runCatching { Crypto.unb64(raw) }.getOrNull()?.takeIf { it.size == 32 }
+        t.indexOf(LEGACY).takeIf { it >= 0 }?.let { i ->
+            val raw = t.substring(i + LEGACY.length).takeWhile { it.isLetterOrDigit() || it == '-' || it == '_' }
+            return secretOf(raw)?.let { Parsed(it, null, null) }
+        }
+        val frag = when {
+            t.startsWith(LINK) -> t.removePrefix(LINK)
+            t.startsWith(APP_LINK) -> t.removePrefix(APP_LINK).removePrefix("#")
+            // 연결 페이지의 설치 안내 주소(/doran/join/?install=1#…)를 그대로 붙여 넣은 경우도 받습니다.
+            t.contains("/doran/join") && t.contains('#') -> t.substringAfter('#')
+            else -> return null
+        }.takeWhile { it.isLetterOrDigit() || it == '-' || it == '_' || it == '.' }
+        val parts = frag.split('.')
+        if (parts.size < 2 || parts[0] !in setOf("m", "s")) return null
+        val secret = secretOf(parts[1]) ?: return null
+        val inviter = parts.getOrNull(2)?.let { runCatching { String(Crypto.unb64(it)) }.getOrNull() }?.take(12)
+        return Parsed(secret, if (parts[0] == "s") "sender" else "member", inviter)
+    }
+
+    fun parseCode(text: String): ByteArray? = parse(text)?.secret
 
     /** 가구가 아직 서버에 없으면 만들고, 이 기기를 등록합니다. */
     private suspend fun ensureSpace(): String {
@@ -65,7 +94,7 @@ object Pairing {
         val sealed = Crypto.seal(Crypto.inviteKey(secret), bundle.toString().toByteArray(), Crypto.INVITE_AAD)
         val relay = Relay { Hub.identity.token }
         val expiresAt = relay.createInvite(space, inviteId, role, sealed, ttlSec)
-        return Invite(PREFIX + Crypto.b64(secret), inviteId, expiresAt, role)
+        return Invite(link(secret, role, bundle.optString("inviter")), inviteId, expiresAt, role)
     }
 
     fun cancel(invite: Invite) {

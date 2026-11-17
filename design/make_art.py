@@ -74,10 +74,15 @@ def main() -> None:
     for name, img in icons.items():
         img.save(nodpi / f"art_cat_{name}.webp", "WEBP", quality=88, method=6)
 
+    web_art = DOCS / "art"
+    web_art.mkdir(parents=True, exist_ok=True)
     for src, dst in ILLUSTRATIONS.items():
         img = trim(Image.open(SRC / f"{src}.png").convert("RGBA"))
         img.thumbnail((960, 960), Image.LANCZOS)
         img.save(nodpi / f"{dst}.webp", "WEBP", quality=86, method=6)
+        img.save(web_art / f"{dst.removeprefix('art_')}.webp", "WEBP", quality=84, method=6)  # 소개 페이지용
+    for name in ("card", "savings", "bank"):
+        icons[name].resize((128, 128), Image.LANCZOS).save(web_art / f"cat-{name}.webp", "WEBP", quality=88, method=6)
 
     icon = Image.open(SRC / "icon-bubble.png").convert("RGBA")
     for density, px in DENSITIES.items():

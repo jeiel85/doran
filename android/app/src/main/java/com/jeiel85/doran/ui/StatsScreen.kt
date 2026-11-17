@@ -1,6 +1,7 @@
 package com.jeiel85.doran.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -102,7 +103,9 @@ fun StatsScreen(nav: Nav) {
                 if (cats.isEmpty()) Text("이 달 내역이 없어요", style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft)
                 cats.forEachIndexed { i, (cid, v) ->
                     val cat = s.category(cid)
-                    Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                        .clickable { nav.go(Route.CategoryTxns(cid, p.label.toString())) }.padding(vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(10.dp).clip(CircleShape).background(chartColors.getOrElse(i) { P.c.inkFaint }))
                         Spacer(Modifier.width(10.dp))
                         CatTile(cat?.icon, 34.dp)

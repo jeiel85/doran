@@ -13,6 +13,15 @@
     <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <!-- 알림을 올린 카드사·은행 앱의 이름(예: 현대카드)을 읽으려면 그 앱이 보여야 합니다(Android 11+ 패키지 가시성).
+         모든 앱 목록(QUERY_ALL_PACKAGES) 대신 런처에 보이는 앱만. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <application
@@ -37,6 +46,19 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- 가족 초대 링크: 웹 안내 페이지가 넘겨 주는 doran://join/… 과, 카메라로 찍은 https 링크 (DECISIONS.md D-15) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="doran" android:host="join" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="jeiel85.github.io" android:pathPrefix="/doran/join" />
             </intent-filter>
         </activity>
 

@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.biometric.BiometricManager.Authenticators
 import androidx.biometric.BiometricPrompt
@@ -62,7 +63,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jeiel85.doran.R
 import com.jeiel85.doran.core.Hub
 import com.jeiel85.doran.model.Kind
-import com.jeiel85.doran.update.Updater
+import com.jeiel85.doran.sync.Pairing
+import com.jeiel85.doran.update.SelfUpdate
 import java.time.LocalDate
 
 /** 화면 경로. 탭 4개(홈·내역·통계·자산) 위에 하위 화면을 쌓습니다. */
@@ -83,7 +85,8 @@ sealed interface Route {
     data object Categories : Route
     data object Search : Route
     data class Invite(val role: String) : Route
-    data object Join : Route
+    data class CategoryTxns(val categoryId: String, val month: String) : Route
+    data class Join(val link: String? = null) : Route
 }
 
 enum class Tab(val label: String, val icon: ImageVector) {
@@ -103,6 +106,8 @@ class Nav {
 class MainActivity : FragmentActivity() {
     private val nav = Nav()
     private var locked by mutableStateOf(false)
+    /** 웹 안내 페이지·카메라에서 받은 초대 링크. 온보딩 전이면 온보딩이, 뒤면 합류 화면이 이어 받습니다. */
+    private var pendingInvite by mutableStateOf<String?>(null)
     private var lastStop = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -114,11 +119,18 @@ class MainActivity : FragmentActivity() {
         setContent {
             val settings by Hub.settings.collectAsStateWithLifecycle()
             val id by Hub.identity.state.collectAsStateWithLifecycle()
+            // 앱 테마를 폰 설정과 다르게 고르면 상태 표시줄 아이콘 색도 따라 바꿔야 보입니다.
+            val dark = when (settings.theme) { "light" -> false; "dark" -> true; else -> androidx.compose.foundation.isSystemInDarkTheme() }
+            LaunchedEffect(dark) {
+                val style = if (dark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+            }
             DoranTheme(settings.theme) {
                 Box(Modifier.fillMaxSize().background(P.c.bg)) {
                     when {
                         locked -> LockScreen { authenticate() }
-                        !id.onboarded -> Onboarding()
+                        !id.onboarded -> Onboarding(pendingInvite)
                         else -> Root(nav)
                     }
                 }
@@ -132,6 +144,13 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun handle(intent: Intent?) {
+        val link = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString
+        if (link != null && Pairing.parse(link) != null) {
+            pendingInvite = link
+            if (Hub.identity.value.onboarded) { nav.home(); nav.go(Route.Join(link)) }
+            intent.data = null
+            return
+        }
         val txn = intent?.getStringExtra(Notifier.EXTRA_TXN) ?: return
         nav.home()
         nav.go(Route.Entry(txnId = txn))
@@ -147,13 +166,13 @@ class MainActivity : FragmentActivity() {
 
     override fun onResume() {
         super.onResume()
-        Updater.appVisible = true
+        SelfUpdate.onAppVisible(true)
         Hub.requestSync()
     }
 
     override fun onPause() {
         super.onPause()
-        Updater.appVisible = false
+        SelfUpdate.onAppVisible(false)
     }
 
     override fun onStop() {
@@ -197,6 +216,15 @@ private fun LockScreen(onUnlock: () -> Unit) {
 
 @Composable
 private fun Root(nav: Nav) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val askNotify = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED && Hub.local.once("ask.postNotifications")) {
+            askNotify.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     BackHandler(enabled = nav.stack.size > 1 || nav.tab != Tab.HOME) {
         if (!nav.back()) nav.tab = Tab.HOME
     }
@@ -227,7 +255,8 @@ private fun Root(nav: Nav) {
             Route.Categories -> CategoriesScreen(nav)
             Route.Search -> SearchScreen(nav)
             is Route.Invite -> InviteScreen(route.role, nav)
-            Route.Join -> JoinScreen(nav)
+            is Route.CategoryTxns -> CategoryTxnsScreen(route.categoryId, route.month, nav)
+            is Route.Join -> JoinScreen(route.link, nav)
         }
     }
 }

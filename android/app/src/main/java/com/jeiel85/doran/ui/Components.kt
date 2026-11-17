@@ -177,7 +177,9 @@ fun Chip(text: String, selected: Boolean, onClick: () -> Unit, leading: (@Compos
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        leading?.invoke()
+        if (leading != null) {
+            if (selected) Box(Modifier.clip(CircleShape).background(Color.White).padding(1.dp)) { leading() } else leading()
+        }
         Text(text, style = MaterialTheme.typography.labelMedium, color = if (selected) Color.White else P.c.inkSoft, maxLines = 1)
     }
 }

@@ -37,23 +37,23 @@ data class Issuer(val name: String, val card: Boolean, val aliases: List<String>
 object Issuers {
     val cards = listOf(
         Issuer("현대카드", true, listOf("현대카드", "HYUNDAICARD", "HYUNDAI CARD")),
-        Issuer("신한카드", true, listOf("신한카드", "SHINHANCARD")),
+        Issuer("신한카드", true, listOf("신한카드", "SHINHANCARD", "SOL페이")),
         Issuer("삼성카드", true, listOf("삼성카드", "SAMSUNGCARD")),
-        Issuer("KB국민카드", true, listOf("KB국민카드", "국민카드", "KB카드")),
+        Issuer("KB국민카드", true, listOf("KB국민카드", "국민카드", "KB카드", "KB Pay", "KB페이")),
         Issuer("롯데카드", true, listOf("롯데카드", "LOTTECARD")),
-        Issuer("하나카드", true, listOf("하나카드", "HANACARD")),
-        Issuer("우리카드", true, listOf("우리카드", "WOORICARD")),
-        Issuer("BC카드", true, listOf("BC카드", "비씨카드", "BC 카드")),
-        Issuer("NH농협카드", true, listOf("NH농협카드", "농협카드", "NH카드")),
+        Issuer("하나카드", true, listOf("하나카드", "HANACARD", "하나Pay", "하나페이")),
+        Issuer("우리카드", true, listOf("우리카드", "WOORICARD", "우리WON카드")),
+        Issuer("BC카드", true, listOf("BC카드", "비씨카드", "BC 카드", "페이북")),
+        Issuer("NH농협카드", true, listOf("NH농협카드", "농협카드", "NH카드", "NH pay", "NH페이")),
         Issuer("씨티카드", true, listOf("씨티카드", "CITICARD")),
     )
     val banks = listOf(
-        Issuer("KB국민은행", false, listOf("KB국민은행", "국민은행", "[KB]", "KB국민")),
-        Issuer("신한은행", false, listOf("신한은행", "[신한]", "신한SOL")),
-        Issuer("우리은행", false, listOf("우리은행", "[우리]")),
-        Issuer("하나은행", false, listOf("하나은행", "[하나]")),
-        Issuer("NH농협", false, listOf("농협은행", "NH농협", "[농협]", "농협")),
-        Issuer("IBK기업은행", false, listOf("기업은행", "IBK")),
+        Issuer("KB국민은행", false, listOf("KB국민은행", "국민은행", "[KB]", "KB국민", "KB스타")),
+        Issuer("신한은행", false, listOf("신한은행", "[신한]", "신한SOL", "SOL뱅크")),
+        Issuer("우리은행", false, listOf("우리은행", "[우리]", "WON뱅킹")),
+        Issuer("하나은행", false, listOf("하나은행", "[하나]", "하나원큐")),
+        Issuer("NH농협", false, listOf("농협은행", "NH농협", "[농협]", "농협", "올원뱅크", "NH스마트뱅킹")),
+        Issuer("IBK기업은행", false, listOf("기업은행", "IBK", "i-ONE")),
         Issuer("카카오뱅크", false, listOf("카카오뱅크")),
         Issuer("토스뱅크", false, listOf("토스뱅크")),
         Issuer("케이뱅크", false, listOf("케이뱅크")),
@@ -84,7 +84,10 @@ object Issuers {
  * 각각 찾아 지우고 남는 것을 가맹점으로 봅니다.
  */
 object Parser {
-    private val NOISE = Regex("""\[?Web\s?발신]?|\[국외발신]|\(광고\)|광고""")
+    private val NOISE = Regex("""\[?Web\s?발신]?|\[국외발신]""")
+    private val AD = Regex("""\(광고\)|\[광고]|^광고""")
+    private val PROMO = Regex("""이벤트|혜택|쿠폰|프로모션|추첨|당첨|캐시백|적립|할인 받|무이자|신청하|가입하""")
+    private val TXN_WORD = Regex("""승인|취소|입금|출금|이체|지급""")
     private val WON = Regex("""(?<![\d.])(\d{1,3}(?:,\d{3})+|\d+)\s*원""")
     private val BARE_AMOUNT = Regex("""(?:입금|출금|이체|지급|승인|결제|사용)\s*:?\s*(\d{1,3}(?:,\d{3})+|\d{4,})(?!\s*[/:.\d])""")
     private val CUMULATIVE = Regex("""누적\s*(?:금액|이용액|이용금액|사용액|사용금액)?\s*:?\s*(\d{1,3}(?:,\d{3})*|\d+)\s*원?""")
@@ -103,7 +106,14 @@ object Parser {
         """승인취소|취소승인|해외승인|승인|취소|체크카드|체크|신용|일시불|사용|결제|입금|출금|이체|지급|자동이체|전자금융|님""" +
             """|본인|해외|누적|잔액|국내|금액|이용안내|안내|일반|가맹점""")
 
-    fun parse(raw: String, now: LocalDateTime = LocalDateTime.now()): Parsed? {
+    /**
+     * [hint]: 알림을 올린 앱의 이름(예: "현대카드"). 카드사 앱 푸시는 본문에 카드사 이름이 없을 수 있어서,
+     * 본문에서 못 찾으면 앱 이름으로 카드사를 정합니다.
+     */
+    fun parse(raw: String, now: LocalDateTime = LocalDateTime.now(), hint: String? = null): Parsed? {
+        // 광고·이벤트 알림은 금액이 적혀 있어도 거래가 아닙니다.
+        if (AD.containsMatchIn(raw.trim())) return null
+        if (PROMO.containsMatchIn(raw) && !TXN_WORD.containsMatchIn(raw)) return null
         val text = NOISE.replace(raw, " ").replace('\u00a0', ' ')
         if (text.contains("거절") || text.contains("승인불가") || text.contains("한도초과")) return null
         if (text.contains("결제예정") || text.contains("청구") && !text.contains("승인")) return null
@@ -114,7 +124,8 @@ object Parser {
         val approval = Regex("""승인|결제|사용""").containsMatchIn(text)
         val check = text.contains("체크")
 
-        val issuer = Issuers.find(text, preferBank = (deposit || withdrawal) && !approval) ?: return null
+        val preferBank = (deposit || withdrawal) && !approval
+        val issuer = Issuers.find(text, preferBank) ?: hint?.let { Issuers.find(it, preferBank) } ?: return null
         val type = when {
             cancel -> Parsed.Type.CANCEL
             issuer.card && (approval || !deposit && !withdrawal) -> Parsed.Type.APPROVAL

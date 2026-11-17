@@ -187,15 +187,30 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                 Text(if (value > 0) Fmt.won(value) else "0원", style = MaterialTheme.typography.displaySmall.merge(Money),
                     color = if (value > 0) kindColor(kind, P.c).takeIf { kind != Kind.EXPENSE } ?: P.c.ink else P.c.inkFaint)
                 original?.let { o ->
-                    val info = listOfNotNull(
-                        o.source.label,
-                        o.cardLabel,
-                        o.cumulative?.let { "카드사 누적 ${Fmt.won(it)}" },
-                        o.foreign?.let { "해외 $it" },
-                        cancels.takeIf { it.isNotEmpty() }?.let { "취소 ${Fmt.won(it.sumOf { c -> c.amount })}" },
-                        s.member(s.members.values.firstOrNull { m -> o.createdBy != null && m.deviceIds.contains(o.createdBy) }?.id)?.name?.let { "$it 폰에서 기록" },
-                    ).joinToString(" · ")
-                    if (info.isNotBlank()) Text(info, style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                    if (o.source.captured || o.cumulative != null || cancels.isNotEmpty() || o.foreign != null) {
+                        Spacer(Modifier.height(10.dp))
+                        val who = s.member(o.memberId)?.name
+                        val rows = listOfNotNull(
+                            "기록" to when (o.source) {
+                                Source.PUSH -> "${who?.let { "$it 폰이 " } ?: ""}카드·은행 앱 알림으로 자동 기록"
+                                Source.SMS -> "${who?.let { "$it 폰이 " } ?: ""}문자로 자동 기록"
+                                Source.FAMILY -> "${who ?: "가족"} 폰이 보내 줌"
+                                else -> o.source.label
+                            },
+                            o.cardLabel?.let { "카드" to it },
+                            o.cumulative?.let { "카드사 누적" to Fmt.won(it) },
+                            o.foreign?.let { "해외 결제" to it },
+                            cancels.takeIf { it.isNotEmpty() }?.let { "취소" to Fmt.won(it.sumOf { c -> c.amount }) },
+                        )
+                        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(P.c.surface2).padding(horizontal = 14.dp, vertical = 10.dp)) {
+                            rows.forEach { (k, v) ->
+                                Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                                    Text(k, style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint, modifier = Modifier.width(76.dp))
+                                    Text(v, style = MaterialTheme.typography.bodySmall, color = P.c.ink)
+                                }
+                            }
+                        }
+                    }
                     if (o.needsReview) Text(if (o.amount == 0L) "원화 금액이 확정되면 넣어 주세요" else "확인이 필요한 내역이에요",
                         style = MaterialTheme.typography.bodySmall, color = P.c.apricot)
                 }
@@ -298,6 +313,7 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
 
         if (keypad) {
             Keypad(
+                onAdd = { n -> amount = ((amount.toLongOrNull() ?: 0L) + n).coerceAtMost(99_999_999_999L).toString() },
                 onDigit = { d -> if (amount.length < 11) amount = (amount + d).trimStart('0') },
                 onBack = { amount = amount.dropLast(1) },
                 onDone = { keypad = false },
@@ -387,12 +403,23 @@ fun Field(label: String, value: String, onChange: (String) -> Unit, placeholder:
 
 /** 금액 자판. 000 단추로 큰 금액을 빨리 넣습니다. */
 @Composable
-fun Keypad(onDigit: (String) -> Unit, onBack: () -> Unit, onDone: () -> Unit) {
+fun Keypad(onAdd: (Long) -> Unit, onDigit: (String) -> Unit, onBack: () -> Unit, onDone: () -> Unit) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    fun tick() = haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
     Column(Modifier.fillMaxWidth().background(P.c.surface).padding(horizontal = 12.dp, vertical = 8.dp)) {
+        Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(1_000L to "+1천", 10_000L to "+1만", 50_000L to "+5만", 100_000L to "+10만").forEach { (n, label) ->
+                Box(Modifier.weight(1f).height(38.dp).clip(RoundedCornerShape(12.dp)).background(P.c.surface2)
+                    .clickable { tick(); onAdd(n) }, contentAlignment = Alignment.Center) {
+                    Text(label, style = MaterialTheme.typography.labelMedium, color = P.c.pine)
+                }
+            }
+        }
         listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("000", "0", "<")).forEach { row ->
             Row(Modifier.fillMaxWidth()) {
                 row.forEach { k ->
                     Box(Modifier.weight(1f).height(54.dp).clip(RoundedCornerShape(14.dp)).clickable {
+                        tick()
                         if (k == "<") onBack() else onDigit(k)
                     }, contentAlignment = Alignment.Center) {
                         if (k == "<") Icon(Icons.AutoMirrored.Rounded.Backspace, "지우기", tint = P.c.ink)

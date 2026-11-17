@@ -82,6 +82,9 @@ class SyncEngine(
     private fun runOnce() {
         ensureRegistered()
         val id = identity.value
+        // 가계부를 오프라인으로 먼저 시작하면 그때는 기기 id가 없어 구성원에 못 넣었습니다. 등록된 뒤 채워 둡니다.
+        val me = id.myMemberId?.let { ledger.value.member(it) }
+        if (me != null && id.deviceId != null && id.deviceId !in me.deviceIds) ledger.saveMember(me.copy(deviceIds = me.deviceIds + id.deviceId))
         if (id.inHousehold) {
             val space = id.spaceId ?: createSpace()
             try {

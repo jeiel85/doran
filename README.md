@@ -63,6 +63,19 @@ relay/     중계 Worker (Cloudflare Workers · D1) + 테스트
 design/    프로토콜, Codex로 만든 그림 원본·프롬프트, 리소스 생성 스크립트
 ```
 
+## 가족 연결 (QR 한 번, 설치까지)
+
+1. 한 사람이 도란을 설치하고 "새 가계부 시작하기" → 이름(남편·아내 등)을 고릅니다.
+2. 홈의 **QR 띄우기**(또는 가족 → 초대)로 QR을 화면 가득 띄웁니다.
+3. 가족은 **폰 기본 카메라**로 찍기만 하면 됩니다. 도란이 있으면 바로 열리고, 없으면 연결 페이지가 설치를 안내한 뒤 같은 링크로 연결을 이어 갑니다.
+   멀리 있으면 "링크 보내기"로 카카오톡·문자에 보내도 같은 흐름입니다(30분, 한 번만).
+4. 부모님처럼 카드 알림만 보내 줄 가족은 "보내 줄 가족 초대"에서 어머니·아버지 등 부를 이름을 고른 뒤 같은 방법으로 연결합니다.
+
+## 업데이트
+
+포너디와 같은 방식입니다. 폰의 도란이 하루 두 번 GitHub 릴리스를 확인하고, SHA-256과 서명 키가 모두 맞는 새 버전만 설치합니다.
+앱을 쓰는 중이면 기다렸다가 홈에 "새 버전이 있어요" 배너를 띄웁니다. 릴리스는 `scripts/release.sh <버전>` 한 번입니다.
+
 ## 설치할 때 알아 둘 것
 
 - 직접 받은 APK라 Android 13부터 **알림 접근이 "제한된 설정"으로 막힙니다.** 앱 정보 → 오른쪽 위 ⋮ → "제한된 설정 허용" 뒤 도란의 알림 자동 기록 화면에서 다시 켜 주세요.
@@ -84,4 +97,21 @@ cd relay && npm install && npm test
   `node scripts/fake-peer.mjs join "doran:1:…"` → `pull`(장부 복호화 확인) → `push-card`(가족 카드 내역 → 에뮬레이터 알림 확인).
   보내기 전용 가족은 "보내 줄 가족 초대" QR로 `push-sender "doran:1:…"`(링크 키로 가구 설정을 바꾸려는 op가 버려지는지도 확인).
 - 그림 리소스 다시 만들기: `python design/make_art.py` (원본·프롬프트: [design/art/SOURCES.md](design/art/SOURCES.md))
-- 실시간 알림(FCM)은 `android/app/google-services.json`과 중계의 `FCM_SERVICE_ACCOUNT` 비밀값이 있어야 켜집니다. 없으면 15분마다·앱을 열 때 동기화합니다.
+- 실시간 알림(FCM)은 `android/app/google-services.json`과 중계의 `FCM_SERVICE_ACCOUNT` 비밀값이 있어야 켜집니다([design/FIREBASE_SETUP.md](design/FIREBASE_SETUP.md)). 없으면 15분마다·앱을 열 때·홈을 당길 때 동기화합니다.
+
+## 배포 (처음 한 번)
+
+```bash
+scripts/deploy-relay.sh
+```
+
+```bash
+scripts/finish-firebase.sh
+```
+
+```bash
+scripts/release.sh 0.1.0
+```
+
+중계 서버(D1 생성·마이그레이션·배포) → Firebase 연결 → 릴리스(태그·APK·SHA-256·연결된 폰 설치·하드닝 이슈) 순서입니다.
+소개·연결 페이지는 GitHub Pages(`main` 브랜치 `/docs`)로 나갑니다. 실기기 확인 목록은 [design/VERIFY.md](design/VERIFY.md).

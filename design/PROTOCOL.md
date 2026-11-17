@@ -42,7 +42,8 @@ op 평문: `{"t": type, "id": id, "h": HLC, "d": 삭제여부, "v": 엔티티 JS
 
 ## 초대
 
-QR·코드: `doran:1:` + base64url(32바이트 비밀값 s)
+QR·링크: `https://jeiel85.github.io/doran/join/#<m|s>.<base64url(s)>[.<base64url(초대한 사람 이름 UTF-8)>]` (s = 32바이트 비밀값, m = 함께 쓰는 사람, s = 보내기 전용).
+연결 페이지는 앱에 `doran://join/<같은 # 뒤 내용>`으로 넘깁니다. 옛 형식 `doran:1:<base64url(s)>`도 받습니다.
 
 ```
 inviteId = base64url(SHA-256(s))
@@ -51,7 +52,7 @@ bundle   = seal(HKDF(s, salt="", info="doran invite v1"), JSON, aad="doran1|invi
   sender: {"v":1,"role":"sender","space","lk","memberId","memberName","label","inviter"}
 ```
 
-서버는 `inviteId`와 봉한 `bundle`만 압니다. 1회용, QR 10분·코드 공유 30분.
+서버는 `inviteId`와 봉한 `bundle`만 압니다. 1회용, 30분(설치까지 하는 동안 끝나지 않게).
 
 ## HTTP API (모두 JSON, `schema: 1`)
 

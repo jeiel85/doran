@@ -38,9 +38,9 @@ class CaptureProcessor(
     private val sameMinutes = 3 * 60_000L
 
     @Synchronized
-    fun process(source: Source, pkg: String?, title: String?, text: String, postedAt: Long): Outcome? {
+    fun process(source: Source, pkg: String?, title: String?, text: String, postedAt: Long, appLabel: String? = null): Outcome? {
         val body = listOfNotNull(title, text).joinToString("\n")
-        val parsed = Parser.parse(body, Fmt.dateTime(postedAt)) ?: return null
+        val parsed = Parser.parse(body, Fmt.dateTime(postedAt), appLabel) ?: return null
         val at = parsed.at?.let { Fmt.millis(it) }?.takeIf { abs(it - postedAt) < 3L * 86_400_000 } ?: postedAt
         val results = ArrayList<String>()
         var txnId: String? = null

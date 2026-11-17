@@ -38,8 +38,9 @@ import com.jeiel85.doran.sync.Pairing
 
 /** 처음 실행: 새 가계부 시작 / 가족 가계부 합류 / 보내기만(부모님 폰). */
 @Composable
-fun Onboarding() {
-    var step by remember { mutableStateOf("welcome") }
+fun Onboarding(pendingInvite: String? = null) {
+    val invited = remember(pendingInvite) { Pairing.parse(pendingInvite) }
+    var step by remember(pendingInvite) { mutableStateOf(if (invited == null) "welcome" else if (invited.role == "sender") "sender" else "join") }
     var myName by remember { mutableStateOf("") }
     var homeName by remember { mutableStateOf("우리집") }
 
@@ -83,11 +84,12 @@ fun Onboarding() {
             }
             "join", "sender" -> {
                 Text(if (step == "join") "가족 가계부에 합류해요" else "가족에게 카드 알림을 보내요", style = MaterialTheme.typography.headlineSmall, color = P.c.ink)
-                Text(if (step == "join") "가족 폰에 뜬 '함께 쓸 사람 초대' QR을 찍으면 바로 연결돼요"
+                Text(if (invited != null) "이름을 고르고 아래 버튼만 누르면 연결돼요"
+                else if (step == "join") "가족 폰에 뜬 '함께 쓸 사람 초대' QR을 찍으면 바로 연결돼요"
                 else "가족 폰에 뜬 '보내 줄 가족 초대' QR을 찍으면 바로 연결돼요. 이름은 가족이 정해 둬요(예: 어머니)",
                     style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft)
                 Spacer(Modifier.height(20.dp))
-                JoinPanel(needName = step == "join") { }
+                JoinPanel(needName = step == "join", preset = pendingInvite) { }
                 Spacer(Modifier.height(8.dp))
                 GhostButton("뒤로", Modifier.fillMaxWidth()) { step = "welcome" }
             }
