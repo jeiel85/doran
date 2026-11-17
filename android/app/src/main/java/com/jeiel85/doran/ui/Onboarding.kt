@@ -67,10 +67,14 @@ fun Onboarding() {
             }
             "start" -> {
                 Text("가계부를 만들어요", style = MaterialTheme.typography.headlineSmall, color = P.c.ink)
-                Text("배우자는 다음 화면의 가족 메뉴에서 QR로 초대할 수 있어요", style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft)
+                Text("배우자는 다음 화면에서 QR을 띄워 바로 초대할 수 있어요", style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft)
                 Spacer(Modifier.height(20.dp))
-                Field("내 이름(가족에게 보이는 이름)", myName, { myName = it.take(12) }, "예: 남편, 민수")
-                Spacer(Modifier.height(12.dp))
+                Text("나는 누구인가요?", style = MaterialTheme.typography.titleMedium, color = P.c.ink)
+                Text("가족 폰 알림에 \"남편이 현대카드로 12,300원 썼어요\"처럼 이 이름이 나와요",
+                    style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                Spacer(Modifier.height(10.dp))
+                NamePicker(myName, { myName = it }, SELF_NAMES, "내 이름")
+                Spacer(Modifier.height(16.dp))
                 Field("가계부 이름", homeName, { homeName = it.take(16) }, "예: 우리집, 도란이네")
                 Spacer(Modifier.height(24.dp))
                 PrimaryButton("시작하기", enabled = myName.isNotBlank()) { Pairing.startHousehold(myName, homeName) }
@@ -79,11 +83,13 @@ fun Onboarding() {
             }
             "join", "sender" -> {
                 Text(if (step == "join") "가족 가계부에 합류해요" else "가족에게 카드 알림을 보내요", style = MaterialTheme.typography.headlineSmall, color = P.c.ink)
-                Text(if (step == "join") "가족 폰의 도란 → 가족 → '함께 쓸 사람 초대' QR을 찍거나 받은 코드를 넣어 주세요"
-                else "가족 폰의 도란 → 가족 → '보내 줄 가족 초대' QR을 찍거나 받은 코드를 넣어 주세요",
+                Text(if (step == "join") "가족 폰에 뜬 '함께 쓸 사람 초대' QR을 찍으면 바로 연결돼요"
+                else "가족 폰에 뜬 '보내 줄 가족 초대' QR을 찍으면 바로 연결돼요. 이름은 가족이 정해 둬요(예: 어머니)",
                     style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft)
-                Spacer(Modifier.height(24.dp))
-                JoinDialog(needName = step == "join") { step = "welcome" }
+                Spacer(Modifier.height(20.dp))
+                JoinPanel(needName = step == "join") { }
+                Spacer(Modifier.height(8.dp))
+                GhostButton("뒤로", Modifier.fillMaxWidth()) { step = "welcome" }
             }
         }
         Spacer(Modifier.height(32.dp))

@@ -1,5 +1,7 @@
 package com.jeiel85.doran.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -77,6 +79,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jeiel85.doran.capture.Categorizer
@@ -158,6 +161,14 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
     }
     val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         if (ok) scope.launch { receipts += Receipts.import(context, cameraUri); cameraFile.delete() }
+    }
+    // QR 스캐너 라이브러리가 CAMERA 권한을 선언하므로, 권한 없이 카메라 앱을 부르면 안드로이드가 막습니다(SecurityException).
+    val askCamera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) takePhoto.launch(cameraUri)
+    }
+    fun shoot() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) takePhoto.launch(cameraUri)
+        else askCamera.launch(Manifest.permission.CAMERA)
     }
 
     Column(Modifier.fillMaxSize().background(P.c.bg).imePadding()) {
@@ -276,7 +287,7 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                     }
                 }
                 if (receipts.size < 4) {
-                    PhotoButton(Icons.Rounded.AddAPhoto, "찍기") { takePhoto.launch(cameraUri) }
+                    PhotoButton(Icons.Rounded.AddAPhoto, "찍기") { shoot() }
                     PhotoButton(Icons.Rounded.PhotoLibrary, "앨범") {
                         pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     }

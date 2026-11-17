@@ -110,7 +110,8 @@ object Pairing {
             }
             "sender" -> {
                 Hub.identity.addOutLink(OutLink(spaceId = claimed.spaceId, key = Crypto.unb64(b.getString("lk")),
-                    memberId = b.getString("memberId"), label = b.optString("label", "가족"), createdAt = System.currentTimeMillis()))
+                    memberId = b.getString("memberId"), label = b.optString("label", "가족"),
+                    memberName = b.optString("memberName").ifEmpty { null }, createdAt = System.currentTimeMillis()))
                 Hub.identity.markOnboarded()
                 Joined.Sender(b.optString("label", "가족"), b.optString("memberName"))
             }

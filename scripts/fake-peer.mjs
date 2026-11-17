@@ -1,6 +1,7 @@
 // 가짜 가족 폰: 도란 동기화 프로토콜(design/PROTOCOL.md)을 Node로 구현해 에뮬레이터 한 대와 E2E 시험을 합니다.
 // 에뮬레이터 2대를 동시에 못 띄우는 PC용. 사용법은 README "두 폰 동기화 시험".
 // usage: node scripts/fake-peer.mjs join <code> | pull | push-card | push-sender <code>
+//        host (가짜 남편이 가구를 만들고 초대 코드 출력) | push-hyundai (가짜 남편의 현대카드 결제)
 import crypto from "node:crypto";
 import fs from "node:fs";
 
@@ -94,6 +95,33 @@ if (cmd === "join") {
     cardLabel: "신한카드(5678)", needsReview: false, receiptIds: [], private: false, createdBy: "wife-" + st.deviceId, createdAt: Date.now(),
   }]]);
   console.log("pushed wife card txn", id, JSON.stringify(r));
+} else if (cmd === "host") {
+  // 가짜 남편: 가구를 만들고 '함께 쓸 사람' 초대 코드를 출력합니다(에뮬레이터가 아내로 합류).
+  await register(st);
+  st.space = (await call("POST", "/v1/spaces", st.token)).spaceId;
+  st.hk = b64(crypto.randomBytes(32)); st.memberId = "husbandMember000000000";
+  save(st);
+  await push(st, unb64(st.hk), [
+    ["household", "home", { name: "우리집", monthStartDay: 1, budget: 2000000 }],
+    ["member", st.memberId, { name: "남편", role: "member", color: 0, deviceIds: [st.deviceId], allowance: 0, order: 0, removed: false }],
+    ["account", "husbandCard00000000000", { name: "현대카드", type: "card", ownerId: st.memberId, institution: "현대카드", last4: "1234", cycleStartDay: 1, billingDay: 14 }],
+  ]);
+  const secret = crypto.randomBytes(32);
+  const bundle = { v: 1, role: "member", space: st.space, hk: st.hk, name: "우리집", inviter: "남편" };
+  await call("POST", `/v1/spaces/${st.space}/invites`, st.token, {
+    inviteId: b64(sha256(secret)), role: "member", ttlSec: 1800,
+    bundle: seal(hkdf(secret, "doran invite v1"), Buffer.from(JSON.stringify(bundle)), "doran1|invite"),
+  });
+  console.log("doran:1:" + b64(secret));
+} else if (cmd === "push-hyundai") {
+  const key = unb64(st.hk);
+  const id = "husbandTxn" + Date.now().toString().slice(-12).padStart(12, "0");
+  const r = await push(st, key, [["txn", id, {
+    kind: "e", amount: 12300, at: Date.now() - 20000, accountId: "husbandCard00000000000", categoryId: "c.cafe", merchant: "스타벅스 성수점",
+    memo: "", memberId: st.memberId, source: "push", installment: 0, cumulative: 523000, issuer: "현대카드",
+    cardLabel: "현대카드(1234)", needsReview: false, receiptIds: [], private: false, createdBy: "husband-" + st.deviceId, createdAt: Date.now(),
+  }]]);
+  console.log("pushed husband hyundai txn", id, JSON.stringify(r));
 } else if (cmd === "push-sender") {
   // 어머니 폰 흉내: sender 초대를 받아 링크 키로 카드 내역 하나를 보냄
   const mom = { };

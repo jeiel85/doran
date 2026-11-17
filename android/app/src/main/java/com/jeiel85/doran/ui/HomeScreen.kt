@@ -113,6 +113,21 @@ fun HomeScreen(nav: Nav) {
 
         item { Hero(spent, income, totalBudget?.budget ?: 0, p.end, today) { nav.go(Route.Budget) } }
 
+        if (s.activeMembers.count { !it.isSender } <= 1) item {
+            Spacer(Modifier.height(14.dp))
+            SoftCard(onClick = { nav.go(Route.Invite("member")) }, color = P.c.pineSoft, padding = PaddingValues(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Image(painterResource(R.drawable.art_family), null, Modifier.size(64.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("배우자를 초대해 함께 써요", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
+                        Text("QR을 띄우면 배우자 폰에서 찍기만 하면 돼요", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                    }
+                    SmallButton("QR 띄우기") { nav.go(Route.Invite("member")) }
+                }
+            }
+        }
+
         if (!captureOn) item {
             Spacer(Modifier.height(14.dp))
             SoftCard(onClick = { nav.go(Route.Capture) }, color = P.c.apricotSoft, padding = PaddingValues(16.dp)) {
@@ -389,13 +404,14 @@ private fun SenderHome(nav: Nav) {
             SoftCard {
                 Image(painterResource(R.drawable.art_family), null, Modifier.fillMaxWidth().height(150.dp))
                 Spacer(Modifier.height(10.dp))
-                Text(if (id.outLinks.isEmpty()) "아직 연결된 가족이 없어요" else id.outLinks.joinToString { it.label } + "에 보내고 있어요",
+                Text(if (id.outLinks.isEmpty()) "아직 연결된 가족이 없어요"
+                else id.outLinks.joinToString { l -> (l.memberName?.let { "'$it' 이름으로 " } ?: "") + l.label } + "에 보내고 있어요",
                     style = MaterialTheme.typography.titleMedium, color = P.c.ink)
                 Text(if (captureOn) "카드·은행 알림이 오면 자동으로 보내요" else "알림 접근을 허용해야 보낼 수 있어요",
                     style = MaterialTheme.typography.bodyMedium, color = if (captureOn) P.c.inkSoft else P.c.apricot)
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SmallButton("가족 연결") { nav.go(Route.Family) }
+                    SmallButton("QR 찍어서 연결") { nav.go(Route.Join) }
                     SmallButton("알림 설정") { nav.go(Route.Capture) }
                 }
             }

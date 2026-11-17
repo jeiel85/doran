@@ -17,12 +17,14 @@ data class OutLink(
     /** 받는 가구가 정해 준 내 구성원 id — 보낸 거래의 memberId가 됩니다. */
     val memberId: String,
     val label: String,
+    /** 받는 가구가 이 폰을 부르는 이름(예: 어머니). */
+    val memberName: String? = null,
     /** 보낼 카드사·은행 이름. 비어 있으면 읽은 것 전부. */
     val issuers: List<String> = emptyList(),
     val createdAt: Long,
 ) {
     fun json(): JSONObject = JSONObject().put("spaceId", spaceId).put("key", Crypto.b64(key)).put("memberId", memberId)
-        .put("label", label).put("issuers", JSONArray(issuers)).put("createdAt", createdAt)
+        .put("label", label).put("memberName", memberName ?: JSONObject.NULL).put("issuers", JSONArray(issuers)).put("createdAt", createdAt)
     override fun equals(other: Any?) = other is OutLink && other.spaceId == spaceId && other.memberId == memberId &&
         other.issuers == issuers && other.label == label
     override fun hashCode() = spaceId.hashCode()
@@ -30,6 +32,7 @@ data class OutLink(
         fun from(o: JSONObject) = OutLink(
             spaceId = o.getString("spaceId"), key = Crypto.unb64(o.getString("key")), memberId = o.getString("memberId"),
             label = o.optString("label", "가족"),
+            memberName = o.optString("memberName").takeIf { it.isNotEmpty() && it != "null" },
             issuers = o.optJSONArray("issuers")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
             createdAt = o.optLong("createdAt"),
         )

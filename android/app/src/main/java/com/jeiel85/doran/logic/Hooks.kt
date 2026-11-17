@@ -34,19 +34,22 @@ object Hooks {
             .map { Txn.from(it.id, it.after!!) }
             .filter { it.createdBy != mine && it.source.captured && !it.private }
         if (fresh.isEmpty()) return
-        Hub.local.markUnseen(fresh.map { it.id })
+        // 같은 결제를 내 폰도 기록해 둔 경우(가족카드 알림이 양쪽에 오는 등): 내가 늦게 만든 쪽을 지우고 알리지 않습니다.
+        val twins = fresh.filter { f ->
+            val own = s.txns.values.firstOrNull { it.createdBy == mine && Twins.same(it, f) } ?: return@filter false
+            if (Twins.keeper(own, f).id == f.id) Hub.ledger.deleteTxn(own.id)
+            true
+        }.map { it.id }.toSet()
+        val news = fresh.filter { it.id !in twins }
+        if (news.isEmpty()) return
+        Hub.local.markUnseen(news.map { it.id })
         if (!Hub.settings.value.notifyFamily) return
         // 처음 합류해 옛 내역이 한꺼번에 들어올 때 알림이 쏟아지지 않게 최근 하루치만.
-        val recent = fresh.filter { System.currentTimeMillis() - it.at < 86_400_000 }.sortedBy { it.at }.takeLast(10)
+        val recent = news.filter { System.currentTimeMillis() - it.at < 86_400_000 }.sortedBy { it.at }.takeLast(10)
+        val now = Hub.ledger.value
         for (t in recent) {
-            val who = s.member(t.memberId)?.name ?: "가족"
-            val card = t.cardLabel ?: s.account(t.accountId)?.name ?: t.issuer ?: ""
-            val title = if (t.isCancel) "$who · $card 취소 ${Fmt.won(t.amount)}" else "$who · $card ${Fmt.won(t.amount)}"
-            val total = t.cumulative?.let { "누적 ${Fmt.won(it)}" } ?: s.account(t.accountId)?.let {
-                "이번 달 ${Fmt.won(Stats.card(s, it).monthSpent)}"
-            }
-            val text = listOfNotNull(t.merchant.ifBlank { null }, t.foreign, total).joinToString(" · ")
-            Notifier.familyTxn(context, t.id, title, text)
+            val text = FamilyAlert.of(now, t)
+            Notifier.familyTxn(context, t.id, text.title, text.body)
         }
     }
 

@@ -10,6 +10,7 @@
 - [ ] Firebase 프로젝트·Android 앱 등록 → `google-services.json`, 서비스 계정 → `wrangler secret put FCM_SERVICE_ACCOUNT`
 - [ ] `scripts/release.sh`(포너디 방식: 버전 올림·서명 APK·SHA-256·`doran.apk` 고정 이름·하드닝 이슈)
 - [ ] 실기기 2대(남편 S24, 아내 폰) 설치·연결·현대카드 실제 알림 확인
+- [ ] 초대 화면에 "도란 설치" QR(releases/latest/download/doran.apk)도 함께 보여 주기 — 저장소가 생긴 뒤
 
 ## 확인이 필요한 형식
 

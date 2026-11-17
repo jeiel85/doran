@@ -8,6 +8,7 @@ import com.jeiel85.doran.data.Ledger
 import com.jeiel85.doran.data.LedgerState
 import com.jeiel85.doran.data.LocalSettings
 import com.jeiel85.doran.data.OutLink
+import com.jeiel85.doran.logic.Twins
 import com.jeiel85.doran.model.Account
 import com.jeiel85.doran.model.AccountType
 import com.jeiel85.doran.model.Kind
@@ -86,6 +87,12 @@ class CaptureProcessor(
                 ledger.saveTxn(dup.copy(cumulative = dup.cumulative ?: p.cumulative, merchant = dup.merchant.ifBlank { p.merchant.orEmpty() }))
             }
             return Outcome("이미 기록됨(중복 알림)", dup.id)
+        }
+        // 다른 가족 폰이 같은 결제를 이미 올려 둔 경우(가족카드 알림이 양쪽에 오는 등)
+        val probe = Txn(id = "probe", kind = kind, amount = p.amount, at = at, merchant = p.merchant.orEmpty(), source = source,
+            issuer = p.issuer, cardLabel = label, cancelOf = if (isCancel) "?" else null)
+        ledger.value.txns.values.firstOrNull { it.memberId != me && Twins.same(it, probe) }?.let {
+            return Outcome("가족 폰이 이미 기록함", it.id)
         }
 
         val txn: Txn = when (p.type) {

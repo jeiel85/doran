@@ -16,6 +16,7 @@ import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Category
 import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.Face
 import androidx.compose.material.icons.rounded.EventRepeat
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.FamilyRestroom
@@ -107,6 +108,7 @@ fun SettingsScreen(nav: Nav) {
             item { SectionTitle("가계부") }
             item {
                 SoftCard(padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
+                    ListRow("내 이름", (s.member(id.myMemberId)?.name ?: "") + " · 가족 알림에 이 이름이 나와요", Icons.Rounded.Face, onClick = { dialog = "myName" })
                     ListRow("가계부 이름", s.household.name, Icons.Rounded.Home, onClick = { dialog = "name" })
                     ListRow("한 달 시작일", "매달 ${s.household.monthStartDay}일부터 · 월급날에 맞추면 편해요", Icons.Rounded.CalendarMonth, onClick = { dialog = "startDay" })
                     ListRow("예산", if (s.household.budget > 0) "월 ${Fmt.won(s.household.budget)}" else "정하지 않음", Icons.Rounded.Wallet, onClick = { nav.go(Route.Budget) })
@@ -195,7 +197,10 @@ fun SettingsScreen(nav: Nav) {
     }
 
     when (dialog) {
-        "name" -> NameDialog("가계부 이름", "예: 우리집", s.household.name, { dialog = null }) { n ->
+        "myName" -> s.member(id.myMemberId)?.let { me ->
+            NameDialog("내 이름", SELF_NAMES, me.name, { dialog = null }) { n -> Hub.ledger.saveMember(me.copy(name = n.trim())); dialog = null }
+        }
+        "name" -> NameDialog("가계부 이름", listOf("우리집", "도란이네"), s.household.name, { dialog = null }) { n ->
             Hub.ledger.saveHousehold(s.household.copy(name = n.trim())); dialog = null
         }
         "startDay" -> {

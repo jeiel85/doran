@@ -65,6 +65,9 @@ class SmsReceiver : BroadcastReceiver() {
         val parts = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
         if (parts.isEmpty()) return
         val from = parts.first().displayOriginatingAddress
+        // 카드사·은행은 1577·1588 같은 대표번호로 보냅니다. 휴대폰 번호에서 온 카드 문자는 "문자 자동 전달" 앱이
+        // 가족 폰에서 넘겨 준 것이라, 읽으면 그 가족의 결제를 내 결제로 한 번 더 기록하게 됩니다 (DECISIONS.md D-4).
+        if (isPersonalNumber(from)) return
         val body = parts.joinToString("") { it.displayMessageBody ?: "" }
         val at = parts.first().timestampMillis.takeIf { it > 0 } ?: System.currentTimeMillis()
         val pending = goAsync()
@@ -77,6 +80,15 @@ class SmsReceiver : BroadcastReceiver() {
             } finally {
                 pending.finish()
             }
+        }
+    }
+
+    companion object {
+        /** 010·011·016~019 휴대폰 번호(+82 포함). */
+        fun isPersonalNumber(from: String?): Boolean {
+            val d = from?.filter(Char::isDigit) ?: return false
+            val local = if (d.startsWith("82")) "0" + d.drop(2) else d
+            return local.length in 10..11 && Regex("""^01[016789]""").containsMatchIn(local)
         }
     }
 }

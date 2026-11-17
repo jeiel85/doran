@@ -82,6 +82,8 @@ sealed interface Route {
     data object Allowance : Route
     data object Categories : Route
     data object Search : Route
+    data class Invite(val role: String) : Route
+    data object Join : Route
 }
 
 enum class Tab(val label: String, val icon: ImageVector) {
@@ -224,6 +226,8 @@ private fun Root(nav: Nav) {
             Route.Allowance -> AllowanceScreen(nav)
             Route.Categories -> CategoriesScreen(nav)
             Route.Search -> SearchScreen(nav)
+            is Route.Invite -> InviteScreen(route.role, nav)
+            Route.Join -> JoinScreen(nav)
         }
     }
 }
