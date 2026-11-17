@@ -1,0 +1,24 @@
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/captures/
+*.iml
+.kotlin/
+# Secrets (never commit)
+android/release-signing.properties
+android/app/google-services.json
+.keystore/
+*.jks
+*.keystore
+service-account*.json
+# Relay
+relay/node_modules/
+relay/.wrangler/
+relay/.dev.vars
+# Build outputs / scratch
+dist/
+design/art/logs/
+design/art/raw/

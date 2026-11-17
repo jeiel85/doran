@@ -1,0 +1,14 @@
+{
+  "name": "doran-relay",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate": "wrangler d1 migrations apply doran-relay --remote"
+  },
+  "devDependencies": {
+    "wrangler": "^4.158.0"
+  }
+}

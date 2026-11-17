@@ -1,0 +1,14 @@
+Use your image generation tool. Read the SHARED STYLE below, but for THIS image use a slightly flatter, bolder "app icon motif" rendering (soft gradients + gentle depth, still matte, no tiny details) so it stays legible at 48px.
+
+This is the launcher-icon motif for "도란". The icon background will be added later as a deep pine-green gradient (#2E7A62 to #1B4D3E), so the motif must read well on dark green.
+Motif: a small, very rounded cozy house shape in cream (#FFF6EA) whose single round window glows warm butter-apricot light; inside the glow, two tiny rounded silhouettes sit close together side by side (a couple chatting), and a golden butter-yellow coin (#FFD36B, plain, no symbol) rests leaning against the house like a little sun. Simple, iconic, symmetrical-ish, bold shapes.
+Output: 1024x1024 PNG, fully transparent background, the motif centered and occupying about the central 62% of the canvas.
+Make TWO variations (call them A and B): A exactly as described; B the same idea but the roof is formed by a soft speech-bubble curve instead of a pointed roof.
+
+SHARED STYLE:
+SHARED STYLE for the Korean family budgeting app "도란" (Doran, from 도란도란 = a warm, cozy family chat in the evening).
+Look: premium soft 3D, matte clay / soft-touch plastic material, very rounded chunky shapes, gentle top-left studio light, soft ambient occlusion, a tiny soft contact shadow under each object only. Cute and warm but adult and tasteful (like premium fintech app emoji icons), NOT childish clip-art, NOT photoreal, NOT glossy, NO outlines.
+Palette (stay close to it): cream #FFF6EA, warm oat #F2E8DA, apricot #FF9F5A, butter #FFD36B, coral #F26B5B, rose #FF8FA8, sage #8FC9A9, pine green #2E7A62, sky #7DB7FF, ocean blue #3D7BF0, lavender #A991FF, deep ink #2A2838 for small details only.
+Absolutely no text, letters, numbers, currency symbols or logos anywhere.
+Background must be fully TRANSPARENT (alpha 0) outside the objects.
+Do not try to save or edit any files and do not run any shell commands; only generate the image(s) with the image generation tool, then reply with a one-line description of each image.

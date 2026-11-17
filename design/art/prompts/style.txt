@@ -1,0 +1,6 @@
+SHARED STYLE for the Korean family budgeting app "도란" (Doran, from 도란도란 = a warm, cozy family chat in the evening).
+Look: premium soft 3D, matte clay / soft-touch plastic material, very rounded chunky shapes, gentle top-left studio light, soft ambient occlusion, a tiny soft contact shadow under each object only. Cute and warm but adult and tasteful (like premium fintech app emoji icons), NOT childish clip-art, NOT photoreal, NOT glossy, NO outlines.
+Palette (stay close to it): cream #FFF6EA, warm oat #F2E8DA, apricot #FF9F5A, butter #FFD36B, coral #F26B5B, rose #FF8FA8, sage #8FC9A9, pine green #2E7A62, sky #7DB7FF, ocean blue #3D7BF0, lavender #A991FF, deep ink #2A2838 for small details only.
+Absolutely no text, letters, numbers, currency symbols or logos anywhere.
+Background must be fully TRANSPARENT (alpha 0) outside the objects.
+Do not try to save or edit any files and do not run any shell commands; only generate the image(s) with the image generation tool, then reply with a one-line description of each image.

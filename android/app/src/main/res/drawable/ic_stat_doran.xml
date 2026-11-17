@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 상태 표시줄 아이콘: 말풍선 지붕 집 실루엣과 동전 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M12,2.5C7.6,2.5 4,5 3.6,8.3C3.5,9 4,9.6 4.7,9.6L4.7,18.5C4.7,19.9 5.8,21 7.2,21L12.9,21C12.3,20.2 12,19.2 12,18.1C12,15.4 14.2,13.3 16.8,13.3C17.4,13.3 17.9,13.4 18.4,13.6L18.4,10.1L19.7,11.1C20.2,11.5 20.9,11.1 20.8,10.5L20.5,8.6C20.3,5.2 16.6,2.5 12,2.5ZM9.6,10.6A1.6,1.6 0,1 1,9.6 13.8A1.6,1.6 0,1 1,9.6 10.6ZM13.6,10.6A1.6,1.6 0,1 1,13.6 13.8A1.6,1.6 0,1 1,13.6 10.6Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M17,14.6A3.5,3.5 0,1 1,17 21.6A3.5,3.5 0,1 1,17 14.6Z" />
+</vector>

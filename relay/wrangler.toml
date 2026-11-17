@@ -1,0 +1,21 @@
+name = "doran-relay"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "doran-relay"
+# 배포 전 `npx wrangler d1 create doran-relay`로 만든 id로 바꿉니다 (README "중계 서버 배포").
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[triggers]
+crons = ["23 4 * * *"]
+
+[observability]
+enabled = true
+
+# 비밀값(이 파일에 넣지 않음): FCM_SERVICE_ACCOUNT — Firebase 서비스 계정 JSON.
+#   npx wrangler secret put FCM_SERVICE_ACCOUNT < service-account.json
+# 없으면 깨우기 없이 동작하고 폰은 주기 동기화로 따라잡습니다 (DECISIONS.md D-9).

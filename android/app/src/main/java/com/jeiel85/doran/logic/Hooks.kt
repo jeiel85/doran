@@ -1,0 +1,157 @@
+package com.jeiel85.doran.logic
+
+import android.content.Context
+import com.jeiel85.doran.capture.Categorizer
+import com.jeiel85.doran.core.Fmt
+import com.jeiel85.doran.core.Hub
+import com.jeiel85.doran.data.Change
+import com.jeiel85.doran.model.AllowanceSummary
+import com.jeiel85.doran.model.Kind
+import com.jeiel85.doran.model.MerchantRule
+import com.jeiel85.doran.model.Source
+import com.jeiel85.doran.model.T
+import com.jeiel85.doran.model.Txn
+import com.jeiel85.doran.ui.Notifier
+import com.jeiel85.doran.widget.SummaryWidget
+import java.time.LocalDate
+
+/** 장부가 바뀐 뒤 따라오는 일: 동기화 요청, 용돈 요약, 가족 알림, 예산 알림, 위젯 갱신. */
+object Hooks {
+
+    fun onChanges(context: Context, changes: List<Change>) {
+        if (changes.any { it.local }) Hub.requestSync()
+        updateAllowance(changes)
+        learnCategories(changes)
+        budgetCheck(context)
+        SummaryWidget.refresh(context)
+    }
+
+    /** 동기화로 받은 것 중 다른 사람이 자동으로 기록한 새 거래는 알리고 "새 내역"으로 표시합니다. */
+    fun onRemote(context: Context, changes: List<Change>) {
+        val s = Hub.ledger.value
+        val mine = Hub.identity.installId
+        val fresh = changes.filter { it.type == T.TXN && it.before == null && it.after != null }
+            .map { Txn.from(it.id, it.after!!) }
+            .filter { it.createdBy != mine && it.source.captured && !it.private }
+        if (fresh.isEmpty()) return
+        Hub.local.markUnseen(fresh.map { it.id })
+        if (!Hub.settings.value.notifyFamily) return
+        // 처음 합류해 옛 내역이 한꺼번에 들어올 때 알림이 쏟아지지 않게 최근 하루치만.
+        val recent = fresh.filter { System.currentTimeMillis() - it.at < 86_400_000 }.sortedBy { it.at }.takeLast(10)
+        for (t in recent) {
+            val who = s.member(t.memberId)?.name ?: "가족"
+            val card = t.cardLabel ?: s.account(t.accountId)?.name ?: t.issuer ?: ""
+            val title = if (t.isCancel) "$who · $card 취소 ${Fmt.won(t.amount)}" else "$who · $card ${Fmt.won(t.amount)}"
+            val total = t.cumulative?.let { "누적 ${Fmt.won(it)}" } ?: s.account(t.accountId)?.let {
+                "이번 달 ${Fmt.won(Stats.card(s, it).monthSpent)}"
+            }
+            val text = listOfNotNull(t.merchant.ifBlank { null }, t.foreign, total).joinToString(" · ")
+            Notifier.familyTxn(context, t.id, title, text)
+        }
+    }
+
+    /** 내 용돈 거래가 바뀌면 그 달의 합계만 가구 키로 올립니다 (DECISIONS.md D-7). */
+    private fun updateAllowance(changes: List<Change>) {
+        val me = Hub.identity.value.myMemberId ?: return
+        val s = Hub.ledger.value
+        val months = changes.filter { it.local && it.type == T.TXN }
+            .flatMap { listOfNotNull(it.before, it.after) }
+            .map { Txn.from("", it) }
+            .filter { it.private && it.memberId == me }
+            .map { Stats.periodOf(Fmt.date(it.at), s.household.monthStartDay) }
+            .distinctBy { it.key }
+        for (p in months) {
+            val canceled = s.canceled
+            val list = s.txns.values.filter { it.private && it.memberId == me && it.cancelOf == null && it.kind == Kind.EXPENSE && it.at in p }
+            val spent = list.sumOf { (it.amount - (canceled[it.id] ?: 0)).coerceAtLeast(0) }
+            val id = AllowanceSummary.idFor(me, p.key)
+            val cur = s.allowances[id]
+            if (cur?.spent != spent || cur.count != list.size) {
+                Hub.ledger.saveAllowance(AllowanceSummary(id, me, p.key, spent, list.size))
+            }
+        }
+    }
+
+    /** 사람이 카테고리를 고치면 그 가맹점 규칙을 기억해 다음 자동 분류에 씁니다. */
+    private fun learnCategories(changes: List<Change>) {
+        for (c in changes) {
+            if (!c.local || c.type != T.TXN || c.before == null || c.after == null) continue
+            val before = Txn.from(c.id, c.before)
+            val after = Txn.from(c.id, c.after)
+            if (after.merchant.isBlank() || after.categoryId == null || before.categoryId == after.categoryId) continue
+            if (after.kind == Kind.TRANSFER || after.cancelOf != null) continue
+            val rule = MerchantRule(Categorizer.ruleId(after.merchant), after.merchant, after.categoryId)
+            if (Hub.ledger.value.rules[rule.id]?.categoryId != rule.categoryId) Hub.ledger.saveRule(rule)
+        }
+    }
+
+    private fun budgetCheck(context: Context) {
+        if (!Hub.settings.value.notifyBudget) return
+        val s = Hub.ledger.value
+        val p = Stats.current(s)
+        val e = Stats.entries(s, p, Hub.identity.value.myMemberId)
+        val (total, lines) = Stats.budgets(s, e)
+        for (line in listOfNotNull(total) + lines) {
+            val name = line.categoryId?.let { s.category(it)?.name } ?: "이번 달 예산"
+            for ((level, ratio) in listOf(100 to 1.0f, 80 to 0.8f)) {
+                if (line.ratio < ratio) continue
+                if (!Hub.local.once("budget.${line.categoryId ?: "total"}.${p.key}.$level")) break
+                val title = if (level == 100) "$name 을(를) 다 썼어요" else "$name 의 80%를 썼어요"
+                Notifier.budget(context, "budget.${line.categoryId}.$level", title,
+                    "${Fmt.won(line.spent)} / ${Fmt.won(line.budget)} · ${Fmt.month(p.label)}")
+                break
+            }
+        }
+    }
+
+    /** 하루 한 번(앱 시작·작업 관리자): 고정지출 기록, 백업 알림. */
+    fun daily(context: Context) {
+        val made = Recurrer.run(Hub.ledger, Hub.db, Hub.identity.installId)
+        if (made.isNotEmpty() && Hub.settings.value.notifyRecurring) {
+            val names = made.joinToString(", ") { it.merchant.ifBlank { "고정지출" } }
+            Notifier.recurring(context, "고정지출 ${made.size}건을 기록했어요", names)
+        }
+        val last = Hub.settings.value.lastBackupAt
+        val hasData = Hub.ledger.value.txns.size >= 20
+        if (hasData && System.currentTimeMillis() - last > 30L * 86_400_000 &&
+            Hub.local.once("backup.remind.${LocalDate.now(Fmt.zone).let { "${it.year}${it.monthValue}" }}")) {
+            Notifier.system(context, 5001, "백업할 때가 됐어요", "두 폰을 모두 잃어도 되살릴 수 있게 설정 → 백업에서 파일로 저장해 두세요")
+        }
+    }
+}
+
+/** 고정지출을 정해진 날 장부에 넣습니다. id가 (규칙, 날짜)로 고정이라 두 폰이 같이 만들어도 한 건입니다. */
+object Recurrer {
+    fun idFor(ruleId: String, d: LocalDate) = "rc.$ruleId.${d.toString().replace("-", "")}"
+
+    fun run(ledger: com.jeiel85.doran.data.Ledger, db: com.jeiel85.doran.data.Db, installId: String,
+            today: LocalDate = LocalDate.now(Fmt.zone)): List<Txn> {
+        val s = ledger.value
+        val made = ArrayList<Txn>()
+        for (r in s.recurrings.values) {
+            // 처음 만든 규칙이 몇 년 전부터 쏟아지지 않게 최대 60일 전까지만.
+            for (d in Stats.dueDates(r, today.minusDays(60), today)) {
+                val id = idFor(r.id, d)
+                if (db.entity(T.TXN, id) != null) continue // 지운 것(묘비)도 다시 만들지 않음
+                val at = Fmt.millis(d.atTime(9, 0))
+                val near = 3L * 86_400_000
+                if (ledger.value.txns.values.any { it.recurringId == r.id && kotlin.math.abs(it.at - at) <= near }) continue
+                // 카드 알림으로 이미 들어온 같은 금액이 있으면 그 거래에 규칙만 이어 줍니다.
+                val captured = ledger.value.txns.values.firstOrNull {
+                    it.recurringId == null && it.kind == r.kind && it.amount == r.amount && it.cancelOf == null &&
+                        kotlin.math.abs(it.at - at) <= 3L * 86_400_000 && (r.accountId == null || it.accountId == r.accountId)
+                }
+                if (captured != null) {
+                    ledger.saveTxn(captured.copy(recurringId = r.id, categoryId = r.categoryId ?: captured.categoryId))
+                    continue
+                }
+                val t = Txn(id = id, kind = r.kind, amount = r.amount, at = at, accountId = r.accountId, categoryId = r.categoryId,
+                    merchant = r.name, memberId = r.memberId, source = Source.RECURRING, recurringId = r.id,
+                    createdBy = installId, createdAt = System.currentTimeMillis())
+                ledger.saveTxn(t)
+                made += t
+            }
+        }
+        return made
+    }
+}

@@ -1,0 +1,27 @@
+Use your image generation tool. Make ONE square 1024x1024 image: an icon sheet of exactly 16 separate icons laid out in a perfectly regular 4 columns x 4 rows grid, each icon centered in its cell, every icon the same visual size (about 70% of its cell), generous empty transparent space between icons so they never touch or overlap, no grid lines, no labels.
+Each icon is a single soft-3D object for a spending category of a Korean household budget app. Reading order left-to-right, top-to-bottom:
+1 food: a steaming rice bowl with chopsticks
+2 cafe & snacks: a takeaway coffee cup with a small cookie
+3 drinks & nightlife: two clinking glasses
+4 household supplies: a spray bottle with a roll of tissue
+5 shopping: a shopping bag
+6 clothing & beauty: a t-shirt with a lipstick
+7 public transport: a cute rounded bus
+8 car & fuel: a small rounded car
+9 housing & utilities: a little house with a key
+10 phone & internet: a smartphone with a wifi wave
+11 medical & health: a medicine capsule with a small heart
+12 education: a stack of books with a pencil
+13 childcare: a baby bottle with a pacifier
+14 pets: a paw print on a pet food bowl
+15 culture & leisure: a movie clapper with popcorn
+16 travel: an airplane over a suitcase
+Each icon should use 2-3 colors from the palette and they should look like one coherent family.
+
+SHARED STYLE:
+SHARED STYLE for the Korean family budgeting app "도란" (Doran, from 도란도란 = a warm, cozy family chat in the evening).
+Look: premium soft 3D, matte clay / soft-touch plastic material, very rounded chunky shapes, gentle top-left studio light, soft ambient occlusion, a tiny soft contact shadow under each object only. Cute and warm but adult and tasteful (like premium fintech app emoji icons), NOT childish clip-art, NOT photoreal, NOT glossy, NO outlines.
+Palette (stay close to it): cream #FFF6EA, warm oat #F2E8DA, apricot #FF9F5A, butter #FFD36B, coral #F26B5B, rose #FF8FA8, sage #8FC9A9, pine green #2E7A62, sky #7DB7FF, ocean blue #3D7BF0, lavender #A991FF, deep ink #2A2838 for small details only.
+Absolutely no text, letters, numbers, currency symbols or logos anywhere.
+Background must be fully TRANSPARENT (alpha 0) outside the objects.
+Do not try to save or edit any files and do not run any shell commands; only generate the image(s) with the image generation tool, then reply with a one-line description of each image.

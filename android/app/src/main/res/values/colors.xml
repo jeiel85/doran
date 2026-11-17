@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="oat">#FFF6F2EA</color>
+    <color name="pine">#FF2E7A62</color>
+    <color name="night">#FF121414</color>
+    <color name="widget_bg">#FFFFFCF7</color>
+    <color name="widget_ink">#FF1E1C27</color>
+    <color name="widget_soft">#FF6F6A79</color>
+</resources>
