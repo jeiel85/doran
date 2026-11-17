@@ -18,18 +18,17 @@ val appVersionCode = appVersion.split('.', '-').take(3).map { it.toIntOrNull() ?
 val relayUrl = providers.gradleProperty("app.relayUrl")
     .orElse("https://doran-relay.jeiel85.workers.dev").get()
 
-// --- 릴리스 서명 (값은 git에 없는 release-signing.properties 또는 환경 변수) -------------------
+// --- 서명 (값은 git에 없는 properties 파일 또는 환경 변수) — 채널마다 다른 키 (DECISIONS.md D-16) ---------
+// github: GitHub 릴리스 키(release-signing.properties) / play: Play 업로드 키(play-upload-signing.properties).
 val signingProps = Properties().apply {
-    rootProject.file("release-signing.properties").takeIf { it.exists() }?.inputStream()?.use(::load)
+    listOf("release-signing.properties", "play-upload-signing.properties").forEach { f ->
+        rootProject.file(f).takeIf { it.exists() }?.inputStream()?.use(::load)
+    }
 }
 fun signing(name: String): String? = providers.environmentVariable(name).orNull ?: signingProps.getProperty(name)
-val storeFilePath = signing("DORAN_RELEASE_STORE_FILE")
-val hasReleaseSigning = listOf(
-    storeFilePath,
-    signing("DORAN_RELEASE_STORE_PASSWORD"),
-    signing("DORAN_RELEASE_KEY_ALIAS"),
-    signing("DORAN_RELEASE_KEY_PASSWORD"),
-).all { !it.isNullOrBlank() }
+fun hasKeys(prefix: String) = listOf("STORE_FILE", "STORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD").all { !signing("${prefix}_$it").isNullOrBlank() }
+val hasReleaseSigning = hasKeys("DORAN_RELEASE")
+val hasPlaySigning = hasKeys("DORAN_PLAY_UPLOAD")
 
 android {
     namespace = "com.jeiel85.doran"
@@ -48,11 +47,35 @@ android {
     signingConfigs {
         if (hasReleaseSigning) {
             create("release") {
-                storeFile = rootProject.file(storeFilePath!!)
+                storeFile = rootProject.file(signing("DORAN_RELEASE_STORE_FILE")!!)
                 storePassword = signing("DORAN_RELEASE_STORE_PASSWORD")
                 keyAlias = signing("DORAN_RELEASE_KEY_ALIAS")
                 keyPassword = signing("DORAN_RELEASE_KEY_PASSWORD")
             }
+        }
+        if (hasPlaySigning) {
+            create("playUpload") {
+                storeFile = rootProject.file(signing("DORAN_PLAY_UPLOAD_STORE_FILE")!!)
+                storePassword = signing("DORAN_PLAY_UPLOAD_STORE_PASSWORD")
+                keyAlias = signing("DORAN_PLAY_UPLOAD_KEY_ALIAS")
+                keyPassword = signing("DORAN_PLAY_UPLOAD_KEY_PASSWORD")
+            }
+        }
+    }
+
+    // 배포 채널별 빌드 (전역 지침·DECISIONS.md D-16): 같은 applicationId, 다른 서명 키.
+    // github만 자가 업데이트와 문자 수신(RECEIVE_SMS)이 있고, play는 문자 앱 알림으로 문자를 읽습니다.
+    flavorDimensions += "channel"
+    productFlavors {
+        create("github") {
+            dimension = "channel"
+            buildConfigField("boolean", "SMS_RECEIVER", "true")
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
+        }
+        create("play") {
+            dimension = "channel"
+            buildConfigField("boolean", "SMS_RECEIVER", "false")
+            if (hasPlaySigning) signingConfig = signingConfigs.getByName("playUpload")
         }
     }
 
@@ -61,7 +84,6 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
         }
     }
 

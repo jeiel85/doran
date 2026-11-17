@@ -50,9 +50,9 @@ echo "✓ key kept at $KEEP/service-account.json (current user only)"
 echo "✓ relay secret FCM_SERVICE_ACCOUNT set"
 
 (cd relay && npm test --silent >/dev/null) && echo "✓ relay tests"
-(cd android && ./gradlew.bat --console=plain -q testDebugUnitTest assembleRelease)
+(cd android && ./gradlew.bat --console=plain -q testGithubDebugUnitTest testPlayDebugUnitTest assembleGithubRelease)
 mkdir -p dist
-cp android/app/build/outputs/apk/release/app-release.apk dist/doran.apk
+cp android/app/build/outputs/apk/github/release/app-github-release.apk dist/doran.apk
 echo "✓ dist/doran.apk  sha256 $(sha256sum dist/doran.apk | cut -d' ' -f1)"
 echo
 echo "Next: install on both phones (adb install -r dist/doran.apk), pair them, and check design/VERIFY.md."

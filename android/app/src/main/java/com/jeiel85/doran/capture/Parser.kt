@@ -104,13 +104,28 @@ object Parser {
     private val HOLDER = Regex("""[가-힣A-Z][*＊][가-힣A-Z]{0,2}\s*님?|[가-힣]{1,2}\*\s*님?""")
     private val KEYWORDS = Regex(
         """승인취소|취소승인|해외승인|승인|취소|체크카드|체크|신용|일시불|사용|결제|입금|출금|이체|지급|자동이체|전자금융|님""" +
-            """|본인|해외|누적|잔액|국내|금액|이용안내|안내|일반|가맹점""")
+            """|본인|해외|누적|잔액|국내|금액|이용안내|안내|일반|가맹점""" +
+            // 문장형 알림("…결제되었습니다")의 끝말이 가맹점으로 뽑히지 않게
+            """|완료|되었습니다|되었어요|됐습니다|됐어요|하였습니다|했습니다|했어요|입니다|합니다|드립니다|되었|됐""")
 
     /**
      * [hint]: 알림을 올린 앱의 이름(예: "현대카드"). 카드사 앱 푸시는 본문에 카드사 이름이 없을 수 있어서,
      * 본문에서 못 찾으면 앱 이름으로 카드사를 정합니다.
      */
-    fun parse(raw: String, now: LocalDateTime = LocalDateTime.now(), hint: String? = null): Parsed? {
+    /**
+     * 거래로 읽지는 못했지만 금액이 적힌 알림인지. "최근 받은 알림"에서 골라 보낼 수 있게 남겨 둘 후보를 고릅니다.
+     * 광고·이벤트는 빼고, 금액과 함께 결제·카드·계좌 같은 낱말이 있어야 합니다.
+     */
+    fun looksFinancial(raw: String): Boolean {
+        if (AD.containsMatchIn(raw.trim())) return false
+        if (PROMO.containsMatchIn(raw) && !TXN_WORD.containsMatchIn(raw)) return false
+        val amount = WON.containsMatchIn(raw) || BARE_AMOUNT.containsMatchIn(raw) || FOREIGN.containsMatchIn(raw)
+        return amount && (TXN_WORD.containsMatchIn(raw) || MONEY_WORD.containsMatchIn(raw))
+    }
+    private val MONEY_WORD = Regex("""결제|사용|카드|계좌|잔액|누적|송금|충전|페이""")
+
+    /** [custom]: "앞으로도 자동으로 보내기"로 사용자가 정한 발신처의 카드사·은행(목록에 없는 곳도 됨). */
+    fun parse(raw: String, now: LocalDateTime = LocalDateTime.now(), hint: String? = null, custom: Issuer? = null): Parsed? {
         // 광고·이벤트 알림은 금액이 적혀 있어도 거래가 아닙니다.
         if (AD.containsMatchIn(raw.trim())) return null
         if (PROMO.containsMatchIn(raw) && !TXN_WORD.containsMatchIn(raw)) return null
@@ -125,7 +140,7 @@ object Parser {
         val check = text.contains("체크")
 
         val preferBank = (deposit || withdrawal) && !approval
-        val issuer = Issuers.find(text, preferBank) ?: hint?.let { Issuers.find(it, preferBank) } ?: return null
+        val issuer = Issuers.find(text, preferBank) ?: hint?.let { Issuers.find(it, preferBank) } ?: custom ?: return null
         val type = when {
             cancel -> Parsed.Type.CANCEL
             issuer.card && (approval || !deposit && !withdrawal) -> Parsed.Type.APPROVAL

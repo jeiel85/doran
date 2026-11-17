@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- GitHub(직접 설치) 빌드만: 자가 업데이트와 문자 수신 (DECISIONS.md D-4·D-8·D-16). Play 빌드에는 없습니다. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 카드사·은행 문자 읽기. Play는 기본 문자 앱이 아니면 SMS 권한을 허용하지 않아, Play 빌드는 문자 앱 알림으로 읽습니다. -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
+
+    <application>
+        <receiver
+            android:name=".capture.SmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter android:priority="100">
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".update.UpdateReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

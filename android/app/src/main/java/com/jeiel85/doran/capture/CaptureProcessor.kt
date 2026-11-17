@@ -40,7 +40,43 @@ class CaptureProcessor(
     @Synchronized
     fun process(source: Source, pkg: String?, title: String?, text: String, postedAt: Long, appLabel: String? = null): Outcome? {
         val body = listOfNotNull(title, text).joinToString("\n")
-        val parsed = Parser.parse(body, Fmt.dateTime(postedAt), appLabel) ?: return null
+        val rule = settings.ruleFor(source.code, pkg)
+        val custom = rule?.let { Issuer(it.issuer, it.card, listOf(it.issuer)) }
+        val parsed = Parser.parse(body, Fmt.dateTime(postedAt), appLabel, custom)
+        if (parsed == null) {
+            // 금액이 적힌데 형식을 몰라 못 읽은 알림은 "최근 받은 알림"에서 골라 보낼 수 있게 남깁니다(이 폰에만, 30일).
+            if (Parser.looksFinancial(body)) {
+                db.logCapture(postedAt, source.code, pkg, title, text, "기록 안 함 · 골라서 보낼 수 있어요", null, status = "candidate",
+                    label = appLabel ?: pkg)
+            }
+            return null
+        }
+        return deliver(parsed, source, pkg, title, text, postedAt, appLabel, logId = null)
+    }
+
+    /**
+     * 사용자가 고른 알림을 보냅니다. [remember]면 같은 발신처의 금액 알림을 앞으로 [parsed]의 카드사로 읽어 자동으로 보냅니다.
+     */
+    @Synchronized
+    fun sendPicked(row: Db.CaptureRow, parsed: Parsed, remember: Boolean): Outcome {
+        check(identity.value.inHousehold || identity.value.outLinks.isNotEmpty()) { "연결된 가계부가 없어요" }
+        val from = row.pkg
+        if (remember && from != null) {
+            settings.saveRule(com.jeiel85.doran.data.ForwardRule(
+                com.jeiel85.doran.data.ForwardRule.key(row.source, from), row.label ?: from, parsed.issuer, parsed.isCard))
+        }
+        return deliver(parsed, Source.of(row.source), from, row.title, row.text, row.at, row.label, logId = row.id)
+    }
+
+    /** 고른 알림을 지금 해석해 보여 줄 초기값. 카드사를 모르면 앱 이름(없으면 "카드")으로 둡니다. */
+    fun previewPicked(row: Db.CaptureRow): Parsed? {
+        val body = listOfNotNull(row.title, row.text).joinToString("\n")
+        val name = settings.ruleFor(row.source, row.pkg)?.issuer ?: row.label?.takeIf { it.isNotBlank() && it != row.pkg } ?: "카드"
+        return Parser.parse(body, Fmt.dateTime(row.at), row.label, Issuer(name, true, listOf(name)))
+    }
+
+    private fun deliver(parsed: Parsed, source: Source, pkg: String?, title: String?, text: String, postedAt: Long,
+                        appLabel: String?, logId: Long?): Outcome {
         val at = parsed.at?.let { Fmt.millis(it) }?.takeIf { abs(it - postedAt) < 3L * 86_400_000 } ?: postedAt
         val results = ArrayList<String>()
         var txnId: String? = null
@@ -54,7 +90,8 @@ class CaptureProcessor(
             results += forward(parsed, at, link)
         }
         if (results.isEmpty()) results += "가계부가 없어 기록하지 않음"
-        db.logCapture(postedAt, source.code, pkg, title, text, results.joinToString(" · "), txnId)
+        if (logId != null) db.updateCapture(logId, "done", results.joinToString(" · "), txnId)
+        else db.logCapture(postedAt, source.code, pkg, title, text, results.joinToString(" · "), txnId, label = appLabel)
         requestSync()
         return Outcome(results.joinToString(" · "), txnId)
     }

@@ -86,6 +86,7 @@ sealed interface Route {
     data object Search : Route
     data class Invite(val role: String) : Route
     data class CategoryTxns(val categoryId: String, val month: String) : Route
+    data class SendPicked(val logId: Long) : Route
     data class Join(val link: String? = null) : Route
 }
 
@@ -256,6 +257,7 @@ private fun Root(nav: Nav) {
             Route.Search -> SearchScreen(nav)
             is Route.Invite -> InviteScreen(route.role, nav)
             is Route.CategoryTxns -> CategoryTxnsScreen(route.categoryId, route.month, nav)
+            is Route.SendPicked -> SendPickedScreen(route.logId, nav)
             is Route.Join -> JoinScreen(route.link, nav)
         }
     }

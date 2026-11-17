@@ -2,17 +2,6 @@ package com.jeiel85.doran.update
 
 import org.json.JSONObject
 
-/** One GitHub release that carries an installable APK. */
-data class Release(
-    val version: String,
-    val apkUrl: String,
-    /** Lower-case hex SHA-256 of the APK; an update without one is never installed. */
-    val sha256: String,
-    val size: Long,
-    val notes: String,
-    val pageUrl: String,
-)
-
 /** Pure helpers, unit-tested without Android (see ReleasesTest). */
 object Releases {
     const val ASSET = "doran.apk"

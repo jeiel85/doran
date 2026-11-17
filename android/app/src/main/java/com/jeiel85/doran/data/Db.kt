@@ -9,7 +9,7 @@ import android.database.sqlite.SQLiteOpenHelper
  * 로컬 저장소. 장부 엔티티는 동기화 op와 같은 JSON으로 한 테이블에 둡니다 (DECISIONS.md D-2).
  * 앱 데이터 백업은 꺼져 있고(manifest), 복구는 암호 백업 파일로만 합니다 (D-11).
  */
-class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 1) {
+class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 2) {
 
     override fun onConfigure(db: SQLiteDatabase) {
         db.enableWriteAheadLogging()
@@ -29,11 +29,18 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 1) {
         // 수집한 알림 원문 — 이 폰에만, 30일 (DECISIONS.md D-4).
         db.execSQL(
             """CREATE TABLE capture_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, source TEXT NOT NULL,
-                 pkg TEXT, title TEXT, text TEXT NOT NULL, result TEXT NOT NULL, txn_id TEXT)""")
+                 pkg TEXT, title TEXT, text TEXT NOT NULL, result TEXT NOT NULL, txn_id TEXT,
+                 status TEXT NOT NULL DEFAULT 'done', label TEXT)""")
         db.execSQL("CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT NOT NULL)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        // v2(0.1.2): "최근 받은 알림"에서 골라 보내기 — 기록하지 못한 금액 알림(candidate)을 남깁니다. 기존 행은 모두 done.
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE capture_log ADD COLUMN status TEXT NOT NULL DEFAULT 'done'")
+            db.execSQL("ALTER TABLE capture_log ADD COLUMN label TEXT")
+        }
+    }
 
     data class Row(val type: String, val id: String, val hlc: String, val deleted: Boolean, val json: String)
 
@@ -113,22 +120,42 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 1) {
 
     // --- 수집 기록 ----------------------------------------------------------------------------
 
-    data class CaptureRow(val id: Long, val at: Long, val source: String, val pkg: String?, val title: String?, val text: String, val result: String, val txnId: String?)
+    data class CaptureRow(
+        val id: Long, val at: Long, val source: String, val pkg: String?, val title: String?, val text: String,
+        val result: String, val txnId: String?, val status: String = "done", val label: String? = null,
+    ) {
+        val isCandidate get() = status == "candidate"
+    }
 
-    fun logCapture(at: Long, source: String, pkg: String?, title: String?, text: String, result: String, txnId: String?) {
-        writableDatabase.insert("capture_log", null, ContentValues().apply {
-            put("at", at); put("source", source); put("pkg", pkg); put("title", title); put("text", text); put("result", result); put("txn_id", txnId)
+    fun logCapture(at: Long, source: String, pkg: String?, title: String?, text: String, result: String, txnId: String?,
+                   status: String = "done", label: String? = null): Long {
+        val id = writableDatabase.insert("capture_log", null, ContentValues().apply {
+            put("at", at); put("source", source); put("pkg", pkg); put("title", title); put("text", text); put("result", result)
+            put("txn_id", txnId); put("status", status); put("label", label)
         })
         writableDatabase.delete("capture_log", "at < ?", arrayOf((at - 30L * 86_400_000).toString()))
+        return id
     }
 
-    fun captures(limit: Int = 200): List<CaptureRow> = readableDatabase.rawQuery(
-        "SELECT id, at, source, pkg, title, text, result, txn_id FROM capture_log ORDER BY at DESC LIMIT $limit", null).use { c ->
-        buildList {
-            while (c.moveToNext()) add(CaptureRow(c.getLong(0), c.getLong(1), c.getString(2), c.getString(3), c.getString(4),
-                c.getString(5), c.getString(6), c.getString(7)))
-        }
+    fun updateCapture(id: Long, status: String, result: String, txnId: String?) {
+        writableDatabase.update("capture_log", ContentValues().apply { put("status", status); put("result", result); put("txn_id", txnId) },
+            "id = ?", arrayOf(id.toString()))
     }
+
+    private val captureCols = "id, at, source, pkg, title, text, result, txn_id, status, label"
+    private fun readCapture(c: android.database.Cursor) = CaptureRow(c.getLong(0), c.getLong(1), c.getString(2), c.getString(3),
+        c.getString(4), c.getString(5), c.getString(6), c.getString(7), c.getString(8), c.getString(9))
+
+    fun captures(limit: Int = 200): List<CaptureRow> = readableDatabase.rawQuery(
+        "SELECT $captureCols FROM capture_log ORDER BY at DESC LIMIT $limit", null).use { c ->
+        buildList { while (c.moveToNext()) add(readCapture(c)) }
+    }
+
+    fun capture(id: Long): CaptureRow? = readableDatabase.rawQuery(
+        "SELECT $captureCols FROM capture_log WHERE id = ?", arrayOf(id.toString())).use { c -> if (c.moveToFirst()) readCapture(c) else null }
+
+    fun candidateCount(since: Long): Int = readableDatabase.rawQuery(
+        "SELECT COUNT(*) FROM capture_log WHERE status = 'candidate' AND at >= ?", arrayOf(since.toString())).use { it.moveToFirst(); it.getInt(0) }
 
     fun clearCaptures() = writableDatabase.delete("capture_log", null, null)
 

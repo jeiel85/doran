@@ -26,7 +26,10 @@ class CaptureService : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val pkg = sbn.packageName ?: return
-        if (pkg == packageName || pkg in SMS_APPS) return // 문자는 SmsReceiver가 받음, 도란 자기 알림은 제외
+        if (pkg == packageName) return // 도란 자기 알림은 제외
+        // GitHub 빌드는 문자를 SmsReceiver로 받으므로 문자 앱 알림은 건너뜁니다. Play 빌드는 SMS 권한이 없어 문자 앱 알림으로 읽습니다.
+        val smsApp = pkg in SMS_APPS
+        if (smsApp && com.jeiel85.doran.BuildConfig.SMS_RECEIVER) return
         val n = sbn.notification ?: return
         if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
         val extras = n.extras ?: return
@@ -35,6 +38,18 @@ class CaptureService : NotificationListenerService() {
             ?.toString() ?: return
         // 카카오톡은 알림톡 채널(제목이 카드사·은행 이름)만 봅니다. 개인 대화의 "현대카드 3만원 썼어"를 거래로 읽지 않게.
         if (pkg == KAKAO && Issuers.all.none { it.matches(title.orEmpty()) }) return
+        if (smsApp) {
+            // 문자 앱 알림: 제목이 보낸 번호(또는 연락처 이름). 휴대폰 번호면 전달 앱이 넘긴 것이라 읽지 않음(D-4).
+            val from = title.orEmpty()
+            if (SmsReceiver.isPersonalNumber(from)) return
+            scope.launch {
+                Hub.init(applicationContext)
+                if (!Hub.settings.value.captureSms) return@launch
+                runCatching { Hub.capture.process(Source.SMS, from, null, text, sbn.postTime, appLabel = "문자 $from") }
+                    .onFailure { Log.w("Capture", "sms notification failed", it) }
+            }
+            return
+        }
         scope.launch {
             Hub.init(applicationContext)
             val s = Hub.settings.value
@@ -75,7 +90,7 @@ class SmsReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.Default).launch {
             try {
                 Hub.init(context.applicationContext)
-                if (Hub.settings.value.captureSms) Hub.capture.process(Source.SMS, from, null, body, at)
+                if (Hub.settings.value.captureSms) Hub.capture.process(Source.SMS, from, null, body, at, appLabel = "문자 $from")
             } catch (e: Exception) {
                 Log.w("Capture", "sms failed", e)
             } finally {

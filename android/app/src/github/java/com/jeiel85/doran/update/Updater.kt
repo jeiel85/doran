@@ -22,19 +22,6 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 
-sealed interface UpdateState {
-    data object Idle : UpdateState
-    data object Checking : UpdateState
-    data object UpToDate : UpdateState
-    data class Available(val release: Release) : UpdateState
-    data class Downloading(val release: Release, val percent: Int) : UpdateState
-    /** Handed to the system installer; on success the process is replaced. */
-    data class Installing(val release: Release) : UpdateState
-    /** Android wants the owner's tap (first self-update, or the system does not allow silent ones). */
-    data class NeedsConfirm(val release: Release, val confirm: Intent) : UpdateState
-    data class Failed(val reason: String) : UpdateState
-}
-
 /**
  * Updates the sideloaded app from this repository's GitHub Releases (DECISIONS.md D-8, 포너디 D-7 구현).
  *

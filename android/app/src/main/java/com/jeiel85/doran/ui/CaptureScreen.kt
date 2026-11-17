@@ -89,7 +89,7 @@ fun CaptureScreen(nav: Nav) {
                             context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
                         })
                 }
-                PermRow("문자 받기", if (sms) "켜짐 · 카드·은행 문자를 읽어요" else "카드사 문자로만 알림이 오면 켜 주세요", Icons.Rounded.Sms, sms) {
+                if (com.jeiel85.doran.BuildConfig.SMS_RECEIVER) PermRow("문자 받기", if (sms) "켜짐 · 카드·은행 문자를 읽어요" else "카드사 문자로만 알림이 오면 켜 주세요", Icons.Rounded.Sms, sms) {
                     askSms.launch(Manifest.permission.RECEIVE_SMS)
                 }
                 PermRow("도란 알림 표시", if (notify) "켜짐 · 가족 내역·예산 알림을 보여요" else "가족이 쓴 내역 알림을 받으려면 켜 주세요",
@@ -108,7 +108,7 @@ fun CaptureScreen(nav: Nav) {
                 ToggleRow("앱 알림 읽기", "카드사·은행 앱, 카카오톡 알림톡", Icons.Rounded.NotificationsActive, P.c.pine, settings.capturePush) { on ->
                     Hub.local.update { it.copy(capturePush = on) }
                 }
-                ToggleRow("문자 읽기", "카드사·은행 문자", Icons.Rounded.Sms, P.c.pine, settings.captureSms) { on ->
+                ToggleRow("문자 읽기", if (com.jeiel85.doran.BuildConfig.SMS_RECEIVER) "카드사·은행 문자" else "문자 앱에 뜨는 카드·은행 문자 알림", Icons.Rounded.Sms, P.c.pine, settings.captureSms) { on ->
                     Hub.local.update { it.copy(captureSms = on) }
                 }
                 apps.forEach { pkg ->
@@ -119,9 +119,10 @@ fun CaptureScreen(nav: Nav) {
                         Hub.local.update { it.copy(mutedPackages = if (on) it.mutedPackages - pkg else it.mutedPackages + pkg) }
                     }
                 }
-                ListRow("최근에 읽은 알림", "원문과 기록 결과 (이 폰에만, 30일)", Icons.Rounded.History, P.c.inkSoft, onClick = { nav.go(Route.CaptureLog) })
+                ListRow("최근 받은 알림", "기록 결과 보기 · 기록 안 된 금액 알림을 골라 보내기", Icons.Rounded.History, P.c.inkSoft, onClick = { nav.go(Route.CaptureLog) })
             }
         }
+        item { ForwardRulesSection() }
         item { Spacer(Modifier.height(20.dp)); SectionTitle("문구 시험") }
         item {
             SoftCard {
@@ -167,24 +168,3 @@ private fun PermRow(title: String, sub: String, icon: androidx.compose.ui.graphi
         if (ok) Icon(Icons.Rounded.CheckCircle, "켜짐", tint = P.c.pine) else SmallButton("켜기", color = P.c.apricot, onClick = onFix)
     }
 }
-
-@Composable
-fun CaptureLogScreen(nav: Nav) {
-    var rows by remember { mutableStateOf(Hub.db.captures()) }
-    SubScreen("최근에 읽은 알림", { nav.back() }, actions = {
-        IconButton(onClick = { Hub.db.clearCaptures(); rows = emptyList() }) { Icon(Icons.Rounded.DeleteSweep, "모두 지우기", tint = P.c.ink) }
-    }) {
-        if (rows.isEmpty()) item { EmptyState(R.drawable.art_capture, "아직 읽은 알림이 없어요", "카드 결제 알림이 오면 여기에 원문과 결과가 남아요") }
-        items(rows, key = { it.id }) { r ->
-            Spacer(Modifier.height(10.dp))
-            SoftCard(onClick = r.txnId?.let { t -> { nav.go(Route.Entry(txnId = t)) } }, padding = PaddingValues(16.dp)) {
-                Text("${Fmt.full(r.at)} · ${if (r.source == "sms") "문자" else r.pkg ?: "앱"}", style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint)
-                Spacer(Modifier.height(4.dp))
-                Text(listOfNotNull(r.title, r.text).joinToString("\n"), style = MaterialTheme.typography.bodyMedium, color = P.c.ink)
-                Spacer(Modifier.height(6.dp))
-                Text(r.result, style = MaterialTheme.typography.labelMedium, color = P.c.pine)
-            }
-        }
-    }
-}
-

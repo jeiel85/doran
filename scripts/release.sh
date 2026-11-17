@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 릴리스를 냅니다(포너디 scripts/release.sh와 같은 흐름).
+# GitHub 채널 릴리스를 냅니다(포너디 scripts/release.sh와 같은 흐름). Play는 scripts/play-bundle.sh.
 #
 #   scripts/release.sh 0.1.0
 #
@@ -21,9 +21,9 @@ git fetch -q origin && [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)
 grep -q "^## \[$VER\]\|^## v$VER" CHANGELOG.md || { echo "✗ CHANGELOG.md에 $VER 항목이 없어요"; exit 1; }
 
 (cd relay && npm test --silent >/dev/null) && echo "✓ relay tests"
-(cd android && ./gradlew.bat --console=plain -q -Papp.version="$VER" testDebugUnitTest assembleRelease)
+(cd android && ./gradlew.bat --console=plain -q -Papp.version="$VER" testGithubDebugUnitTest testPlayDebugUnitTest assembleGithubRelease)
 mkdir -p dist
-cp android/app/build/outputs/apk/release/app-release.apk dist/doran.apk
+cp android/app/build/outputs/apk/github/release/app-github-release.apk dist/doran.apk
 SHA=$(sha256sum dist/doran.apk | cut -d' ' -f1)
 
 NOTES=$(mktemp)

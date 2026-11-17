@@ -3,6 +3,7 @@ package com.jeiel85.doran
 import com.jeiel85.doran.capture.Parsed
 import com.jeiel85.doran.capture.Parser
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -131,6 +132,22 @@ class ParserTest {
         assertNull(Parser.parse("M포인트 이벤트: 30,000원 이상 결제하면 5,000원 캐시백", now, hint = "현대카드"))
         // 승인 문자에 적립 안내가 붙어 있어도 거래로 읽음
         assertNotNull(p("현대카드 승인 홍*동 30,000원 일시불 11/17 12:00 이마트 M포인트 300 적립"))
+    }
+
+    @Test fun unknownIssuerBecomesPickCandidateThenRuleReadsIt() {
+        // 목록에 없는 곳(예: 지역 신협 앱·간편결제)의 결제 알림: 자동으로는 못 읽지만 골라 보낼 후보로 남김
+        val text = "[결제완료] 동네마트 8,400원 결제되었습니다 11/17 19:20"
+        assertNull(p(text))
+        assertTrue(Parser.looksFinancial(text))
+        // "앞으로도 자동으로 보내기"로 정한 이름으로 읽음
+        val r = Parser.parse(text, now, hint = null, custom = com.jeiel85.doran.capture.Issuer("동네페이", true, listOf("동네페이")))!!
+        assertEquals("동네페이", r.issuer)
+        assertEquals(8_400L, r.amount)
+        assertTrue(r.merchant!!.contains("동네마트"))
+        // 금액·거래 낱말이 없는 알림, 광고는 후보가 아님
+        assertFalse(Parser.looksFinancial("오늘 저녁 7시에 만나요"))
+        assertFalse(Parser.looksFinancial("(광고) 지금 결제하면 5,000원 할인"))
+        assertTrue(com.jeiel85.doran.data.ForwardRule.key("sms", "1577-6000") == "sms:15776000")
     }
 
     @Test fun missingDateLeavesNull() {

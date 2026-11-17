@@ -99,7 +99,7 @@ fun HomeScreen(nav: Nav) {
     }
 
     val refreshScope = rememberCoroutineScope()
-    val update by com.jeiel85.doran.update.Updater.state.collectAsStateWithLifecycle()
+    val update by com.jeiel85.doran.update.SelfUpdate.state.collectAsStateWithLifecycle()
     PullToRefreshBox(isRefreshing = sync.running, onRefresh = { refreshScope.launch { Hub.sync.sync() } }, modifier = Modifier.fillMaxSize()) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 120.dp)) {
         item {
@@ -127,7 +127,7 @@ fun HomeScreen(nav: Nav) {
                         is com.jeiel85.doran.update.UpdateState.NeedsConfirm ->
                             runCatching { context.startActivity(u.confirm.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
                         is com.jeiel85.doran.update.UpdateState.Available ->
-                            refreshScope.launch { com.jeiel85.doran.update.Updater.run(context, userInitiated = true) }
+                            refreshScope.launch { com.jeiel85.doran.update.SelfUpdate.run(context, userInitiated = true) }
                         else -> Unit
                     }
                 }, color = P.c.incomeSoft, padding = PaddingValues(16.dp)) {
@@ -160,6 +160,8 @@ fun HomeScreen(nav: Nav) {
                 }
             }
         }
+
+        item { CandidatesCard(nav) }
 
         if (!captureOn) item {
             Spacer(Modifier.height(14.dp))
@@ -457,10 +459,12 @@ private fun SenderHome(nav: Nav) {
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SmallButton("QR 찍어서 연결") { nav.go(Route.Join()) }
+                    SmallButton("알림 골라 보내기") { nav.go(Route.CaptureLog) }
                     SmallButton("알림 설정") { nav.go(Route.Capture) }
                 }
             }
         }
+        item { CandidatesCard(nav) }
         item { Spacer(Modifier.height(20.dp)); SectionTitle("보낸 기록") }
         if (logs.isEmpty()) item { Text("아직 보낸 알림이 없어요", style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft) }
         items(logs, key = { it.id }) { l ->

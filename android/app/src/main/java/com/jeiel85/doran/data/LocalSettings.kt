@@ -6,6 +6,18 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 
+/**
+ * 사용자가 "최근 받은 알림"에서 골라 보내며 "앞으로도"를 켠 발신처. 그 앱·번호의 금액 알림은 [issuer]로 읽어 자동으로 보냅니다.
+ * key = "push:<패키지>" 또는 "sms:<번호 숫자>".
+ */
+data class ForwardRule(val key: String, val label: String, val issuer: String, val card: Boolean, val createdAt: Long = System.currentTimeMillis()) {
+    fun json(): org.json.JSONObject = org.json.JSONObject().put("key", key).put("label", label).put("issuer", issuer).put("card", card).put("createdAt", createdAt)
+    companion object {
+        fun key(source: String, from: String) = "$source:" + if (source == "sms") from.filter(Char::isDigit) else from
+        fun from(o: org.json.JSONObject) = ForwardRule(o.getString("key"), o.optString("label"), o.getString("issuer"), o.optBoolean("card", true), o.optLong("createdAt"))
+    }
+}
+
 /** 이 폰에만 있는 설정(동기화하지 않음). */
 data class Settings(
     val theme: String = "system",
@@ -78,6 +90,27 @@ class LocalSettings(context: Context) {
         prefs.edit().putString("unseen", JSONArray(s.toList()).toString()).apply()
         _unseen.value = s
     }
+
+    // --- "앞으로도 자동으로 보내기" 발신처 규칙 (이 폰에만, 동기화하지 않음) -------------------
+    private val _rules = MutableStateFlow(readRules())
+    val rules: StateFlow<List<ForwardRule>> = _rules.asStateFlow()
+
+    private fun readRules(): List<ForwardRule> = prefs.getString("forwardRules", null)?.let { s ->
+        runCatching { JSONArray(s) }.getOrNull()?.let { a -> (0 until a.length()).mapNotNull { runCatching { ForwardRule.from(a.getJSONObject(it)) }.getOrNull() } }
+    } ?: emptyList()
+
+    @Synchronized
+    fun saveRule(r: ForwardRule) = setRules(_rules.value.filter { it.key != r.key } + r)
+
+    @Synchronized
+    fun removeRule(key: String) = setRules(_rules.value.filter { it.key != key })
+
+    private fun setRules(list: List<ForwardRule>) {
+        prefs.edit().putString("forwardRules", JSONArray(list.map { it.json() }).toString()).apply()
+        _rules.value = list
+    }
+
+    fun ruleFor(source: String, from: String?): ForwardRule? = from?.let { f -> _rules.value.firstOrNull { it.key == ForwardRule.key(source, f) } }
 
     // --- 한 달에 한 번만 보내는 알림 표시(예산 80%·100%) -------------------------------------
     fun once(key: String): Boolean {
