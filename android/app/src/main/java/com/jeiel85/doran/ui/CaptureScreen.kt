@@ -83,7 +83,8 @@ fun CaptureScreen(nav: Nav) {
                     else Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
                     runCatching { context.startActivity(i) }.onFailure { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
                 }
-                if (!listener && Build.VERSION.SDK_INT >= 33) {
+                // '제한된 설정'은 직접 받은 APK(github 빌드)에만 걸립니다. Play 설치본에는 보이지 않게.
+                if (!listener && Build.VERSION.SDK_INT >= 33 && com.jeiel85.doran.update.SelfUpdate.selfUpdates) {
                     ListRow("'제한된 설정'이라며 안 켜질 때", "앱 정보 → 오른쪽 위 ⋮ → '제한된 설정 허용' 뒤 다시 켜 주세요 (직접 받은 앱이라 안드로이드가 한 번 막아요)",
                         Icons.Rounded.Shield, P.c.apricot, onClick = {
                             context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))

@@ -12,7 +12,7 @@
 ![E2E](https://img.shields.io/badge/종단%20암호화-AES--256--GCM-FF9F5A)
 [![Release](https://img.shields.io/github/v/release/jeiel85/doran?label=최신&color=2E7A62)](https://github.com/jeiel85/doran/releases/latest)
 
-[소개 페이지](https://jeiel85.github.io/doran/) · [APK 받기](https://github.com/jeiel85/doran/releases/latest/download/doran.apk) · [개인정보 처리 안내](https://jeiel85.github.io/doran/privacy/) · [변경 기록](CHANGELOG.md)
+[소개 페이지](https://jeiel85.github.io/doran/) · [Google Play(가족 테스트)](https://play.google.com/apps/internaltest/4700525127651558535) · [개인정보 처리 안내](https://jeiel85.github.io/doran/privacy/) · [변경 기록](CHANGELOG.md)
 
 </div>
 
@@ -47,11 +47,13 @@
 
 ## 설치
 
-도란은 두 가지로 나갑니다. 같은 앱이지만 서명 키가 달라 **서로 덮어 설치할 수 없어요.** 바꾸려면 설정 → 백업 파일 만들기 → 지우기 → 다른 쪽 설치 → 되살리기(또는 가족 QR로 다시 연결).
+**가족은 Google Play로 설치합니다.** 지금은 내부 테스트라 Play Console의 테스터 목록에 Google 계정(Gmail)이 등록된 사람만 [참여 링크](https://play.google.com/apps/internaltest/4700525127651558535)로 "테스터 되기" → Play에서 설치할 수 있어요. 초대 QR의 연결 페이지도 이 링크로 안내합니다.
+
+GitHub APK도 있지만, 도란은 알림 접근·문자 수신을 요청하는 앱이라 **Play 프로텍트가 브라우저·파일 관리자로 받은 APK 설치를 "기기 보호를 위해 앱 차단됨"으로 막을 수 있어요**(2026-11-17 사용자 폰에서 확인). 두 버전은 서명 키가 달라 **서로 덮어 설치할 수 없어요.** 바꾸려면 설정 → 백업 파일 만들기 → 지우기 → 다른 쪽 설치 → 되살리기(또는 가족 QR로 다시 연결).
 
 | | GitHub APK | Google Play |
 |---|---|---|
-| 받는 곳 | [소개 페이지](https://jeiel85.github.io/doran/)의 "APK 받기" | Play 스토어(내부 테스트 중) |
+| 받는 곳 | [릴리스](https://github.com/jeiel85/doran/releases/latest)의 `doran.apk` (Play 프로텍트가 막을 수 있음) | [내부 테스트 참여 링크](https://play.google.com/apps/internaltest/4700525127651558535) (테스터로 등록된 계정만) |
 | 업데이트 | 도란이 하루 두 번 GitHub 릴리스를 확인해 스스로 설치 | Play가 업데이트 |
 | 카드 문자 | 문자 수신 권한으로 직접 읽음(대화방을 무음으로 해도 읽음) | 문자 권한 없이 문자 앱의 알림으로 읽음(그 대화방 알림을 켜 두세요) |
 
@@ -65,7 +67,7 @@
 
 1. 한 사람이 도란을 설치하고 "새 가계부 시작하기" → 이름(남편·아내 등)을 고릅니다.
 2. 홈의 **QR 띄우기**(또는 가족 → 초대)로 QR을 화면 가득 띄웁니다.
-3. 가족은 **폰 기본 카메라**로 찍기만 하면 됩니다. 도란이 있으면 바로 열리고, 없으면 연결 페이지가 설치를 안내한 뒤 같은 링크로 연결을 이어 갑니다.
+3. 가족은 **폰 기본 카메라**로 찍기만 하면 됩니다. 도란이 있으면 바로 열리고, 없으면 연결 페이지가 Google Play 설치를 안내한 뒤 같은 링크로 연결을 이어 갑니다(그 가족의 Google 계정이 테스터로 등록돼 있어야 해요).
    멀리 있으면 "링크 보내기"로 카카오톡·문자에 보내도 같은 흐름입니다(30분, 한 번만).
 4. 부모님처럼 카드 알림만 보내 줄 가족은 "보내 줄 가족 초대"에서 어머니·아버지 등 부를 이름을 고른 뒤 같은 방법으로 연결합니다.
 
