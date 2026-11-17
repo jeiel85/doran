@@ -15,9 +15,9 @@
 
 ## Google Play (2026-11-17 v0.1.2)
 
-- [x] Play Console 앱 `도란 - 우리 가족 가계부`(com.jeiel85.doran, 개발자 계정 EL Studio · pedaiah85@gmail.com) · 내부 테스트 0.1.2(102) 출시 · 테스터 목록 "Homebase 내부 테스터"(사용자 계정) · 참여 링크 https://play.google.com/apps/internaltest/4700525127651558535
+- [x] Play Console 앱 `도란 - 우리 가족 가계부`(com.jeiel85.doran, 개발자 계정 EL Studio · pedaiah85@gmail.com) · 내부 테스트 0.1.2(102) 출시 · 테스터 목록 "도란 가족"(남편·아내 Google 계정, 2026-11-17) · 참여 링크 https://play.google.com/apps/internaltest/4700525127651558535
 - [x] 기본 스토어 등록정보(ko-KR): 문구 `design/play/listing-ko.md`, 아이콘·그래픽 이미지(AI 생성 라벨)·스크린샷 7장, 개인정보처리방침 URL
-- [ ] **GitHub APK 설치가 Play 프로텍트에 막힘**(사용자 폰, 2026-11-17): 브라우저·파일 관리자로 받은 앱이 알림 접근·문자 수신을 요청하면 "기기 보호를 위해 앱 차단됨". 가족 설치는 Play(내부 테스트)로 — 아내·부모님 Google 계정을 테스터 목록에 추가, 소개·연결 페이지의 "APK 받기"를 Play로 바꾸기
+- [ ] **GitHub APK 설치가 Play 프로텍트에 막힘**(사용자 폰, 2026-11-17): 브라우저·파일 관리자로 받은 앱이 알림 접근·문자 수신을 요청하면 "기기 보호를 위해 앱 차단됨". 가족 설치는 Play(내부 테스트)로 — 소개·연결 페이지를 Play로 바꿈(DECISIONS.md D-18), 아내 계정 등록 완료. 부모님을 연결할 때 그 Google 계정을 "도란 가족" 목록에 추가
 - [ ] 앱 콘텐츠 선언 10개(광고·로그인·콘텐츠 등급·타겟층·데이터 보안·광고 ID·금융 기능 등) — 비공개 테스트·프로덕션 전에 필요
 - [ ] 앱 안에 개인정보처리방침 링크(Play 정책: 스토어와 앱 안 모두) — 설정 화면
 - [ ] 네이티브 디버그 기호 업로드(출시 경고, 비정상 종료 분석용) — `ndk.debugSymbolLevel`
