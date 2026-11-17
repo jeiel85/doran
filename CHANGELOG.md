@@ -1,6 +1,8 @@
 # CHANGELOG
 
-## [Unreleased] — 0.1.0 준비
+## [0.1.0] - 2026-11-17
+
+첫 릴리스. 실시간 알림(FCM)은 Firebase 설정 뒤 다음 버전부터 — 그 전에는 15분마다·앱을 열 때·홈을 당길 때 동기화합니다.
 
 ### 추가
 - 가족 공동 가계부 앱 **도란**(Kotlin · Jetpack Compose, `com.jeiel85.doran`)

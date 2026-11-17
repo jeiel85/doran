@@ -33,8 +33,8 @@ gh release create "$TAG" dist/doran.apk --title "도란 $TAG" --notes-file "$NOT
 rm -f "$NOTES"
 echo "✓ released $TAG (sha256 $SHA)"
 
-# 로컬 배포: 이 집의 폰들도 방금 낸 빌드로.
-for d in $(adb devices | awk 'NR>1 && $2=="device" {print $1}'); do
+# 로컬 배포: 이 집의 실제 폰들도 방금 낸 빌드로(에뮬레이터는 다른 프로젝트 것일 수 있어 건너뜀).
+for d in $(adb devices | awk 'NR>1 && $2=="device" && $1 !~ /^emulator-/ {print $1}'); do
   adb -s "$d" install -r dist/doran.apk >/dev/null && echo "✓ installed on $d"
 done
 

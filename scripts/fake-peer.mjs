@@ -2,6 +2,8 @@
 // 에뮬레이터 2대를 동시에 못 띄우는 PC용. 사용법은 README "두 폰 동기화 시험".
 // usage: node scripts/fake-peer.mjs join <code> | pull | push-card | push-sender <code>
 //        host (가짜 남편이 가구를 만들고 초대 코드 출력) | push-hyundai (가짜 남편의 현대카드 결제)
+//        leave (이 가짜 기기를 서버에서 지움 — 운영 서버 시험 뒤 정리)
+// 환경 변수: RELAY(기본 로컬 8787), PEER_STATE(상태 파일)
 import crypto from "node:crypto";
 import fs from "node:fs";
 
@@ -123,6 +125,9 @@ if (cmd === "join") {
     cardLabel: "현대카드(1234)", needsReview: false, receiptIds: [], private: false, createdBy: "husband-" + st.deviceId, createdAt: Date.now(),
   }]]);
   console.log("pushed husband hyundai txn", id, JSON.stringify(r));
+} else if (cmd === "leave") {
+  await call("DELETE", "/v1/devices/me", st.token);
+  console.log("left: device removed from relay");
 } else if (cmd === "push-sender") {
   // 어머니 폰 흉내: sender 초대를 받아 링크 키로 카드 내역 하나를 보냄
   const mom = { };
