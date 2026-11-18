@@ -9,6 +9,8 @@ import com.jeiel85.doran.core.Hub
 import com.jeiel85.doran.core.newId
 import com.jeiel85.doran.crypto.Crypto
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -67,11 +69,33 @@ object Receipts {
     suspend fun delete(context: Context, id: String) = withContext(Dispatchers.IO) {
         file(context, id).delete()
         val space = Hub.identity.value.spaceId ?: return@withContext
-        runCatching { com.jeiel85.doran.sync.Relay { Hub.identity.token }.deleteBlob(space, id) }
+        // 중계에서 못 지웠으면 기억해 두고 다시 지웁니다 — 남으면 가구 사진 용량(450MB)을 계속 차지해요(하드닝 #8).
+        if (!deleteRemote(space, id)) pending.withLock { Hub.db.setKv(DEL_PENDING, (pendingDeletes() + id).distinct().joinToString(",")) }
     }
 
-    /** 올리지 못한 사진 다시 올리기(동기화 뒤). */
-    suspend fun retryUploads(context: Context) {
+    private const val DEL_PENDING = "blob.del"
+    private val pending = Mutex()
+    fun pendingDeletes(): List<String> = Hub.db.kv(DEL_PENDING)?.split(',')?.filter { it.isNotBlank() }.orEmpty()
+
+    private fun deleteRemote(space: String, id: String): Boolean =
+        runCatching { com.jeiel85.doran.sync.Relay { Hub.identity.token }.deleteBlob(space, id) }
+            .fold({ true }, { e -> e is com.jeiel85.doran.sync.RelayError && e.status == 404 })
+
+    /**
+     * 못 다 한 사진 일 마저 하기(#7): 지우지 못한 사진 지우기, 올리지 못한 사진 올리기.
+     * 앱을 열 때와 주기 동기화(15분)가 성공한 뒤 부릅니다.
+     */
+    suspend fun retryPending(context: Context) = withContext(Dispatchers.IO) {
+        val space = Hub.identity.value.spaceId ?: return@withContext
+        pending.withLock {
+            val left = pendingDeletes().filterNot { deleteRemote(space, it) }
+            Hub.db.setKv(DEL_PENDING, left.joinToString(","))
+        }
+        retryUploads(context)
+    }
+
+    /** 올리지 못한 사진 다시 올리기. */
+    private suspend fun retryUploads(context: Context) {
         val ids = Hub.ledger.value.txns.values.flatMap { it.receiptIds }.filter { Hub.db.kv("blob.up.$it") == null && file(context, it).exists() }
         for (id in ids) upload(context, id)
     }

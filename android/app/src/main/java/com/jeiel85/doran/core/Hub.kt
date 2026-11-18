@@ -59,6 +59,7 @@ object Hub {
         scope.launch {
             delay(2_000)
             Hooks.daily(app)
+            com.jeiel85.doran.feature.Receipts.retryPending(app) // 앱을 열 때도 못 올린·못 지운 사진(#7)
         }
     }
 

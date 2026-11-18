@@ -29,6 +29,24 @@ class SenderLinkTest {
         assertEquals("어머니", Pairing.senderOf(device("sender", "I".repeat(43)), state)?.name)
     }
 
+    @Test fun reinvitingTheSameNameReusesTheSender() {
+        // 끊은 어머니를 다시 초대해도 같은 구성원(사람별 지출이 둘로 나뉘지 않게, 하드닝 #8)
+        val removed = state.copy(members = mapOf(mom.id to mom.copy(removed = true)))
+        assertEquals("mom", Pairing.senderNamed(removed, " 어머니 ")?.id)
+        assertNull(Pairing.senderNamed(state, "아버지"))
+        // 같은 이름이라도 장부를 함께 쓰는 구성원은 보내는 가족으로 쓰지 않음
+        val wife = Member("w", "어머니")
+        assertNull(Pairing.senderNamed(LedgerState(members = mapOf(wife.id to wife)), "어머니"))
+    }
+
+    @Test fun senderWithoutTxnsOrLiveLinksIsUnused() {
+        assertEquals(false, Pairing.unusedSender(state, "mom")) // 살아 있는 링크
+        val revoked = state.copy(links = mapOf(link.id to link.copy(revoked = true)))
+        assertEquals(true, Pairing.unusedSender(revoked, "mom"))
+        val withTxn = revoked.copy(txns = mapOf("t" to com.jeiel85.doran.model.Txn(id = "t", kind = com.jeiel85.doran.model.Kind.EXPENSE, amount = 1000, at = 0, memberId = "mom")))
+        assertEquals(false, Pairing.unusedSender(withTxn, "mom")) // 보낸 내역이 있으면 남김
+    }
+
     @Test fun unknownOrMemberDevicesStayUnnamed() {
         assertNull(Pairing.senderOf(device("sender", "J".repeat(43)), state)) // 다른 초대
         assertNull(Pairing.senderOf(device("sender", null), state))           // 옛 중계·옛 기기

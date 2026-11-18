@@ -14,7 +14,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -34,7 +33,6 @@ import kotlinx.coroutines.launch
 @Composable
 fun ReceiptsScreen(nav: Nav) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val s by Hub.ledger.state.collectAsStateWithLifecycle()
     val withPhotos = remember(s.version) { s.txns.values.filter { it.receiptIds.isNotEmpty() }.sortedBy { it.at } }
     val photos = withPhotos.sumOf { it.receiptIds.size }
@@ -46,7 +44,7 @@ fun ReceiptsScreen(nav: Nav) {
     fun clear(list: List<Txn>) {
         val ids = list.flatMap { it.receiptIds }
         Hub.ledger.putAll(list.map { Triple(com.jeiel85.doran.model.T.TXN, it.id, it.copy(receiptIds = emptyList()).json()) })
-        scope.launch { ids.forEach { Receipts.delete(context, it) } }
+        Hub.scope.launch { ids.forEach { Receipts.delete(context, it) } } // 화면을 나가도 끝까지(하드닝 #8)
     }
 
     SubScreen("영수증 사진 정리", { nav.back() }) {

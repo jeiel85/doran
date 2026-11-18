@@ -72,23 +72,68 @@ object Pairing {
         create(space, "member", bundle, ttlSec)
     }
 
-    /** 부모님처럼 카드 알림만 보내 줄 가족을 초대. 그 사람의 구성원과 링크 키를 먼저 장부에 만듭니다. */
+    /**
+     * 부모님처럼 카드 알림만 보내 줄 가족을 초대. 그 사람의 구성원과 링크 키를 먼저 장부에 만듭니다.
+     * 같은 이름의 보내는 가족이 이미 있으면(끊은 가족 포함) 그 구성원을 다시 써서, 폰을 바꾸거나 다시 연결해도
+     * 사람별 지출이 둘로 나뉘지 않습니다(하드닝 #8).
+     */
     suspend fun inviteSender(name: String, ttlSec: Int): Invite = withContext(Dispatchers.IO) {
         val space = ensureSpace()
         val s = Hub.ledger.value
-        val member = Member(id = newId(), name = name.trim().ifEmpty { "가족" }, role = "sender",
+        val clean = name.trim().ifEmpty { "가족" }
+        val member = senderNamed(s, clean)?.copy(removed = false) ?: Member(id = newId(), name = clean, role = "sender",
             color = (s.members.size + 2) % com.jeiel85.doran.model.Defaults.MEMBER_COLORS, order = s.members.size)
         val key = Crypto.newKey()
         val secret = Crypto.randomBytes(32)
+        val inviteId = Crypto.inviteId(secret)
         Hub.ledger.saveMember(member)
         // 초대 id를 링크에 적어 두면, 그 초대로 들어온 기기를 가족 화면에서 이 사람 이름으로 보여 줄 수 있어요(D-22).
         Hub.ledger.saveLink(Link(id = newId(), memberId = member.id, key = Crypto.b64(key), createdAt = System.currentTimeMillis(),
-            inviteId = Crypto.inviteId(secret)))
+            inviteId = inviteId))
         Hub.sync.sync() // 링크가 받는 쪽 폰들에 먼저 가 있도록
         val bundle = JSONObject().put("v", 1).put("role", "sender").put("space", space).put("lk", Crypto.b64(key))
             .put("memberId", member.id).put("memberName", member.name).put("label", s.household.name)
             .put("inviter", s.member(Hub.identity.value.myMemberId)?.name ?: "")
-        create(space, "sender", bundle, ttlSec, secret)
+        try {
+            create(space, "sender", bundle, ttlSec, secret)
+        } catch (e: Exception) {
+            dropUnusedLink(inviteId) // 초대를 못 맡겼으면 방금 만든 링크·빈 구성원을 남기지 않음
+            throw e
+        }
+    }
+
+    /** 같은 이름의 보내는 가족(끊은 가족 포함). */
+    fun senderNamed(s: com.jeiel85.doran.data.LedgerState, name: String): Member? =
+        s.members.values.firstOrNull { it.isSender && it.name == name.trim() }
+
+    /** 보낸 내역도 살아 있는 링크도 없는 보내는 가족 — 쓰지 않은 초대만 남은 빈 구성원. */
+    fun unusedSender(s: com.jeiel85.doran.data.LedgerState, memberId: String): Boolean =
+        s.txns.values.none { it.memberId == memberId } && s.links.values.none { it.memberId == memberId && !it.revoked }
+
+    /** 이 초대로 기기가 들어왔는지(중계가 기기마다 초대 id를 알려 줌, D-22). 알 수 없으면 null. */
+    suspend fun claimed(invite: Invite): Boolean? = withContext(Dispatchers.IO) {
+        val space = Hub.identity.value.spaceId ?: return@withContext null
+        runCatching { Relay { Hub.identity.token }.space(space).members.any { it.invite == invite.inviteId } }.getOrNull()
+    }
+
+    /**
+     * 쓰지 않고 떠난 초대 정리(#6·#8): 중계의 초대를 지우고(이후로는 아무도 못 씀), 그새 들어온 기기가 없으면
+     * 보내는 가족 링크를 끊고 빈 구성원을 지웁니다. 연결 여부를 모르면(오프라인) 그대로 둡니다 — 가족 화면에
+     * "연결된 폰 없음"으로 보여 직접 끊을 수 있어요.
+     */
+    suspend fun abandon(invite: Invite) = withContext(Dispatchers.IO) {
+        val space = Hub.identity.value.spaceId ?: return@withContext
+        runCatching { Relay { Hub.identity.token }.cancelInvite(space, invite.inviteId) }
+        if (invite.role != "sender") return@withContext
+        if (claimed(invite) == false) dropUnusedLink(invite.inviteId)
+    }
+
+    private fun dropUnusedLink(inviteId: String) {
+        val link = Hub.ledger.value.links.values.firstOrNull { it.inviteId == inviteId && !it.revoked } ?: return
+        Hub.ledger.saveLink(link.copy(revoked = true))
+        val m = Hub.ledger.value.member(link.memberId) ?: return
+        if (m.isSender && !m.removed && unusedSender(Hub.ledger.value, m.id)) Hub.ledger.saveMember(m.copy(removed = true))
+        Hub.requestSync()
     }
 
     private fun create(space: String, role: String, bundle: JSONObject, ttlSec: Int, secret: ByteArray = Crypto.randomBytes(32)): Invite {
@@ -97,11 +142,6 @@ object Pairing {
         val relay = Relay { Hub.identity.token }
         val expiresAt = relay.createInvite(space, inviteId, role, sealed, ttlSec)
         return Invite(link(secret, role, bundle.optString("inviter")), inviteId, expiresAt, role)
-    }
-
-    fun cancel(invite: Invite) {
-        val space = Hub.identity.value.spaceId ?: return
-        runCatching { Relay { Hub.identity.token }.cancelInvite(space, invite.inviteId) }
     }
 
     sealed interface Joined {

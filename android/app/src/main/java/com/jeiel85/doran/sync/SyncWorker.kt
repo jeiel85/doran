@@ -28,6 +28,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     override suspend fun doWork(): Result {
         Hub.init(applicationContext)
         val ok = Hub.sync.sync()
+        if (ok) com.jeiel85.doran.feature.Receipts.retryPending(applicationContext) // 못 올린·못 지운 사진(#7)
         if (tags.contains(PERIODIC)) Hooks.daily(applicationContext)
         return if (ok || runAttemptCount >= 5) Result.success() else Result.retry()
     }

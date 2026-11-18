@@ -1,5 +1,7 @@
 package com.jeiel85.doran.ui
 
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.activity.compose.BackHandler
 import android.content.Intent
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -130,8 +132,19 @@ fun FamilyScreen(nav: Nav) {
                         style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft, modifier = Modifier.padding(8.dp))
                     senders.forEach { m ->
                         val count = s.txns.values.count { it.memberId == m.id }
-                        ListRow(m.name, "보낸 내역 ${count}건 · 눌러서 이름 바꾸기", leading = { MemberAvatar(m, 40.dp) }, onClick = { rename = m }) {
-                            SmallButton("끊기", color = P.c.danger) { revokeTarget = m }
+                        // 초대 id가 있는 링크(0.1.8~)면 중계의 기기 목록으로 폰이 연결돼 있는지 알 수 있어요(하드닝 #8).
+                        val tracked = s.links.values.any { it.memberId == m.id && !it.revoked && it.inviteId != null }
+                        val phones = devices?.members?.count { Pairing.senderOf(it, s)?.id == m.id }
+                        val status = when {
+                            !tracked || phones == null -> "눌러서 이름 바꾸기"
+                            phones == 0 -> "연결된 폰 없음"
+                            else -> "폰 ${phones}대 연결"
+                        }
+                        ListRow(m.name, "보낸 내역 ${count}건 · $status", leading = { MemberAvatar(m, 40.dp) }, onClick = { rename = m }) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                if (tracked && phones == 0) SmallButton("다시 초대") { nav.go(Route.Invite("sender", m.name)) }
+                                SmallButton("끊기", color = P.c.danger) { revokeTarget = m }
+                            }
                         }
                     }
                     ListRow("보내 줄 가족 초대", "그 가족 폰에 도란을 깔고 QR을 찍으면 돼요", Icons.Rounded.Send, P.c.apricot,
@@ -162,6 +175,14 @@ fun FamilyScreen(nav: Nav) {
                         ListRow("영수증 사진 정리", "사진이 붙은 내역을 오래된 것부터 보고 사진만 지워요", Icons.Rounded.Photo, P.c.apricot,
                             onClick = { nav.go(Route.Receipts) })
                     }
+                }
+            }
+            // 서버에 닿지 못해 기기 목록이 없어도 사진 정리는 할 수 있어요(못 지운 사진은 나중에 다시 지움, #8).
+            if (devices == null) item {
+                Spacer(Modifier.height(20.dp))
+                SoftCard(padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
+                    ListRow("영수증 사진 정리", "사진이 붙은 내역을 오래된 것부터 보고 사진만 지워요", Icons.Rounded.Photo, P.c.apricot,
+                        onClick = { nav.go(Route.Receipts) })
                 }
             }
         }
@@ -197,7 +218,7 @@ fun FamilyScreen(nav: Nav) {
             containerColor = P.c.bg,
             title = { Text("${m.name} 연결을 끊을까요?") },
             text = { Text("${m.name} 폰에서 보내는 내역이 더 이상 들어오지 않고, 그 폰은 연결된 기기에서 빠져요. " +
-                "지금까지 보낸 내역은 그대로 남아요. 다시 연결하려면 새로 초대해야 해요.") },
+                "지금까지 보낸 내역은 그대로 남아요. 같은 이름으로 다시 초대하면 지난 내역과 이어져요.") },
             confirmButton = { TextButton({
                 scope.launch {
                     Pairing.revokeSender(m.id, devices?.members.orEmpty())
@@ -239,19 +260,25 @@ fun friendly(e: Throwable): String = when {
  * 상대 폰은 "QR 찍어서 연결" 한 번이면 끝납니다.
  */
 @Composable
-fun InviteScreen(role: String, nav: Nav) {
+fun InviteScreen(role: String, nav: Nav, presetName: String? = null) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
-    var senderName by remember { mutableStateOf("") }
-    var askName by remember { mutableStateOf(role == "sender") }
+    var senderName by remember { mutableStateOf(presetName.orEmpty()) }
+    var askName by remember { mutableStateOf(role == "sender" && presetName == null) }
     var invite by remember { mutableStateOf<Pairing.Invite?>(null) }
+    var previous by remember { mutableStateOf<Pairing.Invite?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableStateOf(0) }
     var left by remember { mutableLongStateOf(0L) }
+    // 링크를 복사·전송했으면 화면을 떠나도 초대는 30분 동안 살아 있어야 해요(#6). QR만 띄웠다 떠나면 지웁니다.
+    var shared by remember { mutableStateOf(false) }
+    var joined by remember { mutableStateOf(false) }
 
     LaunchedEffect(askName, attempt) {
         if (askName) return@LaunchedEffect
         error = null
+        previous?.let { if (!joined) Pairing.abandon(it) } // "새 QR 만들기": 앞 초대를 먼저 정리(같은 구성원을 다시 씀)
+        previous = null
         invite = runCatching {
             if (role == "sender") Pairing.inviteSender(senderName, 1800) else Pairing.inviteMember(1800)
         }.onFailure { error = friendly(it) }.getOrNull()
@@ -264,8 +291,22 @@ fun InviteScreen(role: String, nav: Nav) {
             delay(1000)
         }
     }
+    // 상대가 이 초대로 들어왔는지 몇 초마다 봅니다(중계가 기기마다 초대 id를 알려 줌, D-22).
+    LaunchedEffect(invite) {
+        val inv = invite ?: return@LaunchedEffect
+        while (!joined && System.currentTimeMillis() < inv.expiresAt) {
+            delay(4000)
+            if (Pairing.claimed(inv) == true) { joined = true; Hub.requestSync() }
+        }
+    }
+    fun leave() {
+        val inv = invite
+        if (inv != null && !shared && !joined) Hub.scope.launch { Pairing.abandon(inv) }
+        nav.back()
+    }
+    BackHandler { leave() }
 
-    SubScreen(if (role == "sender") "보내 줄 가족 초대" else "함께 쓸 사람 초대", { invite?.let(Pairing::cancel); nav.back() }) {
+    SubScreen(if (role == "sender") "보내 줄 가족 초대" else "함께 쓸 사람 초대", { leave() }) {
         if (askName) {
             item {
                 Text("이 가족을 뭐라고 부를까요?", style = MaterialTheme.typography.titleLarge, color = P.c.ink)
@@ -279,15 +320,27 @@ fun InviteScreen(role: String, nav: Nav) {
         }
         item {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(if (role == "sender") "${senderName}의 폰에서 QR을 찍어 주세요" else "배우자 폰에서 QR을 찍어 주세요",
-                    style = MaterialTheme.typography.titleLarge, color = P.c.ink, textAlign = TextAlign.Center)
+                Text(when {
+                    joined -> "연결을 마쳤어요"
+                    role == "sender" -> "${senderName}의 폰에서 QR을 찍어 주세요"
+                    else -> "배우자 폰에서 QR을 찍어 주세요"
+                }, style = MaterialTheme.typography.titleLarge, color = P.c.ink, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(6.dp))
-                Text("폰 기본 카메라로 찍으면 돼요. 도란이 없으면 설치부터 안내하고, 설치하면 바로 이어서 연결돼요.",
-                    style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft, textAlign = TextAlign.Center)
+                Text(when {
+                    joined && role == "sender" -> "이제 ${senderName} 폰의 카드·은행 알림이 이 가계부로 들어와요"
+                    joined -> "이제 같은 가계부를 함께 써요"
+                    else -> "폰 기본 카메라로 찍으면 돼요. 도란이 없으면 설치부터 안내하고, 설치하면 바로 이어서 연결돼요."
+                }, style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(20.dp))
                 val inv = invite
                 Box(Modifier.size(300.dp).clip(RoundedCornerShape(28.dp)).background(Color.White).padding(18.dp), contentAlignment = Alignment.Center) {
                     when {
+                        joined -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Rounded.CheckCircle, null, tint = P.c.pine, modifier = Modifier.size(72.dp))
+                            Spacer(Modifier.height(12.dp))
+                            Text(if (role == "sender") "${senderName} 폰이 연결됐어요" else "배우자 폰이 연결됐어요",
+                                style = MaterialTheme.typography.titleMedium, color = P.c.ink, textAlign = TextAlign.Center)
+                        }
                         inv != null && left > 0 -> {
                             val qr: Bitmap = remember(inv.code) { BarcodeEncoder().encodeBitmap(inv.code, BarcodeFormat.QR_CODE, 800, 800) }
                             Image(qr.asImageBitmap(), "초대 QR", Modifier.size(264.dp))
@@ -298,18 +351,21 @@ fun InviteScreen(role: String, nav: Nav) {
                     }
                 }
                 Spacer(Modifier.height(14.dp))
-                if (inv != null && left > 0) {
+                if (joined) {
+                    SmallButton("확인") { nav.back() }
+                } else if (inv != null && left > 0) {
                     Text("${left / 60}분 ${"%02d".format(left % 60)}초 동안 한 번 쓸 수 있어요", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
                 } else if (inv != null || error != null) {
-                    SmallButton("새 QR 만들기") { invite = null; attempt++ }
+                    SmallButton("새 QR 만들기") { previous = invite; invite = null; shared = false; attempt++ }
                 }
                 Spacer(Modifier.height(20.dp))
-                if (inv != null && left > 0) {
+                if (inv != null && left > 0 && !joined) {
                     Text("멀리 있으면 링크를 카톡·문자로 보내도 돼요. 누르면 똑같이 이어져요.", style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint)
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SmallButton("링크 복사") { clipboard.setText(AnnotatedString(inv.code)) }
+                        SmallButton("링크 복사") { shared = true; clipboard.setText(AnnotatedString(inv.code)) }
                         SmallButton("링크 보내기") {
+                            shared = true
                             val who = if (role == "sender") "카드 알림을 우리 가계부로 보내 주세요" else "같이 가계부를 써요"
                             context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain")
                                 .putExtra(Intent.EXTRA_TEXT, "도란 가족 가계부 초대예요. $who!\n아래 링크를 누르면 설치와 연결을 안내해요(30분 동안, 한 번만).\n${inv.code}"),

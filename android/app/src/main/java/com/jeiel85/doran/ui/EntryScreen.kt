@@ -392,7 +392,7 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
             title = { Text("이 내역을 지울까요?") },
             text = { Text("가족 모두의 장부에서 지워져요. 카드 알림으로 들어온 내역은 같은 알림이 다시 와도 새로 생기지 않아요.") },
             confirmButton = { TextButton({
-                original?.let { o -> Hub.ledger.deleteTxn(o.id); scope.launch { o.receiptIds.forEach { Receipts.delete(context, it) } } }
+                original?.let { o -> Hub.ledger.deleteTxn(o.id); Hub.scope.launch { o.receiptIds.forEach { Receipts.delete(context, it) } } }
                 picker = null; nav.back()
             }) { Text("지우기", color = P.c.danger) } },
             dismissButton = { TextButton({ picker = null }) { Text("두기") } },

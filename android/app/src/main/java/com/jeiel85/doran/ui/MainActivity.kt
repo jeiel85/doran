@@ -84,7 +84,8 @@ sealed interface Route {
     data object Allowance : Route
     data object Categories : Route
     data object Search : Route
-    data class Invite(val role: String) : Route
+    /** [name]: 보내는 가족을 같은 이름으로 다시 초대(이름 고르기 건너뜀). */
+    data class Invite(val role: String, val name: String? = null) : Route
     data class CategoryTxns(val categoryId: String, val month: String) : Route
     data class SendPicked(val logId: Long) : Route
     data class Share(val memberId: String) : Route
@@ -257,7 +258,7 @@ private fun Root(nav: Nav) {
             Route.Allowance -> AllowanceScreen(nav)
             Route.Categories -> CategoriesScreen(nav)
             Route.Search -> SearchScreen(nav)
-            is Route.Invite -> InviteScreen(route.role, nav)
+            is Route.Invite -> InviteScreen(route.role, nav, route.name)
             is Route.CategoryTxns -> CategoryTxnsScreen(route.categoryId, route.month, nav)
             is Route.SendPicked -> SendPickedScreen(route.logId, nav)
             is Route.Share -> ShareScreen(route.memberId, nav)
