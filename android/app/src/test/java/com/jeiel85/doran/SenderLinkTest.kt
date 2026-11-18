@@ -47,6 +47,17 @@ class SenderLinkTest {
         assertEquals(false, Pairing.unusedSender(withTxn, "mom")) // 보낸 내역이 있으면 남김
     }
 
+    @Test fun senderPhoneSendsOnlyPickedIssuers() {
+        // 부모님 폰의 "보낼 알림"(D-6, #10): 비어 있으면 전부, 고르면 그 카드사·은행만 — 표기가 달라도 같은 곳이면
+        val all = com.jeiel85.doran.data.OutLink(spaceId = "s", key = ByteArray(32), memberId = "mom", label = "우리집", createdAt = 0)
+        assertEquals(true, com.jeiel85.doran.capture.CaptureProcessor.sendsTo(all, "KB국민은행"))
+        val cards = all.copy(issuers = listOf("현대카드M", "KB Pay"))
+        assertEquals(true, com.jeiel85.doran.capture.CaptureProcessor.sendsTo(cards, "현대카드"))
+        assertEquals(true, com.jeiel85.doran.capture.CaptureProcessor.sendsTo(cards, "KB국민카드"))
+        assertEquals(false, com.jeiel85.doran.capture.CaptureProcessor.sendsTo(cards, "KB국민은행"))
+        assertEquals(false, com.jeiel85.doran.capture.CaptureProcessor.sendsTo(cards, "신한카드"))
+    }
+
     @Test fun unknownOrMemberDevicesStayUnnamed() {
         assertNull(Pairing.senderOf(device("sender", "J".repeat(43)), state)) // 다른 초대
         assertNull(Pairing.senderOf(device("sender", null), state))           // 옛 중계·옛 기기

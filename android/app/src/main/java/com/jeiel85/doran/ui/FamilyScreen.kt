@@ -193,8 +193,8 @@ fun FamilyScreen(nav: Nav) {
                     Icons.Rounded.QrCodeScanner, P.c.pine, onClick = { nav.go(Route.Join()) })
                 id.outLinks.forEach { l ->
                     ListRow("${l.label}에 보내는 중", (l.memberName?.let { "'$it' 이름으로 · " } ?: "") +
-                        if (l.issuers.isEmpty()) "읽은 카드·은행 알림 전부" else l.issuers.joinToString(),
-                        Icons.Rounded.Send, P.c.apricot) {
+                        (if (l.issuers.isEmpty()) "읽은 카드·은행 알림 전부" else l.issuers.joinToString()) + " · 눌러서 바꾸기",
+                        Icons.Rounded.Send, P.c.apricot, onClick = { nav.go(Route.LinkScope(l.spaceId)) }) {
                         SmallButton("끊기", color = P.c.danger) { scope.launch { Pairing.leaveLink(l.spaceId) } }
                     }
                 }
@@ -361,6 +361,10 @@ fun InviteScreen(role: String, nav: Nav, presetName: String? = null) {
                 Spacer(Modifier.height(20.dp))
                 if (inv != null && left > 0 && !joined) {
                     Text("멀리 있으면 링크를 카톡·문자로 보내도 돼요. 누르면 똑같이 이어져요.", style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint)
+                    // Play 내부 테스트는 테스터 목록에 있는 계정만 설치할 수 있어요(#10).
+                    Text("도란은 아직 테스트 중이라, 그 폰에 도란이 없으면 그 폰의 Google 계정(Gmail)을 먼저 테스터로 등록해야 Play에서 받을 수 있어요.",
+                        style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint, textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 6.dp))
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SmallButton("링크 복사") { shared = true; clipboard.setText(AnnotatedString(inv.code)) }
@@ -417,7 +421,8 @@ fun JoinPanel(needName: Boolean, preset: String? = null, onDone: () -> Unit) {
         }
         is Pairing.Joined.Sender -> Column {
             Text("연결했어요!", style = MaterialTheme.typography.headlineSmall, color = P.c.pine)
-            Text("이제 이 폰에 오는 카드·은행 알림을 '${j.label}'에 '${j.memberName}' 이름으로 보내요. 알림 자동 기록 화면에서 알림 접근을 켜 주세요.",
+            Text("이제 이 폰에 오는 카드·은행 알림을 '${j.label}'에 '${j.memberName}' 이름으로 보내요. 알림 자동 기록 화면에서 알림 접근을 켜 주세요. " +
+                "카드만 보내려면 홈의 '보내는 알림'에서 고를 수 있어요(통장 입금도 보내면 그 가계부의 수입에 더해져요).",
                 style = MaterialTheme.typography.bodyLarge, color = P.c.ink)
             Spacer(Modifier.height(20.dp))
             PrimaryButton("확인", onClick = onDone)

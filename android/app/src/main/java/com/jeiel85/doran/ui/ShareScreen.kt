@@ -152,6 +152,55 @@ private fun MovePastDialog(list: List<com.jeiel85.doran.model.Txn>, onDone: () -
     )
 }
 
+/**
+ * 보내는 폰(부모님 폰): 이 폰이 읽은 카드·은행 알림 중 무엇을 그 가구로 보낼지(DECISIONS.md D-6, #10).
+ * 기본은 전부. 연금·월급 같은 통장 입금도 보내면 받는 가계부의 수입에 더해지므로, 카드만 보내려면 여기서 고릅니다.
+ */
+@Composable
+fun LinkScopeScreen(spaceId: String, nav: Nav) {
+    val id by Hub.identity.state.collectAsStateWithLifecycle()
+    val link = id.outLinks.firstOrNull { it.spaceId == spaceId }
+    if (link == null) {
+        SubScreen("보낼 알림", { nav.back() }) { item { Text("연결을 찾을 수 없어요", color = P.c.inkSoft) } }
+        return
+    }
+    var picked by remember(spaceId) { mutableStateOf(link.issuers.isNotEmpty()) }
+    var issuers by remember(spaceId) { mutableStateOf(link.issuers) }
+    val cards = (link.issuers + Issuers.cards.map { it.name }).distinct().filter { n -> Issuers.banks.none { it.name == n } }
+    val banks = Issuers.banks.map { it.name }
+
+    SubScreen("'${link.label}'에 보낼 알림", { nav.back() }, bottom = {
+        PrimaryButton("저장", enabled = !picked || issuers.isNotEmpty()) {
+            Hub.identity.addOutLink(link.copy(issuers = if (picked) issuers else emptyList()))
+            nav.back()
+        }
+    }) {
+        item {
+            Text("이 폰이 읽은 카드·은행 알림 중 무엇을 '${link.label}'에 보낼지 정해요. 통장 입금(연금·월급 등)도 보내면 그 가계부의 수입에 더해져요.",
+                style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft)
+            Spacer(Modifier.height(14.dp))
+            SoftCard(padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
+                ListRow("모두 보내기", "읽은 카드·은행 알림을 모두 보내요", Icons.Rounded.Groups,
+                    if (!picked) P.c.pine else P.c.inkFaint, onClick = { picked = false }) { RadioMark(!picked) }
+                ListRow("고른 카드·은행만", "고른 곳의 알림만 보내고 나머지는 보내지 않아요",
+                    Icons.Rounded.Send, if (picked) P.c.apricot else P.c.inkFaint, onClick = { picked = true }) { RadioMark(picked) }
+            }
+        }
+        if (picked) item {
+            Spacer(Modifier.height(18.dp))
+            Text("보낼 카드", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
+            Spacer(Modifier.height(8.dp))
+            ChipFlow { cards.forEach { n -> Chip(n, n in issuers, { issuers = if (n in issuers) issuers - n else issuers + n }) } }
+            Spacer(Modifier.height(14.dp))
+            Text("보낼 은행", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
+            Spacer(Modifier.height(8.dp))
+            ChipFlow { banks.forEach { n -> Chip(n, n in issuers, { issuers = if (n in issuers) issuers - n else issuers + n }) } }
+            Spacer(Modifier.height(14.dp))
+            if (issuers.isEmpty()) Text("보낼 카드사·은행을 하나 이상 골라 주세요", color = P.c.danger, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
 /** 카드사·은행이 많아도 한눈에 보이게 줄을 바꿔 늘어놓는 칩 묶음. */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable

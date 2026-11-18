@@ -112,6 +112,7 @@ cd relay && npm install && npm test
   - 에뮬레이터가 초대: 가족 → 초대 QR의 링크로 `join "<링크>"` → `pull`(장부 복호화 확인) → `push-card`(가족 카드 내역 → 에뮬레이터 알림)
   - 가짜 남편이 초대: `host`가 연결 링크를 찍으면 에뮬레이터에서 `adb shell am start -a android.intent.action.VIEW -d "<링크>"` → `push-hyundai`
   - 보내기 전용 가족: "보내 줄 가족 초대" 링크로 `push-sender "<링크>"`(링크 키로 가구 설정을 바꾸려는 op가 버려지는지도 확인). 가족 화면 "연결된 기기"에 "어머니 폰"으로 보이는지, "끊기" 뒤 `sender-again`이 중계에서 거절되는지 확인
+  - 부모님 폰 쪽: `host-sender`(가짜 가구가 어머니 초대 링크 출력) → 에뮬레이터가 그 링크로 합류 → `adb emu sms send …` → `sender-pull`로 받은 내역 확인, `kick-senders` 뒤 다음 결제에 "더 보내지 않아요" 알림
   - 스토어 화면용 예시 장부: `host` → 에뮬레이터 합류 → `demo` (로컬 중계에서만)
 - 실시간 알림(FCM)은 `android/app/google-services.json`과 중계의 `FCM_SERVICE_ACCOUNT` 비밀값이 있어야 켜집니다([design/FIREBASE_SETUP.md](design/FIREBASE_SETUP.md)). 없으면 15분마다·앱을 열 때·홈을 당길 때 동기화합니다.
 - 그림 리소스: `python design/make_art.py` (원본·프롬프트: [design/art/SOURCES.md](design/art/SOURCES.md)), 스토어 그림: `python design/make_play.py` → `design/play/`

@@ -2,6 +2,8 @@
 // 에뮬레이터 2대를 동시에 못 띄우는 PC용. 사용법은 README "두 폰 동기화 시험".
 // usage: node scripts/fake-peer.mjs join <code> | pull | push-card | push-sender <링크>
 //        sender-again (push-sender로 붙은 가짜 어머니가 한 건 더 보냄 — 끊은 뒤엔 거절돼야 함)
+//        host-sender (가짜 아내 가구가 '보내 줄 가족(어머니)' 초대 링크 출력 — 에뮬레이터가 부모님 폰으로 합류)
+//        sender-pull (host-sender 가구가 어머니 링크 키로 받은 내역 보기) | kick-senders (보내는 가족 기기를 모두 내보냄)
 //        host (가짜 남편이 가구를 만들고 초대 코드 출력) | push-hyundai (가짜 남편의 현대카드 결제)
 //        leave (이 가짜 기기를 서버에서 지움 — 운영 서버 시험 뒤 정리)
 //        demo (host 뒤 에뮬레이터가 아내로 합류하면, 스토어 화면용 예시 장부를 채움 — 로컬 중계에서만)
@@ -160,6 +162,46 @@ if (cmd === "join") {
     bundle: seal(hkdf(secret, "doran invite v1"), Buffer.from(JSON.stringify(bundle)), "doran1|invite"),
   });
   console.log("https://jeiel85.github.io/doran/join/#m." + b64(secret) + "." + b64(Buffer.from("아내")));
+} else if (cmd === "host-sender") {
+  // 가짜 아내 가구: 어머니(보내는 가족) 구성원·링크를 만들고 sender 초대 링크를 출력(에뮬레이터가 부모님 폰).
+  await register(st);
+  st.space = (await call("POST", "/v1/spaces", st.token)).spaceId;
+  st.hk = b64(crypto.randomBytes(32)); st.memberId = "wifeHostMember00000000";
+  const momId = "momSenderMember0000000";
+  const lk = crypto.randomBytes(32);
+  const secret = crypto.randomBytes(32);
+  const inviteId = b64(sha256(secret));
+  st.lk = b64(lk);
+  save(st);
+  await push(st, unb64(st.hk), [
+    ["household", "home", { name: "새해 가계부", monthStartDay: 1, budget: 3000000 }],
+    ["member", st.memberId, { name: "아내", role: "member", color: 1, deviceIds: [st.deviceId], allowance: 0, order: 0, removed: false }],
+    ["member", momId, { name: "어머니", role: "sender", color: 2, deviceIds: [], allowance: 0, order: 1, removed: false }],
+    ["link", "momLink000000000000000", { memberId: momId, key: st.lk, createdAt: Date.now(), revoked: false, inviteId }],
+  ]);
+  const bundle = { v: 1, role: "sender", space: st.space, lk: st.lk, memberId: momId, memberName: "어머니", label: "새해 가계부", inviter: "아내" };
+  await call("POST", `/v1/spaces/${st.space}/invites`, st.token, {
+    inviteId, role: "sender", ttlSec: 1800,
+    bundle: seal(hkdf(secret, "doran invite v1"), Buffer.from(JSON.stringify(bundle)), "doran1|invite"),
+  });
+  console.log("https://jeiel85.github.io/doran/join/#s." + b64(secret) + "." + b64(Buffer.from("아내")));
+} else if (cmd === "sender-pull") {
+  // host-sender 가구가 어머니 링크 키로 받은 내역
+  const key = unb64(st.lk);
+  const r = await call("GET", `/v1/spaces/${st.space}/ops?after=0`, st.token);
+  const got = [];
+  for (const op of r.ops) {
+    let o;
+    try { o = JSON.parse(open(key, op.env, aad(st.space, op.ek)).toString()); } catch { continue; }
+    if (o.t === "txn") got.push(`${o.v.merchant} ${o.v.amount} ${o.v.kind} ${o.v.issuer}`);
+  }
+  console.log("from mom:", got.length, JSON.stringify(got));
+} else if (cmd === "kick-senders") {
+  const info = await call("GET", `/v1/spaces/${st.space}`, st.token);
+  for (const m of info.members.filter((m) => m.role === "sender")) {
+    await call("DELETE", `/v1/spaces/${st.space}/members/${m.deviceId}`, st.token);
+    console.log("kicked sender device", m.deviceId.slice(0, 6), "invite", m.invite ? "set" : "none");
+  }
 } else if (cmd === "share") {
   // 가짜 아내가 구성원(예: 남편)의 공유 범위를 바꿈: share 남편 현대카드 / share 남편 all
   const { ents } = await latest(st);

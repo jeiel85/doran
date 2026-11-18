@@ -94,7 +94,7 @@ class CaptureProcessor(
             txnId = r.txnId
         }
         for (link in identity.value.outLinks) {
-            if (link.issuers.isNotEmpty() && parsed.issuer !in link.issuers) continue
+            if (!sendsTo(link, parsed.issuer)) continue
             results += forward(parsed, at, link)
         }
         if (results.isEmpty()) results += "가계부가 없어 기록하지 않음"
@@ -299,6 +299,9 @@ class CaptureProcessor(
     }
 
     companion object {
+        /** 이 링크로 보낼 카드사·은행인지. 비어 있으면 전부, 표기가 달라도 같은 곳이면 보냅니다(#10). */
+        fun sendsTo(link: OutLink, issuer: String): Boolean = link.issuers.isEmpty() || link.issuers.any { Issuers.same(it, issuer) }
+
         /** 시험용: 지금 시각을 넣어 해석만 해 봅니다(설정 화면 "문구 시험"). */
         fun preview(text: String): Parsed? = Parser.parse(text, LocalDateTime.now())
     }

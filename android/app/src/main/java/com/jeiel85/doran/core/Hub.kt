@@ -46,7 +46,10 @@ object Hub {
         identity = Identity(app)
         local = LocalSettings(app)
         ledger = Ledger(db, Hlc(identity.installId)).also { it.load() }
-        sync = SyncEngine(db, ledger, identity, Relay { identity.token }) { changes -> Hooks.onRemote(app, changes) }
+        sync = SyncEngine(db, ledger, identity, Relay { identity.token }, onLinkLost = { label ->
+            com.jeiel85.doran.ui.Notifier.system(app, 5003, "'$label'에 더 보내지 않아요",
+                "그 가계부에서 이 폰 연결을 끊었어요. 다시 보내려면 가족에게 새 QR을 받아 찍어 주세요")
+        }) { changes -> Hooks.onRemote(app, changes) }
         capture = CaptureProcessor(db, ledger, identity, local, sync, ::requestSync)
         ready = true
 

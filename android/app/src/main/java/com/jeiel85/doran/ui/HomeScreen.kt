@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.NotificationsActive
@@ -464,6 +465,16 @@ private fun SenderHome(nav: Nav) {
                     SmallButton("QR 찍어서 연결") { nav.go(Route.Join()) }
                     SmallButton("알림 골라 보내기") { nav.go(Route.CaptureLog) }
                     SmallButton("알림 설정") { nav.go(Route.Capture) }
+                }
+            }
+        }
+        if (id.outLinks.isNotEmpty()) item {
+            Spacer(Modifier.height(12.dp))
+            SoftCard(padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
+                id.outLinks.forEach { l ->
+                    ListRow("'${l.label}'에 보내는 알림",
+                        (if (l.issuers.isEmpty()) "카드·은행 알림 전부" else l.issuers.joinToString()) + " · 눌러서 바꾸기",
+                        Icons.Rounded.Send, P.c.apricot, onClick = { nav.go(Route.LinkScope(l.spaceId)) })
                 }
             }
         }

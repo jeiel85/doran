@@ -37,6 +37,8 @@ class SyncEngine(
     private val ledger: Ledger,
     private val identity: Identity,
     private val relay: Relay,
+    /** 받는 가구가 이 폰의 보내기 링크를 끊었을 때(그 가구 이름). 부모님 폰에 알려 줍니다(#10). */
+    private val onLinkLost: (String) -> Unit = {},
     /** 동기화로 받은 변경을 알림·요약 갱신 등에 넘깁니다. */
     private val onRemote: (List<Change>) -> Unit,
 ) {
@@ -128,7 +130,9 @@ class SyncEngine(
                 relay.updateFcm(fcm)
                 identity.fcmDirty = false
             } catch (e: RelayError) {
-                if (e.status == 401) reRegister() else throw e
+                // 중계가 이 기기를 모른다고 확실히 답할 때만 새로 등록합니다. 다른 401(프록시·오류 페이지)에
+                // 기기 id를 버리면 모든 가구 연결을 잃습니다(#9).
+                if (e.status == 401 && e.code == "unauthorized") reRegister() else throw e
             }
         }
     }
@@ -194,10 +198,13 @@ class SyncEngine(
                     relay.push(space, items.map { Relay.OutOp(it.ek, it.h, it.env) })
                     db.ackForwards(items.map { it.seq })
                 } catch (e: RelayError) {
-                    if (e.status == 404) {
-                        // 받는 가구가 이 링크를 끊었음: 더 보내지 않고 링크를 지웁니다.
+                    if (e.status == 404 && e.code == "space_not_found") {
+                        // 받는 가구가 이 링크를 끊었음: 더 보내지 않고 링크를 지웁니다. 다른 404(중계 배포 실수·오류
+                        // 페이지)에는 지우지 않고 다음에 다시 보냅니다(#9).
+                        val label = identity.value.outLinks.firstOrNull { it.spaceId == space }?.label
                         db.dropForwards(space)
                         identity.removeOutLink(space)
+                        if (label != null) onLinkLost(label)
                     } else throw e
                 }
             }
