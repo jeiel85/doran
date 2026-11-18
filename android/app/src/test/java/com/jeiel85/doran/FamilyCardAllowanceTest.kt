@@ -80,6 +80,25 @@ class FamilyCardAllowanceTest {
         assertEquals(17_000L + 58_900, Stats.byMember(Stats.entries(plain, p, "w"), s = plain).toMap()["h"])
     }
 
+    @Test fun movedPersonalPurchaseKeepsCardBillButNotLedgerTotal() {
+        // 남편이 가족 카드 결제(올리브영 23,000)를 용돈으로 옮김: 원본은 남편 폰에만(private), 가족 카드엔 금액 자리(personal)
+        val moved = Txn("t5", Kind.EXPENSE, 23_000, ms(7), accountId = hyundai.id, memberId = "h", merchant = "올리브영", private = true)
+        val stub = Txn("stub.t5", Kind.EXPENSE, 23_000, ms(7), accountId = hyundai.id, memberId = "h", merchant = "남편 개인 결제(용돈)",
+            categoryId = Defaults.ALLOWANCE, personal = true)
+        val today = java.time.LocalDate.of(2026, 11, 18)
+        // 아내 폰: 자리만 보임 → 카드 이번 달 17,000 + 23,000, 가계부 합계에는 안 더함
+        val wifeView = ledger(netflix, pocket, grocery, stub)
+        assertEquals(40_000L, Stats.card(wifeView, hyundai, today).monthSpent)
+        assertEquals(417_000L, Stats.expense(Stats.entries(wifeView, p, "w")))
+        // 남편 폰: 원본과 자리가 둘 다 있어도 카드 금액은 한 번만
+        val husbandView = ledger(netflix, pocket, grocery, stub, moved)
+        assertEquals(40_000L, Stats.card(husbandView, hyundai, today).monthSpent)
+        assertEquals(40_000L, Stats.cardOutstanding(husbandView, hyundai, today))
+        assertEquals(417_000L, Stats.expense(Stats.entries(husbandView, p, "h")))
+        // personal은 json으로 오가도 그대로
+        assertTrue(Txn.from(stub.id, JSONObject(stub.json().toString())).personal)
+    }
+
     @Test fun familyFlagRoundTripsAndDefaultsOff() {
         assertEquals(hyundai, Account.from(hyundai.id, JSONObject(hyundai.json().toString())))
         assertFalse(Account.from("x", JSONObject().put("name", "옛 카드").put("type", "card")).family)

@@ -9,6 +9,7 @@ import android.provider.Telephony
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.jeiel85.doran.core.Hub
 import com.jeiel85.doran.model.Source
@@ -35,21 +36,32 @@ class CaptureService : NotificationListenerService() {
         val extras = n.extras ?: return
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
         val text = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: extras.getCharSequence(Notification.EXTRA_TEXT))
-            ?.toString() ?: return
+            ?.toString()
         // 카카오톡은 알림톡 채널(제목이 카드사·은행 이름)만 봅니다. 개인 대화의 "현대카드 3만원 썼어"를 거래로 읽지 않게.
         if (pkg == KAKAO && Issuers.all.none { it.matches(title.orEmpty()) }) return
         if (smsApp) {
             // 문자 앱 알림: 제목이 보낸 번호(또는 연락처 이름). 휴대폰 번호면 전달 앱이 넘긴 것이라 읽지 않음(D-4).
             val from = title.orEmpty()
             if (SmsReceiver.isPersonalNumber(from)) return
+            // 문자 앱은 한 대화방의 여러 문자를 한 알림(MessagingStyle)으로 다시 올립니다. 문자마다 나눠 읽고,
+            // 이미 읽은 문자(보낸 곳·시각·내용)는 건너뜁니다.
+            val messages = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n)?.messages
+                ?.mapNotNull { m -> m.text?.toString()?.takeIf { it.isNotBlank() }?.let { it to (m.timestamp.takeIf { t -> t > 0 } ?: sbn.postTime) } }
+                ?.takeIf { it.isNotEmpty() }
+                ?: listOfNotNull(text?.let { it to sbn.postTime })
+            if (messages.isEmpty()) return
             scope.launch {
                 Hub.init(applicationContext)
                 if (!Hub.settings.value.captureSms) return@launch
-                runCatching { Hub.capture.process(Source.SMS, from, null, text, sbn.postTime, appLabel = "문자 $from") }
-                    .onFailure { Log.w("Capture", "sms notification failed", it) }
+                for ((body, at) in messages) {
+                    if (!Hub.db.markSeenSms(from, at, body)) continue
+                    runCatching { Hub.capture.process(Source.SMS, from, null, body, at, appLabel = "문자 $from") }
+                        .onFailure { Log.w("Capture", "sms notification failed", it) }
+                }
             }
             return
         }
+        if (text == null) return
         scope.launch {
             Hub.init(applicationContext)
             val s = Hub.settings.value

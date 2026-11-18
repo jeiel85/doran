@@ -137,6 +137,32 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 2) {
         return id
     }
 
+    /** 처음 보는 문자면 기억하고 true. 문자 앱이 같은 문자를 다시 올린 알림을 건너뛰는 데 씁니다(최근 300건). */
+    @Synchronized
+    fun markSeenSms(from: String, at: Long, body: String): Boolean {
+        val key = "$from|${at / 1000}|${body.hashCode()}"
+        val a = kv("sms.seen")?.let { runCatching { org.json.JSONArray(it) }.getOrNull() } ?: org.json.JSONArray()
+        val list = (0 until a.length()).map { a.getString(it) }
+        if (key in list) return false
+        setKv("sms.seen", org.json.JSONArray((list + key).takeLast(300)).toString())
+        return true
+    }
+
+    /** 같은 발신처의 같은 원문이 이미 후보로 남아 있는지(반복 안내가 쌓이지 않게). */
+    fun hasCandidate(source: String, pkg: String?, text: String): Boolean = readableDatabase.rawQuery(
+        "SELECT 1 FROM capture_log WHERE status = 'candidate' AND source = ? AND IFNULL(pkg, '') = ? AND text = ? LIMIT 1",
+        arrayOf(source, pkg ?: "", text),
+    ).use { it.moveToFirst() }
+
+    /** 발신처마다 후보는 최근 [keep]건만 남깁니다. */
+    fun trimCandidates(source: String, pkg: String?, keep: Int) {
+        writableDatabase.execSQL(
+            "DELETE FROM capture_log WHERE status = 'candidate' AND source = ? AND IFNULL(pkg, '') = ? AND id NOT IN " +
+                "(SELECT id FROM capture_log WHERE status = 'candidate' AND source = ? AND IFNULL(pkg, '') = ? ORDER BY at DESC LIMIT ?)",
+            arrayOf<Any>(source, pkg ?: "", source, pkg ?: "", keep),
+        )
+    }
+
     fun updateCapture(id: Long, status: String, result: String, txnId: String?) {
         writableDatabase.update("capture_log", ContentValues().apply { put("status", status); put("result", result); put("txn_id", txnId) },
             "id = ?", arrayOf(id.toString()))

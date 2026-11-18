@@ -65,4 +65,6 @@ fun UpdateSection(autoUpdate: Boolean) {
             context.startActivity(Intent(AndroidSettings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")))
         }) { Text("설정", color = P.c.apricot, fontWeight = FontWeight.Bold, fontSize = 14.sp) }
     }
+    ListRow("GitHub에서 받은 도란", "Google Play 버전과는 서명이 달라 덮어 설치할 수 없어요 — 바꾸려면 백업 → 지우기 → Play에서 설치 → 되살리기",
+        Icons.Rounded.Security, P.c.inkSoft)
 }

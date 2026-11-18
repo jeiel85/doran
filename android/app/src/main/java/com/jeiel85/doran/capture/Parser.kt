@@ -70,6 +70,17 @@ object Issuers {
     )
     val all = cards + banks
 
+    /** 사용자가 쓴 표기(예: "현대카드M", "현대 카드")를 해석기의 카드사·은행 이름으로. 모르는 이름은 띄어쓰기·대소문자만 맞춥니다. */
+    fun canonical(name: String): String {
+        val n = name.trim()
+        all.firstOrNull { it.name.equals(n, ignoreCase = true) }?.let { return it.name }
+        val squashed = n.replace(" ", "")
+        all.firstOrNull { i -> i.aliases.any { a -> squashed.contains(a.replace(" ", ""), ignoreCase = true) } }?.let { return it.name }
+        return squashed.lowercase()
+    }
+
+    fun same(a: String, b: String) = canonical(a) == canonical(b)
+
     /** 카드사를 먼저 봅니다: "현대카드 출금"이 담긴 은행 문자는 은행 쪽 이름도 함께 있기 때문입니다. */
     fun find(text: String, preferBank: Boolean = false): Issuer? {
         val cardHit = cards.firstOrNull { it.matches(text) }

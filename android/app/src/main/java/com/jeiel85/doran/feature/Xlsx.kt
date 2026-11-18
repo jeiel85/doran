@@ -41,6 +41,7 @@ object Xlsx {
                 if (t.installment > 1) "${t.installment}개월" else "",
                 t.memo,
                 t.source.label,
+                if (e.counted) "" else "제외",
             )
         }
         val catRows = periods.flatMap { p ->
@@ -52,8 +53,8 @@ object Xlsx {
             listOf(a.name, a.type.label, s.member(a.ownerId)?.name ?: "", Stats.balance(s, a))
         }
         val sheets = listOf(
-            Sheet("내역", listOf("일시", "구분", "카테고리", "내용", "금액", "취소", "계좌·카드", "받는 계좌", "사람", "할부", "메모", "기록 방법"),
-                txRows, listOf(17, 6, 12, 24, 13, 8, 16, 14, 8, 7, 24, 10)),
+            Sheet("내역", listOf("일시", "구분", "카테고리", "내용", "금액", "취소", "계좌·카드", "받는 계좌", "사람", "할부", "메모", "기록 방법", "합계"),
+                txRows, listOf(17, 6, 12, 24, 13, 8, 16, 14, 8, 7, 24, 10, 6)),
             Sheet("카테고리별", listOf("월", "구분", "카테고리", "금액"), catRows, listOf(10, 6, 14, 14)),
             Sheet("자산", listOf("이름", "종류", "주인", "잔액"), accRows, listOf(20, 12, 8, 16)),
         )

@@ -45,6 +45,8 @@ if command -v icacls >/dev/null 2>&1; then
   MSYS_NO_PATHCONV=1 icacls "$(cygpath -w "$KEEP/service-account.json")" /inheritance:r /grant:r "${USERNAME}:F" >/dev/null
 fi
 echo "✓ key kept at $KEEP/service-account.json (current user only)"
+echo "! 다운로드 폴더의 원본 키($SA)는 이제 필요 없어요. 휴지통으로 옮겨 주세요(자동으로 지우지 않아요)."
+echo "  키를 바꿀 때는 scripts/rotate-fcm-key.sh (design/FIREBASE_SETUP.md \"키 교체\")"
 
 (cd relay && npx wrangler secret put FCM_SERVICE_ACCOUNT < "$KEEP/service-account.json" >/dev/null)
 echo "✓ relay secret FCM_SERVICE_ACCOUNT set"

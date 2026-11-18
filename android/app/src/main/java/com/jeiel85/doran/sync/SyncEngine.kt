@@ -57,10 +57,12 @@ class SyncEngine(
             } catch (e: RelayError) {
                 Log.w(TAG, "sync relay error ${e.status} ${e.code}")
                 _status.value = _status.value.copy(error = describe(e))
+                recordFailure("${describe(e)} (${e.status} ${e.code})")
                 false
             } catch (e: Exception) {
                 Log.w(TAG, "sync failed", e)
                 _status.value = _status.value.copy(error = "인터넷 연결을 확인해 주세요")
+                recordFailure("연결 실패 (${e.javaClass.simpleName})")
                 false
             }
             val now = System.currentTimeMillis()
@@ -71,6 +73,17 @@ class SyncEngine(
             )
             ok
         }
+    }
+
+    /** 최근 동기화 실패 10건(시각·이유). 설정 화면에서 보여 줍니다. */
+    fun recentFailures(): List<Pair<Long, String>> {
+        val a = db.kv("sync.failures")?.let { runCatching { org.json.JSONArray(it) }.getOrNull() } ?: return emptyList()
+        return (0 until a.length()).map { a.getJSONObject(it) }.map { it.optLong("at") to it.optString("msg") }
+    }
+
+    private fun recordFailure(msg: String) {
+        val list = recentFailures() + (System.currentTimeMillis() to msg)
+        db.setKv("sync.failures", org.json.JSONArray(list.takeLast(10).map { (at, m) -> JSONObject().put("at", at).put("msg", m) }).toString())
     }
 
     private fun describe(e: RelayError) = when {
@@ -155,7 +168,8 @@ class SyncEngine(
                 val isPrivate = type == T.TXN && json?.optBoolean("private") == true && pk != null
                 // 공유하던 거래를 용돈으로 돌렸으면 배우자 폰의 사본도 지워야 하므로 가구 키로 묘비를 함께 보냅니다.
                 // 묘비 HLC는 같은 시각의 가장 낮은 값이라 옛 공유본보다는 새롭고, 내 다른 기기에서는 용돈 op에 집니다.
-                if (isPrivate) ops += seal(space, hk, type, id, com.jeiel85.doran.core.Hlc.lowestAt(row.hlc), true, null)
+                // 처음부터 용돈이던 거래는 묘비를 보내지 않습니다(가족이 개인 거래 수를 알 수 없게).
+                if (isPrivate && json?.optBoolean("wasShared") == true) ops += seal(space, hk, type, id, com.jeiel85.doran.core.Hlc.lowestAt(row.hlc), true, null)
                 ops += seal(space, if (isPrivate) pk!! else hk, type, id, row.hlc, row.deleted, json)
             }
             if (ops.isNotEmpty()) relay.push(space, ops)

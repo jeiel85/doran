@@ -9,5 +9,7 @@ import com.jeiel85.doran.BuildConfig
 @Composable
 @Suppress("UNUSED_PARAMETER")
 fun UpdateSection(autoUpdate: Boolean) {
-    ListRow("Google Play가 업데이트해요", "Play 스토어 설정을 따라요 · v${BuildConfig.VERSION_NAME}", Icons.Rounded.SystemUpdate, P.c.inkSoft)
+    ListRow("Google Play에서 받은 도란 · v${BuildConfig.VERSION_NAME}",
+        "업데이트는 Play가 해요. GitHub APK로 받은 도란과는 서명이 달라 덮어 설치할 수 없어요 — 바꾸려면 백업 → 지우기 → 설치 → 되살리기",
+        Icons.Rounded.SystemUpdate, P.c.inkSoft)
 }

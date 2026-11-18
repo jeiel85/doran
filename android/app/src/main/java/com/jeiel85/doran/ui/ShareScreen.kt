@@ -50,6 +50,10 @@ fun ShareScreen(memberId: String, nav: Nav) {
     val banks = Issuers.banks.map { it.name }
     val draft = m.copy(share = if (picked) Member.SHARE_PICKED else Member.SHARE_ALL, shareIssuers = issuers)
     val by = m.shareBy?.let { s.member(it)?.name }
+    // 화면을 연 뒤 다른 폰에서 범위가 바뀌면 알려 줍니다(늦게 저장한 쪽이 이기므로).
+    var opened by remember(memberId) { mutableStateOf(m.share to m.shareIssuers.toSet()) }
+    val changedElsewhere = (m.share to m.shareIssuers.toSet()) != opened && m.shareBy != id.myMemberId
+    var moveAsk by remember { mutableStateOf<List<com.jeiel85.doran.model.Txn>>(emptyList()) }
 
     SubScreen(if (isMe) "내 공유 범위" else "${m.name} 공유 범위", { nav.back() }, bottom = {
         PrimaryButton("저장", enabled = !picked || issuers.isNotEmpty()) {
@@ -61,9 +65,29 @@ fun ShareScreen(memberId: String, nav: Nav) {
                     (it.type == com.jeiel85.doran.model.AccountType.CARD || it.type == com.jeiel85.doran.model.AccountType.CHECK)
             }.forEach { Hub.ledger.saveAccount(it.copy(family = true, allowanceCard = false)) }
             if (com.jeiel85.doran.logic.AllowancePlan.sync(Hub.ledger, saved)) com.jeiel85.doran.logic.Recurrer.run(Hub.ledger, Hub.db, Hub.identity.installId)
-            nav.back()
+            // 내 범위를 좁혔으면, 이번 달 이미 가계부에 올라간 범위 밖 내역을 내 용돈으로 옮길지 묻습니다(내 개인 키가 있는 내 폰에서만).
+            val now = Hub.ledger.value
+            val p = com.jeiel85.doran.logic.Stats.current(now)
+            val past = if (isMe && saved.sharesPicked) now.txns.values.filter {
+                it.memberId == m.id && !it.private && !it.personal && it.kind == com.jeiel85.doran.model.Kind.EXPENSE && it.cancelOf == null &&
+                    it.source.captured && it.at in p && it.issuer != null && !saved.shares(it.issuer) && now.account(it.accountId)?.family != true
+            } else emptyList()
+            if (past.isEmpty()) nav.back() else moveAsk = past
         }
     }) {
+        if (changedElsewhere) item {
+            SoftCard(color = P.c.apricotSoft, padding = PaddingValues(14.dp)) {
+                Text("방금 ${by ?: "가족"}이(가) 공유 범위를 ${ShareScope.label(m)}(으)로 바꿨어요. 지금 저장하면 이 화면의 선택으로 덮어써요.",
+                    style = MaterialTheme.typography.bodySmall, color = P.c.ink)
+                Spacer(Modifier.height(8.dp))
+                SmallButton("바뀐 내용 불러오기", color = P.c.apricot) {
+                    picked = m.sharesPicked; issuers = m.shareIssuers
+                    allowance = m.allowance.takeIf { it > 0 }?.toString() ?: ""
+                    opened = m.share to m.shareIssuers.toSet()
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
         item {
             Text(if (isMe) "내 폰이 읽은 카드·은행 알림 중 무엇을 가계부에 올릴지 정해요."
                 else "${m.name} 폰이 읽은 카드·은행 알림 중 무엇을 가계부에 올릴지 정해요.",
@@ -107,6 +131,25 @@ fun ShareScreen(memberId: String, nav: Nav) {
                 style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint)
         }
     }
+    if (moveAsk.isNotEmpty()) MovePastDialog(moveAsk) { moveAsk = emptyList(); nav.back() }
+}
+
+/** 범위를 좁힌 뒤 이번 달 가계부에 이미 올라간 범위 밖 내역을 내 용돈으로 옮길지 묻는 창. */
+@Composable
+private fun MovePastDialog(list: List<com.jeiel85.doran.model.Txn>, onDone: () -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDone, containerColor = P.c.bg,
+        title = { Text("이번 달 다른 카드 내역 ${list.size}건") },
+        text = { Text("공유 범위 밖 카드·계좌로 이번 달 가계부에 이미 올라간 내역이에요(${Fmt.won(list.sumOf { it.amount })}). " +
+            "내 용돈으로 옮기면 가족 가계부에서 빠지고 내 폰에만 남아요.") },
+        confirmButton = { androidx.compose.material3.TextButton({
+            val ids = list.map { it.id }.toSet()
+            val cancels = Hub.ledger.value.txns.values.filter { it.cancelOf in ids }
+            Hub.ledger.putAll((list + cancels).map { Triple(com.jeiel85.doran.model.T.TXN, it.id, it.copy(private = true).json()) })
+            onDone()
+        }) { Text("내 용돈으로 옮기기", color = P.c.apricot) } },
+        dismissButton = { androidx.compose.material3.TextButton(onDone) { Text("그대로 두기") } },
+    )
 }
 
 @Composable

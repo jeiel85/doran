@@ -25,6 +25,7 @@ object Backup {
             entities.put(JSONObject().put("type", r.type).put("id", r.id).put("hlc", r.hlc).put("deleted", r.deleted).put("json", r.json))
         }
         val plain = JSONObject().put("entities", entities).put("keys", Hub.identity.exportKeys()).put("at", System.currentTimeMillis())
+            .put("rules", JSONArray(Hub.local.rules.value.map { it.json() }))
         val salt = Crypto.randomBytes(16)
         val key = Crypto.passwordKey(password, salt, ITERATIONS)
         val file = JSONObject().put("doran", "backup").put("v", 1)
@@ -67,6 +68,9 @@ object Backup {
             Hub.identity.importKeys(keys)
         }
         Hub.ledger.applyRemote(rows)
+        o.optJSONArray("rules")?.let { a ->
+            Hub.local.importRules((0 until a.length()).mapNotNull { runCatching { com.jeiel85.doran.data.ForwardRule.from(a.getJSONObject(it)) }.getOrNull() })
+        }
         Hub.sync.enqueueAll()
         Hub.requestSync()
         Summary(rows.size, rows.count { it.type == "txn" && !it.deleted }, o.optLong("at"))

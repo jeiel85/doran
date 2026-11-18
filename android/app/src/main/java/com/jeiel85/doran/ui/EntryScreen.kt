@@ -150,6 +150,8 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
             receiptIds = receipts.toList(), needsReview = false,
         )
         Hub.ledger.saveTxn(t)
+        // 가족 카드에서 용돈으로 옮겼던 결제를 다시 공유로 돌리면, 대신 남겨 둔 금액 자리를 지웁니다(D-20).
+        if (original?.private == true && !t.private) stubId(t.id).takeIf { s.txns.containsKey(it) }?.let { Hub.ledger.delete(com.jeiel85.doran.model.T.TXN, it) }
         scope.launch { receipts.forEach { Receipts.upload(context, it) } }
         nav.back()
     }
@@ -220,7 +222,15 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                                 style = MaterialTheme.typography.bodySmall, color = P.c.ink, modifier = Modifier.weight(1f))
                             Spacer(Modifier.width(8.dp))
                             SmallButton("내 용돈으로", color = P.c.apricot) {
-                                Hub.ledger.putAll((listOf(o) + cancels).map { c -> Triple(com.jeiel85.doran.model.T.TXN, c.id, c.copy(private = true).json()) })
+                                // 내용은 내 용돈(개인 키)으로, 가족 카드에는 카드값이 맞도록 금액 자리만 남깁니다(D-20).
+                                val net = (o.amount - cancels.sumOf { it.amount }).coerceAtLeast(0)
+                                val stub = Txn(id = stubId(o.id), kind = Kind.EXPENSE, amount = net, at = o.at, accountId = o.accountId,
+                                    categoryId = com.jeiel85.doran.model.Defaults.ALLOWANCE, memberId = o.memberId, installment = o.installment,
+                                    merchant = "${s.member(o.memberId)?.name ?: "가족"} 개인 결제(용돈)", personal = true,
+                                    memo = "가족 카드로 낸 개인 결제예요. 카드값에는 들어가고 가계부 합계에는 안 들어가요",
+                                    createdBy = Hub.identity.installId, createdAt = System.currentTimeMillis())
+                                Hub.ledger.putAll((listOf(o) + cancels).map { c -> Triple(com.jeiel85.doran.model.T.TXN, c.id, c.copy(private = true).json()) } +
+                                    Triple(com.jeiel85.doran.model.T.TXN, stub.id, stub.json()))
                                 nav.back()
                             }
                         }
@@ -389,6 +399,9 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
         )
     }
 }
+
+/** 가족 카드에서 용돈으로 옮긴 결제 대신 남기는 금액 자리의 id. */
+private fun stubId(txnId: String) = "stub.$txnId"
 
 @Composable
 private fun PhotoButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {

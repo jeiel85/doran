@@ -148,8 +148,10 @@ fun FamilyScreen(nav: Nav) {
                                 Icons.Rounded.Devices, if (d.role == "sender") P.c.apricot else P.c.pine,
                             ) { if (!d.me) SmallButton("내보내기", color = P.c.danger) { removeTarget = d } }
                         }
-                        Text("영수증 사진 ${"%.1f".format(info.blobBytes / 1_048_576.0)}MB / ${info.blobQuota / 1_048_576}MB",
-                            style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint, modifier = Modifier.padding(8.dp))
+                        val nearFull = info.blobBytes > 400L * 1_048_576
+                        Text("영수증 사진 ${"%.1f".format(info.blobBytes / 1_048_576.0)}MB / ${info.blobQuota / 1_048_576}MB" +
+                            if (nearFull) " · 거의 찼어요. 오래된 내역의 영수증 사진을 지워 주세요" else "",
+                            style = MaterialTheme.typography.bodySmall, color = if (nearFull) P.c.danger else P.c.inkFaint, modifier = Modifier.padding(8.dp))
                     }
                 }
             }
@@ -173,7 +175,12 @@ fun FamilyScreen(nav: Nav) {
 
     rename?.let { m ->
         NameDialog(if (m.id == id.myMemberId) "내 이름" else "${m.name} 이름 바꾸기", if (m.isSender) SENDER_NAMES else SELF_NAMES, m.name,
-            onDismiss = { rename = null }) { n -> Hub.ledger.saveMember(m.copy(name = n.trim())); rename = null }
+            onDismiss = { rename = null }) { n ->
+            val renamed = m.copy(name = n.trim())
+            Hub.ledger.saveMember(renamed)
+            com.jeiel85.doran.logic.AllowancePlan.sync(Hub.ledger, renamed) // "○○ 용돈" 고정지출 이름도 함께
+            rename = null
+        }
     }
     removeTarget?.let { d ->
         AlertDialog(

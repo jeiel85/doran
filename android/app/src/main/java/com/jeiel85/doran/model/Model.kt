@@ -98,7 +98,7 @@ data class Member(
     val isSender get() = role == "sender"
     val sharesPicked get() = share == SHARE_PICKED
     /** 이 카드사·은행의 알림을 가계부에 올리는지. */
-    fun shares(issuer: String): Boolean = !sharesPicked || shareIssuers.any { it.trim().equals(issuer.trim(), ignoreCase = true) }
+    fun shares(issuer: String): Boolean = !sharesPicked || shareIssuers.any { com.jeiel85.doran.capture.Issuers.same(it, issuer) }
     fun json(): JSONObject = JSONObject().put("name", name).put("role", role).put("color", color)
         .put("deviceIds", deviceIds.json()).put("allowance", allowance).put("order", order).put("removed", removed)
         .put("share", share).put("shareIssuers", shareIssuers.json()).putN("shareBy", shareBy)
@@ -204,6 +204,8 @@ data class Txn(
     val receiptIds: List<String> = emptyList(),
     /** 개인 용돈 — 개인 키로 암호화돼 다른 구성원에게는 가지 않습니다 (DECISIONS.md D-7). */
     val private: Boolean = false,
+    /** 가족 카드로 낸 개인 결제의 금액 자리(내용은 용돈 쪽에). 카드값에는 들어가고 가계부 합계에는 안 들어갑니다(D-20). */
+    val personal: Boolean = false,
     val recurringId: String? = null,
     val createdBy: String? = null,
     val createdAt: Long = 0,
@@ -214,7 +216,7 @@ data class Txn(
         .put("merchant", merchant).put("memo", memo).putN("memberId", memberId).put("source", source.code)
         .put("installment", installment).putN("cancelOf", cancelOf).putN("cumulative", cumulative)
         .putN("issuer", issuer).putN("cardLabel", cardLabel).putN("foreign", foreign).put("needsReview", needsReview)
-        .put("receiptIds", receiptIds.json()).put("private", private).putN("recurringId", recurringId)
+        .put("receiptIds", receiptIds.json()).put("private", private).put("personal", personal).putN("recurringId", recurringId)
         .putN("createdBy", createdBy).put("createdAt", createdAt)
     companion object {
         fun from(id: String, o: JSONObject) = Txn(
@@ -224,7 +226,7 @@ data class Txn(
             source = Source.of(o.str("source")), installment = o.int("installment") ?: 0, cancelOf = o.str("cancelOf"),
             cumulative = o.long("cumulative"), issuer = o.str("issuer"), cardLabel = o.str("cardLabel"),
             foreign = o.str("foreign"), needsReview = o.optBoolean("needsReview"), receiptIds = o.strs("receiptIds"),
-            private = o.optBoolean("private"), recurringId = o.str("recurringId"), createdBy = o.str("createdBy"),
+            private = o.optBoolean("private"), personal = o.optBoolean("personal"), recurringId = o.str("recurringId"), createdBy = o.str("createdBy"),
             createdAt = o.long("createdAt") ?: 0,
         )
     }

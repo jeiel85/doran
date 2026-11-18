@@ -93,7 +93,13 @@ object Stats {
     fun hasFixedAllowance(s: LedgerState, memberId: String?): Boolean = (s.member(memberId)?.allowance ?: 0) > 0
 
     /** 이 거래를 가계부 합계에 더하는지: 월 용돈이 정해진 사람의 용돈 내역은 빼요. */
-    fun counts(s: LedgerState, t: Txn): Boolean = !(t.private && hasFixedAllowance(s, t.memberId))
+    fun counts(s: LedgerState, t: Txn): Boolean = !t.personal && !(t.private && hasFixedAllowance(s, t.memberId))
+
+    /**
+     * 카드·계좌 금액에 넣는 거래. 가족 카드에서 용돈으로 옮긴 결제는 금액 자리(personal)가 대신 들어가므로
+     * 본인 폰의 용돈 원본은 빼서 두 번 세지 않습니다(DECISIONS.md D-20).
+     */
+    private fun onAccount(a: Account, t: Txn) = !(t.private && a.family)
 
     /** 사람별 지출에서 가족 카드 결제를 묶는 칸의 키. */
     const val FAMILY = "family"
@@ -163,7 +169,7 @@ object Stats {
         val bd = a.billingDay ?: DEFAULT_BILLING_DAY
         var sum = 0L
         for ((t, net) in live(s)) {
-            if (t.accountId != a.id || t.kind != Kind.EXPENSE || net <= 0) continue
+            if (t.accountId != a.id || t.kind != Kind.EXPENSE || net <= 0 || !onAccount(a, t)) continue
             val months = t.installment.coerceAtLeast(1)
             val tc = cycleStartOf(Fmt.date(t.at), startDay)
             for (i in 0 until months) {
@@ -182,6 +188,7 @@ object Stats {
         val baseAt = a.anchorAt ?: a.openingAt
         var bal = a.anchor ?: a.opening
         for ((t, net) in live(s)) {
+            if (!onAccount(a, t)) continue
             if (t.at <= baseAt && a.anchorAt != null) continue
             if (t.at < baseAt) continue
             when (t.kind) {
@@ -230,7 +237,7 @@ object Stats {
         val startDay = a.cycleStartDay ?: 1
         val month = current(s, today)
         val cur = cycleStartOf(today, startDay)
-        val cardTxns = live(s).filter { (t, _) -> t.accountId == a.id && t.kind == Kind.EXPENSE }.toList()
+        val cardTxns = live(s).filter { (t, _) -> t.accountId == a.id && t.kind == Kind.EXPENSE && onAccount(a, t) }.toList()
         val monthSpent = cardTxns.filter { (t, _) -> t.at in month }.sumOf { it.second }
         val cycleSpent = cardTxns.filter { (t, _) -> !Fmt.date(t.at).isBefore(cur) }.sumOf { it.second }
 

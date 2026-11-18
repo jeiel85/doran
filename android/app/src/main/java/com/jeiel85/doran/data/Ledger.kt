@@ -120,6 +120,8 @@ class Ledger(private val db: Db, val hlc: Hlc) {
                 val old = db.entity(type, id)
                 val before = old?.takeIf { !it.deleted }?.let { JSONObject(it.json) }
                 val merged = (before?.let { JSONObject(it.toString()) } ?: JSONObject()).also { m -> json.keys().forEach { k -> m.put(k, json.get(k)) } }
+                // 공유하던 거래를 용돈으로 돌리면 표시해 두고, 동기화가 가족 폰의 사본을 지우는 묘비를 그때만 보냅니다(SyncEngine).
+                if (type == T.TXN && merged.optBoolean("private") && before != null && !before.optBoolean("private")) merged.put("wasShared", true)
                 db.writeEntity(this, Db.Row(type, id, hlc.next(), false, merged.toString()))
                 db.enqueue(this, type, id)
                 s = s.with(type, id, merged)

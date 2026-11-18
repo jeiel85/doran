@@ -110,6 +110,10 @@ class LocalSettings(context: Context) {
         _rules.value = list
     }
 
+    /** 백업에서 되살린 규칙을 더합니다(같은 발신처는 이 폰의 것이 이김). */
+    @Synchronized
+    fun importRules(list: List<ForwardRule>) = setRules((list + _rules.value).associateBy { it.key }.values.toList())
+
     fun ruleFor(source: String, from: String?): ForwardRule? = from?.let { f -> _rules.value.firstOrNull { it.key == ForwardRule.key(source, f) } }
 
     // --- 한 달에 한 번만 보내는 알림 표시(예산 80%·100%) -------------------------------------

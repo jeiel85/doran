@@ -175,8 +175,12 @@ fun SettingsScreen(nav: Nav) {
                         sync.error?.let { append(" · $it") }
                     }, Icons.Rounded.Sync, onClick = { Hub.requestSync(); SyncWorker.now(context) })
                     ListRow("실시간 알림", if (Hub.sync.realtime) "켜짐 · 가족이 쓰면 바로 받아요"
-                    else if (!BuildConfig.HAS_FIREBASE) "이 빌드에는 실시간 알림(FCM)이 없어 15분마다 동기화해요" else "알림 서버에 아직 연결되지 않았어요",
+                    else if (!BuildConfig.HAS_FIREBASE) "이 빌드에는 실시간 알림(FCM)이 없어 15분마다 동기화해요"
+                    else "꺼짐 · Google Play 서비스가 없거나 아직 알림 서버에 연결되지 않았어요. 그동안 앱을 열 때·홈을 당길 때·15분마다 동기화해요",
                         Icons.Rounded.NotificationsActive, if (Hub.sync.realtime) P.c.pine else P.c.apricot)
+                    val failures = remember(sync) { Hub.sync.recentFailures().filter { System.currentTimeMillis() - it.first < 7L * 86_400_000 } }
+                    if (failures.isNotEmpty()) ListRow("최근 7일 동기화 문제 ${failures.size}건",
+                        failures.takeLast(3).reversed().joinToString("\n") { "${Fmt.relative(it.first)} · ${it.second}" }, Icons.Rounded.Sync, P.c.apricot)
                 }
             }
         }

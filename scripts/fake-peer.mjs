@@ -108,7 +108,7 @@ if (cmd === "join") {
       : o.t === "recurring" ? `${o.v.name} ${o.v.amount} day=${o.v.day}` : o.id);
   }
   console.log("ops", r.ops.length, "unreadable(private or other keys):", unreadable);
-  for (const [t, v] of Object.entries(out)) console.log(t, v.length, JSON.stringify(v.slice(0, 12)));
+  for (const [t, v] of Object.entries(out)) console.log(t, v.length, JSON.stringify(v.slice(0, 40)));
 } else if (cmd === "push-card") {
   const key = unb64(st.hk);
   const id = "wifeTxn" + Date.now().toString().slice(-15).padStart(15, "0");

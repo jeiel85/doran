@@ -45,9 +45,10 @@ class CaptureProcessor(
         val parsed = Parser.parse(body, Fmt.dateTime(postedAt), appLabel, custom)
         if (parsed == null) {
             // 금액이 적힌데 형식을 몰라 못 읽은 알림은 "최근 받은 알림"에서 골라 보낼 수 있게 남깁니다(이 폰에만, 30일).
-            if (Parser.looksFinancial(body)) {
+            if (Parser.looksFinancial(body) && !db.hasCandidate(source.code, pkg, text)) {
                 db.logCapture(postedAt, source.code, pkg, title, text, "기록 안 함 · 골라서 보낼 수 있어요", null, status = "candidate",
                     label = appLabel ?: pkg)
+                db.trimCandidates(source.code, pkg, keep = 30)
             }
             return null
         }

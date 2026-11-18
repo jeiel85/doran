@@ -33,6 +33,14 @@ object AllowancePlan {
         )).copy(name = "${m.name} 용돈", amount = m.allowance, memberId = m.id, paused = false)
         if (next == cur) return false
         ledger.saveRecurring(next)
+        if (cur == null) {
+            // 이번 달 용돈을 이미 적어 두었으면(날짜가 달라도) 그 내역을 이 규칙에 이어 한 건만 남깁니다.
+            val p = Stats.current(s, today)
+            s.txns.values.firstOrNull {
+                it.kind == Kind.EXPENSE && it.categoryId == Defaults.ALLOWANCE && it.amount == m.allowance && it.recurringId == null &&
+                    !it.private && !it.personal && it.cancelOf == null && it.at in p
+            }?.let { ledger.saveTxn(it.copy(recurringId = id, memberId = m.id)) }
+        }
         return true
     }
 }

@@ -136,6 +136,10 @@ object Hooks {
             Hub.local.once("backup.remind.${LocalDate.now(Fmt.zone).let { "${it.year}${it.monthValue}" }}")) {
             Notifier.system(context, 5001, "백업할 때가 됐어요", "두 폰을 모두 잃어도 되살릴 수 있게 설정 → 백업에서 파일로 저장해 두세요")
         }
+        // 한 번도 백업하지 않았는데 내역이 100건을 넘으면 한 번 더 권합니다.
+        if (last == 0L && Hub.ledger.value.txns.size >= 100 && Hub.local.once("backup.first100")) {
+            Notifier.system(context, 5002, "내역이 100건을 넘었어요", "폰을 바꾸거나 잃어도 되살릴 수 있게 설정 → 백업에서 파일로 저장해 두세요")
+        }
     }
 }
 
@@ -154,10 +158,12 @@ object Recurrer {
                 if (db.entity(T.TXN, id) != null) continue // 지운 것(묘비)도 다시 만들지 않음
                 val at = Fmt.millis(d.atTime(9, 0))
                 val near = 3L * 86_400_000
-                if (ledger.value.txns.values.any { it.recurringId == r.id && kotlin.math.abs(it.at - at) <= near }) continue
+                // 매달 규칙은 같은 가계부 기간에 이미 이어진 내역이 있으면(날짜가 며칠 달라도) 다시 만들지 않습니다.
+                val period = if (r.period == "m") Stats.periodOf(d, s.household.monthStartDay) else null
+                if (ledger.value.txns.values.any { it.recurringId == r.id && (kotlin.math.abs(it.at - at) <= near || (period != null && it.at in period)) }) continue
                 // 카드 알림으로 이미 들어온 같은 금액이 있으면 그 거래에 규칙만 이어 줍니다.
                 val captured = ledger.value.txns.values.firstOrNull {
-                    it.recurringId == null && it.kind == r.kind && it.amount == r.amount && it.cancelOf == null &&
+                    it.recurringId == null && !it.personal && it.kind == r.kind && it.amount == r.amount && it.cancelOf == null &&
                         kotlin.math.abs(it.at - at) <= 3L * 86_400_000 && (r.accountId == null || it.accountId == r.accountId)
                 }
                 if (captured != null) {
