@@ -188,7 +188,11 @@ fun SettingsScreen(nav: Nav) {
         item {
             SoftCard(padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
                 UpdateSection(settings.autoUpdate)
-                ListRow("개인정보", "장부·알림 원문은 서버에 평문으로 저장되지 않아요. 서버는 암호문과 기기 연결 정보만 가져요.", Icons.Rounded.Security)
+                ListRow("개인정보처리방침", "장부·알림 원문은 서버에 평문으로 저장되지 않아요. 서버는 암호문과 기기 연결 정보만 가져요. 눌러서 전문 보기",
+                    Icons.Rounded.Security, onClick = {
+                        runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://jeiel85.github.io/doran/privacy/"))) }
+                    })
             }
         }
         item {

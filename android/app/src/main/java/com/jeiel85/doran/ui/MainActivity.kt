@@ -88,6 +88,7 @@ sealed interface Route {
     data class CategoryTxns(val categoryId: String, val month: String) : Route
     data class SendPicked(val logId: Long) : Route
     data class Share(val memberId: String) : Route
+    data object Receipts : Route
     data class Join(val link: String? = null) : Route
 }
 
@@ -260,6 +261,7 @@ private fun Root(nav: Nav) {
             is Route.CategoryTxns -> CategoryTxnsScreen(route.categoryId, route.month, nav)
             is Route.SendPicked -> SendPickedScreen(route.logId, nav)
             is Route.Share -> ShareScreen(route.memberId, nav)
+            Route.Receipts -> ReceiptsScreen(nav)
             is Route.Join -> JoinScreen(route.link, nav)
         }
     }

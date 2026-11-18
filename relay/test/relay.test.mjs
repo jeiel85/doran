@@ -16,7 +16,7 @@ class Stmt {
 }
 function d1() {
   const db = new DatabaseSync(":memory:");
-  db.exec(readFileSync(new URL("../migrations/0001_init.sql", import.meta.url), "utf8"));
+  for (const m of ["0001_init.sql", "0002_wake_failures.sql"]) db.exec(readFileSync(new URL(`../migrations/${m}`, import.meta.url), "utf8"));
   return {
     raw: db,
     prepare: (sql) => new Stmt(db, sql),
@@ -268,6 +268,24 @@ test("FCM이 토큰 만료를 알리면 지우고, 깨우기 실패해도 op는 
   const up2 = await call("POST", `/v1/spaces/${spaceId}/ops`, { token: w.token, body: { ops: [{ ek: ek("b"), h: hlc(2), env: ENV }] } });
   assert.equal(up2.status, 200);
   assert.equal(up2.body.woke, 0);
+});
+
+test("깨우기 연속 실패는 기기에 세고 가구 정보로 보이며, 성공하면 0으로", async () => {
+  const { h, w, spaceId } = await household();
+  fcmMode = "down";
+  for (const n of [1, 2]) {
+    await call("POST", `/v1/spaces/${spaceId}/ops`, { token: h.token, body: { ops: [{ ek: ek("a"), h: hlc(n), env: ENV }] } });
+  }
+  let info = await call("GET", `/v1/spaces/${spaceId}`, { token: h.token });
+  const wife = info.body.members.find((m) => m.deviceId === w.deviceId);
+  assert.equal(wife.wakeFail, 2);
+  assert.equal(wife.wakeErr, "error");
+  assert.equal(info.body.members.find((m) => m.deviceId === h.deviceId).wakeFail, 0);
+  fcmMode = "ok";
+  await call("POST", `/v1/spaces/${spaceId}/ops`, { token: h.token, body: { ops: [{ ek: ek("a"), h: hlc(3), env: ENV }] } });
+  info = await call("GET", `/v1/spaces/${spaceId}`, { token: h.token });
+  assert.equal(info.body.members.find((m) => m.deviceId === w.deviceId).wakeFail, 0);
+  assert.equal(info.body.members.find((m) => m.deviceId === w.deviceId).wakeErr, null);
 });
 
 test("Firebase 비밀값이 없으면 깨우기 없이 저장만", async () => {

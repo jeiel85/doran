@@ -81,6 +81,8 @@ android {
 
     buildTypes {
         release {
+            // Play Console이 비정상 종료·ANR을 읽을 수 있게 라이브러리 네이티브 코드의 기호표를 AAB에 넣습니다.
+            ndk { debugSymbolLevel = "SYMBOL_TABLE" }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

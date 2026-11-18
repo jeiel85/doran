@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Photo
 import androidx.compose.material.icons.rounded.Devices
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.GroupAdd
@@ -144,7 +145,10 @@ fun FamilyScreen(nav: Nav) {
                             val who = s.members.values.firstOrNull { d.deviceId in it.deviceIds }?.name
                             ListRow(
                                 (who ?: if (d.role == "sender") "보내는 가족 폰" else "가족 폰") + if (d.me) " · 이 폰" else "",
-                                "연결 ${Fmt.date(d.createdAt)} · 최근 ${Fmt.relative(d.seenAt)}" + if (!d.push) " · 실시간 알림 없음" else "",
+                                "연결 ${Fmt.date(d.createdAt)} · 최근 ${Fmt.relative(d.seenAt)}" +
+                                    (if (!d.push) " · 실시간 알림 없음" else "") +
+                                    // 깨우기가 연달아 실패한 기기(하드닝 #2): 폰이 꺼져 있거나 Play 서비스 문제일 수 있어요.
+                                    (if (d.wakeFail >= 3) " · 실시간 알림 ${d.wakeFail}번 연속 실패" else ""),
                                 Icons.Rounded.Devices, if (d.role == "sender") P.c.apricot else P.c.pine,
                             ) { if (!d.me) SmallButton("내보내기", color = P.c.danger) { removeTarget = d } }
                         }
@@ -152,6 +156,8 @@ fun FamilyScreen(nav: Nav) {
                         Text("영수증 사진 ${"%.1f".format(info.blobBytes / 1_048_576.0)}MB / ${info.blobQuota / 1_048_576}MB" +
                             if (nearFull) " · 거의 찼어요. 오래된 내역의 영수증 사진을 지워 주세요" else "",
                             style = MaterialTheme.typography.bodySmall, color = if (nearFull) P.c.danger else P.c.inkFaint, modifier = Modifier.padding(8.dp))
+                        ListRow("영수증 사진 정리", "사진이 붙은 내역을 오래된 것부터 보고 사진만 지워요", Icons.Rounded.Photo, P.c.apricot,
+                            onClick = { nav.go(Route.Receipts) })
                     }
                 }
             }

@@ -54,7 +54,9 @@ class Relay(private val base: String = BuildConfig.RELAY_URL, private val token:
 
     fun createSpace(): String = json("POST", "/v1/spaces").getString("spaceId")
 
-    data class SpaceMember(val deviceId: String, val role: String, val createdAt: Long, val seenAt: Long, val push: Boolean, val me: Boolean)
+    data class SpaceMember(val deviceId: String, val role: String, val createdAt: Long, val seenAt: Long, val push: Boolean, val me: Boolean,
+                           /** 실시간 알림(FCM) 연속 실패 횟수와 이유. 옛 중계는 0/null. */
+                           val wakeFail: Int = 0, val wakeErr: String? = null)
     data class SpaceInfo(val members: List<SpaceMember>, val ops: Long, val blobBytes: Long, val blobQuota: Long)
 
     fun space(spaceId: String): SpaceInfo {
@@ -63,7 +65,8 @@ class Relay(private val base: String = BuildConfig.RELAY_URL, private val token:
         return SpaceInfo(
             (0 until a.length()).map { a.getJSONObject(it) }.map {
                 SpaceMember(it.getString("deviceId"), it.getString("role"), it.optLong("createdAt"), it.optLong("seenAt"),
-                    it.optBoolean("push"), it.optBoolean("me"))
+                    it.optBoolean("push"), it.optBoolean("me"), it.optInt("wakeFail"),
+                    it.optString("wakeErr").takeIf { e -> e.isNotEmpty() && e != "null" })
             },
             r.optLong("ops"), r.optLong("blobBytes"), r.optLong("blobQuota"),
         )

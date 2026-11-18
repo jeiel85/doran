@@ -105,11 +105,11 @@ fun ShareScreen(memberId: String, nav: Nav) {
                 Spacer(Modifier.height(18.dp))
                 Text("가계부에 보낼 카드", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
                 Spacer(Modifier.height(8.dp))
-                ChipRow { cards.forEach { n -> Chip(n, n in issuers, { issuers = if (n in issuers) issuers - n else issuers + n }) } }
+                ChipFlow { cards.forEach { n -> Chip(n, n in issuers, { issuers = if (n in issuers) issuers - n else issuers + n }) } }
                 Spacer(Modifier.height(14.dp))
                 Text("가계부에 보낼 은행", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
                 Spacer(Modifier.height(8.dp))
-                ChipRow { banks.forEach { n -> Chip(n, n in issuers, { issuers = if (n in issuers) issuers - n else issuers + n }) } }
+                ChipFlow { banks.forEach { n -> Chip(n, n in issuers, { issuers = if (n in issuers) issuers - n else issuers + n }) } }
                 Spacer(Modifier.height(14.dp))
                 if (issuers.isEmpty()) Text("보낼 카드사·은행을 하나 이상 골라 주세요", color = P.c.danger, style = MaterialTheme.typography.bodySmall)
                 Text(ShareScope.detail(draft), style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
@@ -150,6 +150,16 @@ private fun MovePastDialog(list: List<com.jeiel85.doran.model.Txn>, onDone: () -
         }) { Text("내 용돈으로 옮기기", color = P.c.apricot) } },
         dismissButton = { androidx.compose.material3.TextButton(onDone) { Text("그대로 두기") } },
     )
+}
+
+/** 카드사·은행이 많아도 한눈에 보이게 줄을 바꿔 늘어놓는 칩 묶음. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun ChipFlow(content: @Composable () -> Unit) {
+    androidx.compose.foundation.layout.FlowRow(
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+    ) { content() }
 }
 
 @Composable

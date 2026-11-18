@@ -84,6 +84,8 @@
 - Firebase 프로젝트는 `doran-e8c18`(2026-11-17, 포너디와 분리: 키 하나가 두 앱의 알림을 다 보내지 않게). `google-services.json`은 git 밖, 서비스 계정 키는 `%LOCALAPPDATA%\doran\`과 중계 비밀값에만.
 - Firebase 설정이 없는 빌드는 앱을 열 때와 15분 주기 동기화로 동작하고, 설정 화면에 "실시간 알림 꺼짐"을 그대로 보여 줍니다(가짜 성공 없음).
 
+- 2026-11-18(하드닝 #2): 중계가 기기마다 깨우기 연속 실패 횟수·이유(`devices.wake_fail`, `wake_err`, 마이그레이션 0002)를 남기고 가구 정보로 돌려줍니다. 가족 화면은 3번 넘게 연달아 실패한 기기를 표시합니다. 성공하면 0으로 돌아갑니다. 실패 이유는 FCM 응답 분류("error", "unregistered" 등)만 남기고 토큰·내용은 남기지 않습니다.
+
 ## D-10 앱 잠금은 폰의 잠금(지문·PIN)을 그대로
 
 - `BiometricPrompt`(BIOMETRIC_STRONG | DEVICE_CREDENTIAL). 앱이 따로 PIN을 저장하지 않아 PIN 유출·분실 처리를 만들 필요가 없습니다.

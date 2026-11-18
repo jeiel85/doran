@@ -134,7 +134,7 @@ async function requireRole(db, space, device, allowed) {
 async function wakeMembers(env, deps, db, space, exceptDevice, data) {
   if (!env.FCM_SERVICE_ACCOUNT) return { woke: 0, skipped: "fcm_not_configured" };
   const { results } = await db.prepare(
-    `SELECT d.id, d.fcm_token FROM members m JOIN devices d ON d.id = m.device
+    `SELECT d.id, d.fcm_token, d.wake_fail FROM members m JOIN devices d ON d.id = m.device
      WHERE m.space = ?1 AND m.role = 'member' AND d.id != ?2 AND d.fcm_token IS NOT NULL`)
     .bind(space, exceptDevice).all();
   if (!results.length) return { woke: 0 };
@@ -144,15 +144,23 @@ async function wakeMembers(env, deps, db, space, exceptDevice, data) {
     return { woke: 0, skipped: "fcm_misconfigured" };
   }
   let woke = 0;
+  // 연속 실패 횟수·이유를 기기에 남깁니다(가족 화면 "실시간 알림 안 되는 기기"). 성공하면 0으로.
+  const fail = (id, why) => db.prepare("UPDATE devices SET wake_fail = wake_fail + 1, wake_err = ?2 WHERE id = ?1")
+    .bind(id, String(why).slice(0, 60)).run();
   for (const t of results) {
     try {
       const r = await sendData(sa, t.fcm_token, data, 86_400, deps.fetch, deps.now(), `doran-${space}`);
-      if (r === "ok") woke++;
-      if (r === "unregistered") {
-        await db.prepare("UPDATE devices SET fcm_token = NULL WHERE id = ?1").bind(t.id).run();
+      if (r === "ok") {
+        woke++;
+        if (t.wake_fail) await db.prepare("UPDATE devices SET wake_fail = 0, wake_err = NULL WHERE id = ?1").bind(t.id).run();
+      } else if (r === "unregistered") {
+        await db.prepare("UPDATE devices SET fcm_token = NULL, wake_fail = wake_fail + 1, wake_err = 'unregistered' WHERE id = ?1").bind(t.id).run();
+      } else {
+        await fail(t.id, r);
       }
     } catch (e) {
       console.warn("wake failed", e?.message ?? e);
+      await fail(t.id, e?.message ?? "exception").catch(() => {});
     }
   }
   return { woke };
@@ -255,7 +263,7 @@ async function route(req, env, deps) {
   if (method === "GET" && sub === "") {
     await requireRole(db, space, me.id, ["member"]);
     const { results } = await db.prepare(
-      `SELECT m.device, m.role, m.created_at, d.seen_at, d.fcm_token IS NOT NULL AS push
+      `SELECT m.device, m.role, m.created_at, d.seen_at, d.fcm_token IS NOT NULL AS push, d.wake_fail, d.wake_err
        FROM members m JOIN devices d ON d.id = m.device WHERE m.space = ?1 ORDER BY m.created_at`).bind(space).all();
     const usage = await db.prepare(
       "SELECT (SELECT COUNT(*) FROM ops WHERE space = ?1) AS ops, (SELECT COALESCE(SUM(size), 0) FROM blobs WHERE space = ?1) AS blobBytes")
@@ -263,6 +271,7 @@ async function route(req, env, deps) {
     return json(200, {
       members: results.map((r) => ({
         deviceId: r.device, role: r.role, createdAt: r.created_at, seenAt: r.seen_at, push: !!r.push, me: r.device === me.id,
+        wakeFail: r.wake_fail ?? 0, wakeErr: r.wake_err ?? null,
       })),
       ops: usage.ops, blobBytes: usage.blobBytes, blobQuota: SPACE_BLOB_QUOTA,
     });
