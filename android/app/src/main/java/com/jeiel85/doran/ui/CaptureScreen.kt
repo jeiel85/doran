@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.DeleteSweep
@@ -71,6 +72,14 @@ fun CaptureScreen(nav: Nav) {
                 Text("카드사·은행 알림과 문자를 읽어 바로 장부에 넣어요", style = MaterialTheme.typography.titleMedium, color = P.c.ink)
                 Text("금액·승인 형식이 아닌 알림은 읽자마자 버리고, 원문은 이 폰에만 30일 남겨요. 같은 결제가 앱 알림과 문자로 함께 와도 한 건으로 합쳐요.",
                     style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+            }
+        }
+        val me = Hub.ledger.value.member(Hub.identity.value.myMemberId)
+        if (me != null && !me.isSender) item {
+            Spacer(Modifier.height(14.dp))
+            SoftCard(padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
+                ListRow("가계부에 올리는 범위: ${com.jeiel85.doran.logic.ShareScope.label(me)}", com.jeiel85.doran.logic.ShareScope.detail(me),
+                    Icons.Rounded.Tune, P.c.apricot, onClick = { nav.go(Route.Share(me.id)) })
             }
         }
         item { Spacer(Modifier.height(20.dp)); SectionTitle("꼭 필요한 권한") }

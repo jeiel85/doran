@@ -86,15 +86,31 @@ data class Member(
     val allowance: Long = 0,
     val order: Int = 0,
     val removed: Boolean = false,
+    /**
+     * 공유 범위 (DECISIONS.md D-19). [SHARE_ALL]: 이 사람 폰이 읽은 내역을 모두 가계부에 올림 /
+     * [SHARE_PICKED]: [shareIssuers]의 카드사·은행만 올리고 나머지는 본인만 보는 용돈으로 기록(가족에게는 월 합계만).
+     * 가구 키로 동기화되어 본인과 다른 가족 모두 바꿀 수 있고, [shareBy]는 마지막으로 바꾼 구성원입니다.
+     */
+    val share: String = SHARE_ALL,
+    val shareIssuers: List<String> = emptyList(),
+    val shareBy: String? = null,
 ) {
     val isSender get() = role == "sender"
+    val sharesPicked get() = share == SHARE_PICKED
+    /** 이 카드사·은행의 알림을 가계부에 올리는지. */
+    fun shares(issuer: String): Boolean = !sharesPicked || shareIssuers.any { it.trim().equals(issuer.trim(), ignoreCase = true) }
     fun json(): JSONObject = JSONObject().put("name", name).put("role", role).put("color", color)
         .put("deviceIds", deviceIds.json()).put("allowance", allowance).put("order", order).put("removed", removed)
+        .put("share", share).put("shareIssuers", shareIssuers.json()).putN("shareBy", shareBy)
     companion object {
+        const val SHARE_ALL = "all"
+        const val SHARE_PICKED = "picked"
         fun from(id: String, o: JSONObject) = Member(
             id = id, name = o.str("name") ?: "가족", role = o.str("role") ?: "member", color = o.int("color") ?: 0,
             deviceIds = o.strs("deviceIds"), allowance = o.long("allowance") ?: 0, order = o.int("order") ?: 0,
             removed = o.optBoolean("removed"),
+            share = o.str("share")?.takeIf { it == SHARE_PICKED } ?: SHARE_ALL, shareIssuers = o.strs("shareIssuers"),
+            shareBy = o.str("shareBy"),
         )
     }
 }

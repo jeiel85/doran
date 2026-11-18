@@ -109,9 +109,11 @@ fun FamilyScreen(nav: Nav) {
                 SoftCard(padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
                     s.activeMembers.filter { !it.isSender }.forEach { m ->
                         ListRow(m.name + if (m.id == id.myMemberId) " (나)" else "",
-                            if (m.allowance > 0) "용돈 ${Fmt.won(m.allowance)} · 눌러서 이름 바꾸기" else "장부 전체 · 눌러서 이름 바꾸기",
-                            leading = { MemberAvatar(m, 40.dp) }, onClick = { rename = m }) {
-                            Icon(Icons.Rounded.Edit, "이름 바꾸기", tint = P.c.inkFaint, modifier = Modifier.size(18.dp))
+                            com.jeiel85.doran.logic.ShareScope.label(m) + (if (m.allowance > 0) " · 용돈 ${Fmt.won(m.allowance)}" else ""),
+                            leading = { MemberAvatar(m, 40.dp) }, onClick = { nav.go(Route.Share(m.id)) }) {
+                            androidx.compose.material3.IconButton(onClick = { rename = m }) {
+                                Icon(Icons.Rounded.Edit, "이름 바꾸기", tint = P.c.inkFaint, modifier = Modifier.size(18.dp))
+                            }
                         }
                     }
                     ListRow("함께 쓸 사람 초대", "배우자 폰에서 QR을 찍으면 같은 장부를 써요", Icons.Rounded.GroupAdd, P.c.pine,

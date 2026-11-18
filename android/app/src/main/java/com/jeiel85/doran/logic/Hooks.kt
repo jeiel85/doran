@@ -7,6 +7,7 @@ import com.jeiel85.doran.core.Hub
 import com.jeiel85.doran.data.Change
 import com.jeiel85.doran.model.AllowanceSummary
 import com.jeiel85.doran.model.Kind
+import com.jeiel85.doran.model.Member
 import com.jeiel85.doran.model.MerchantRule
 import com.jeiel85.doran.model.Source
 import com.jeiel85.doran.model.T
@@ -28,6 +29,7 @@ object Hooks {
 
     /** 동기화로 받은 것 중 다른 사람이 자동으로 기록한 새 거래는 알리고 "새 내역"으로 표시합니다. */
     fun onRemote(context: Context, changes: List<Change>) {
+        notifyShareChanges(context, changes)
         val s = Hub.ledger.value
         val mine = Hub.identity.installId
         val fresh = changes.filter { it.type == T.TXN && it.before == null && it.after != null }
@@ -50,6 +52,20 @@ object Hooks {
         for (t in recent) {
             val text = FamilyAlert.of(now, t)
             Notifier.familyTxn(context, t.id, text.title, text.body)
+        }
+    }
+
+    /** 다른 폰에서 누군가의 공유 범위를 바꾸면 알립니다(DECISIONS.md D-19). 내가 바꾼 것은 알리지 않습니다. */
+    private fun notifyShareChanges(context: Context, changes: List<Change>) {
+        val me = Hub.identity.value.myMemberId
+        val s = Hub.ledger.value
+        for (c in changes) {
+            if (c.type != T.MEMBER || c.before == null || c.after == null) continue
+            val before = Member.from(c.id, c.before)
+            val after = Member.from(c.id, c.after)
+            if (!ShareScope.changed(before, after) || after.shareBy == me) continue
+            Notifier.system(context, 5000 + (c.id.hashCode() and 0xfff),
+                ShareScope.changedTitle(after, me, s.member(after.shareBy)?.name), ShareScope.label(after) + " · " + ShareScope.detail(after))
         }
     }
 

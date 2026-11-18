@@ -64,8 +64,13 @@ class CaptureProcessor(
         if (remember && from != null) {
             settings.saveRule(com.jeiel85.doran.data.ForwardRule(
                 com.jeiel85.doran.data.ForwardRule.key(row.source, from), row.label ?: from, parsed.issuer, parsed.isCard))
+            // "앞으로도 자동으로 보내기"인데 공유 범위 밖 카드사면, 다음부터 용돈으로 빠지지 않게 공유 범위에 넣습니다(D-19).
+            ledger.value.member(identity.value.myMemberId)?.takeIf { !it.shares(parsed.issuer) }?.let { m ->
+                ledger.saveMember(m.copy(shareIssuers = m.shareIssuers + parsed.issuer, shareBy = m.id))
+            }
         }
-        return deliver(parsed, Source.of(row.source), from, row.title, row.text, row.at, row.label, logId = row.id)
+        // 직접 골라 보낸 것은 공유 범위와 관계없이 가계부에 올립니다.
+        return deliver(parsed, Source.of(row.source), from, row.title, row.text, row.at, row.label, logId = row.id, forceShare = true)
     }
 
     /** 고른 알림을 지금 해석해 보여 줄 초기값. 카드사를 모르면 앱 이름(없으면 "카드")으로 둡니다. */
@@ -76,12 +81,14 @@ class CaptureProcessor(
     }
 
     private fun deliver(parsed: Parsed, source: Source, pkg: String?, title: String?, text: String, postedAt: Long,
-                        appLabel: String?, logId: Long?): Outcome {
+                        appLabel: String?, logId: Long?, forceShare: Boolean = false): Outcome {
         val at = parsed.at?.let { Fmt.millis(it) }?.takeIf { abs(it - postedAt) < 3L * 86_400_000 } ?: postedAt
         val results = ArrayList<String>()
         var txnId: String? = null
         if (identity.value.inHousehold) {
-            val r = recordLocal(parsed, source, at)
+            val me = ledger.value.member(identity.value.myMemberId)
+            val r = if (!forceShare && me != null && !me.shares(parsed.issuer)) recordPrivate(parsed, source, at, me.id)
+                else recordLocal(parsed, source, at)
             results += r.result
             txnId = r.txnId
         }
@@ -171,6 +178,38 @@ class CaptureProcessor(
         return Outcome(if (planned != null) "고정지출과 맞춤" else "기록함", saved.id)
     }
 
+    // --- 공유 범위 밖: 나만 보는 용돈으로 (DECISIONS.md D-19) ------------------------------------------
+
+    /**
+     * 공유 범위 밖 카드사·은행의 알림. 가족이 그 카드·계좌의 존재나 잔액을 알 수 없게 계좌를 만들거나 잔액을 고치지 않고,
+     * 개인 키로 봉하는 용돈 거래(private)로만 남깁니다. 가족에게는 용돈 월 합계만 보입니다(D-7).
+     */
+    private fun recordPrivate(p: Parsed, source: Source, at: Long, me: String): Outcome {
+        // 내 계좌에서 내 카드값이 나가는 것은 지출이 아니라 이체라, 계좌 없이 남기면 같은 돈을 두 번 센 셈이 됩니다.
+        if (p.cardPaymentTo != null) return Outcome("공유 범위 밖 카드값 출금 · 기록 안 함", null)
+        val isCancel = p.type == Parsed.Type.CANCEL
+        val kind = if (p.type == Parsed.Type.DEPOSIT) Kind.INCOME else Kind.EXPENSE
+        val mine = ledger.value.txns.values.filter { it.private && it.memberId == me && it.issuer == p.issuer }
+        mine.firstOrNull {
+            it.amount == p.amount && it.kind == kind && (it.cancelOf != null) == isCancel && abs(it.at - at) <= sameMinutes && it.source.captured
+        }?.let { return Outcome("이미 기록됨(중복 알림)", it.id) }
+
+        val first = Txn(
+            id = newId(), kind = kind, amount = p.amount, at = at, accountId = null, merchant = p.merchant.orEmpty(),
+            memberId = me, source = source, installment = p.installment, cumulative = p.cumulative, issuer = p.issuer,
+            cardLabel = p.issuer + (p.last4?.let { "($it)" } ?: ""), foreign = p.foreign, needsReview = p.amount == 0L,
+            private = true, createdBy = identity.installId, createdAt = System.currentTimeMillis(),
+        )
+        val txn = if (isCancel) {
+            val original = pickOriginal(ledger.value, mine.asSequence(), p, at)
+            if (original != null) first.copy(cancelOf = original.id, categoryId = original.categoryId, merchant = p.merchant ?: original.merchant)
+            else first.copy(kind = Kind.INCOME, categoryId = "c.income_etc", memo = "원래 승인을 찾지 못한 취소 — 확인해 주세요", needsReview = true)
+        } else first.copy(categoryId = Categorizer.categorize(ledger.value, first.merchant, kind))
+        ledger.saveTxn(txn)
+        settings.markUnseen(listOf(txn.id))
+        return Outcome("나만 보는 용돈으로 기록(공유 범위 밖)", txn.id)
+    }
+
     private fun base(p: Parsed, source: Source, at: Long, me: String?, account: Account, label: String) = Txn(
         id = newId(), kind = Kind.EXPENSE, amount = p.amount, at = at, accountId = account.id, merchant = p.merchant.orEmpty(),
         memberId = me, source = source, installment = p.installment, cumulative = p.cumulative, issuer = p.issuer,
@@ -178,10 +217,14 @@ class CaptureProcessor(
         createdBy = identity.installId, createdAt = System.currentTimeMillis(),
     )
 
-    private fun findOriginal(s: LedgerState, accountId: String, p: Parsed, at: Long): Txn? {
+    private fun findOriginal(s: LedgerState, accountId: String, p: Parsed, at: Long): Txn? =
+        pickOriginal(s, s.txns.values.asSequence().filter { it.accountId == accountId }, p, at)
+
+    /** 취소 알림이 가리키는 원래 승인: 60일 안, 남은 금액이 취소액 이상, 가맹점·금액이 같은 것 우선. */
+    private fun pickOriginal(s: LedgerState, candidates: Sequence<Txn>, p: Parsed, at: Long): Txn? {
         val canceled = s.canceled
-        return s.txns.values.asSequence()
-            .filter { it.accountId == accountId && it.kind == Kind.EXPENSE && it.cancelOf == null }
+        return candidates
+            .filter { it.kind == Kind.EXPENSE && it.cancelOf == null }
             .filter { at - it.at in 0..60L * 86_400_000 && it.amount - (canceled[it.id] ?: 0) >= p.amount }
             .sortedWith(compareByDescending<Txn> { p.merchant != null && it.merchant == p.merchant }
                 .thenByDescending { it.amount == p.amount }.thenByDescending { it.at })

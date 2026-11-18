@@ -4,6 +4,8 @@
 //        host (가짜 남편이 가구를 만들고 초대 코드 출력) | push-hyundai (가짜 남편의 현대카드 결제)
 //        leave (이 가짜 기기를 서버에서 지움 — 운영 서버 시험 뒤 정리)
 //        demo (host 뒤 에뮬레이터가 아내로 합류하면, 스토어 화면용 예시 장부를 채움 — 로컬 중계에서만)
+//        host-wife (가짜 아내가 가구를 만들고 초대 링크 출력 — 에뮬레이터가 남편으로 합류)
+//        share <구성원 이름> <카드사,은행|all> (가짜 아내가 그 구성원의 공유 범위를 바꿈 — DECISIONS.md D-19)
 // 환경 변수: RELAY(기본 로컬 8787), PEER_STATE(상태 파일)
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -65,7 +67,22 @@ async function push(st, key, items) {
   return call("POST", `/v1/spaces/${st.space}/ops`, st.token, { ops });
 }
 
-const [cmd, arg] = process.argv.slice(2);
+const [cmd, arg, arg2] = process.argv.slice(2);
+
+// 가구의 op를 모두 풀어 엔티티별 최신 값으로 (pull·share가 씀)
+async function latest(st) {
+  const key = unb64(st.hk);
+  const r = await call("GET", `/v1/spaces/${st.space}/ops?after=0`, st.token);
+  const ents = {}; let unreadable = 0;
+  for (const op of r.ops) {
+    let o;
+    try { o = JSON.parse(open(key, op.env, aad(st.space, op.ek)).toString()); } catch { unreadable++; continue; }
+    if (ek(key, o.t, o.id) !== op.ek) throw new Error("ek mismatch");
+    const k = `${o.t}:${o.id}`;
+    if (!ents[k] || ents[k].h < o.h) ents[k] = o;
+  }
+  return { ops: r.ops.length, unreadable, ents: Object.values(ents) };
+}
 const st = load();
 if (cmd === "join") {
   await register(st);
@@ -85,7 +102,9 @@ if (cmd === "join") {
     let o;
     try { o = JSON.parse(open(key, op.env, aad(st.space, op.ek)).toString()); } catch { unreadable++; continue; }
     if (ek(key, o.t, o.id) !== op.ek) throw new Error("ek mismatch");
-    (out[o.t] ??= []).push(o.d ? `${o.id} (deleted)` : o.t === "txn" ? `${o.v.merchant} ${o.v.amount} ${o.v.kind} src=${o.v.source} cum=${o.v.cumulative} priv=${o.v.private}` : o.t === "member" ? o.v.name : o.t === "account" ? `${o.v.name}/${o.v.type}` : o.id);
+    (out[o.t] ??= []).push(o.d ? `${o.id} (deleted)` : o.t === "txn" ? `${o.v.merchant} ${o.v.amount} ${o.v.kind} ${o.v.issuer} src=${o.v.source} cum=${o.v.cumulative} priv=${o.v.private}`
+      : o.t === "member" ? `${o.v.name} share=${o.v.share ?? "all"}:${(o.v.shareIssuers ?? []).join("|")} allowance=${o.v.allowance}`
+      : o.t === "account" ? `${o.v.name}/${o.v.type}` : o.t === "allowance" ? `${o.v.month} spent=${o.v.spent} n=${o.v.count}` : o.id);
   }
   console.log("ops", r.ops.length, "unreadable(private or other keys):", unreadable);
   for (const [t, v] of Object.entries(out)) console.log(t, v.length, JSON.stringify(v.slice(0, 12)));
@@ -117,6 +136,32 @@ if (cmd === "join") {
   });
   // 앱과 같은 초대 링크 형식(Pairing.link): #m.<비밀값>.<초대한 사람 이름>
   console.log("https://jeiel85.github.io/doran/join/#m." + b64(secret) + "." + b64(Buffer.from("남편")));
+} else if (cmd === "host-wife") {
+  // 가짜 아내: 가구를 만들고 '함께 쓸 사람' 초대 링크를 출력합니다(에뮬레이터가 남편으로 합류).
+  await register(st);
+  st.space = (await call("POST", "/v1/spaces", st.token)).spaceId;
+  st.hk = b64(crypto.randomBytes(32)); st.memberId = "wifeHostMember00000000";
+  save(st);
+  await push(st, unb64(st.hk), [
+    ["household", "home", { name: "새해 가계부", monthStartDay: 1, budget: 3000000 }],
+    ["member", st.memberId, { name: "아내", role: "member", color: 1, deviceIds: [st.deviceId], allowance: 0, order: 0, removed: false }],
+  ]);
+  const secret = crypto.randomBytes(32);
+  const bundle = { v: 1, role: "member", space: st.space, hk: st.hk, name: "새해 가계부", inviter: "아내" };
+  await call("POST", `/v1/spaces/${st.space}/invites`, st.token, {
+    inviteId: b64(sha256(secret)), role: "member", ttlSec: 1800,
+    bundle: seal(hkdf(secret, "doran invite v1"), Buffer.from(JSON.stringify(bundle)), "doran1|invite"),
+  });
+  console.log("https://jeiel85.github.io/doran/join/#m." + b64(secret) + "." + b64(Buffer.from("아내")));
+} else if (cmd === "share") {
+  // 가짜 아내가 구성원(예: 남편)의 공유 범위를 바꿈: share 남편 현대카드 / share 남편 all
+  const { ents } = await latest(st);
+  const m = ents.find((o) => o.t === "member" && !o.d && o.v.name === arg);
+  if (!m) throw new Error(`no member named ${arg}`);
+  const picked = arg2 && arg2 !== "all";
+  const v = { ...m.v, share: picked ? "picked" : "all", shareIssuers: picked ? arg2.split(",") : [], shareBy: st.memberId };
+  await push(st, unb64(st.hk), [["member", m.id, v]]);
+  console.log("share set", arg, v.share, v.shareIssuers.join("|"));
 } else if (cmd === "push-hyundai") {
   const key = unb64(st.hk);
   const id = "husbandTxn" + Date.now().toString().slice(-12).padStart(12, "0");

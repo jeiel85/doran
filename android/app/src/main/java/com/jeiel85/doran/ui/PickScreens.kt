@@ -150,6 +150,11 @@ fun SendPickedScreen(logId: Long, nav: Nav) {
                 Icons.Rounded.AutoMode, P.c.pine, remember) { remember = it }
             Spacer(Modifier.height(10.dp))
             if (target.isEmpty()) Text("연결된 가계부가 없어요. 가족 화면에서 먼저 연결해 주세요.", color = P.c.danger, style = MaterialTheme.typography.bodyMedium)
+            household.member(id.myMemberId)?.takeIf { id.inHousehold && issuer.isNotBlank() && !it.shares(issuer.trim()) }?.let {
+                Text("· '${issuer.trim()}'는 내 공유 범위 밖이지만, 직접 고른 이 건은 가계부에 보내요" +
+                    if (remember) ". 앞으로 오는 것도 보내도록 공유 범위에 넣어요" else "",
+                    style = MaterialTheme.typography.bodySmall, color = P.c.apricot)
+            }
             target.forEach { Text("· $it", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft) }
             error?.let { Text(it, color = P.c.danger, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp)) }
         }
