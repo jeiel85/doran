@@ -321,11 +321,16 @@ data class AllowanceSummary(val id: String, val memberId: String, val month: Str
 }
 
 /** 보내기 링크(다른 가족 → 우리 가구). 키는 가구 키로 암호화된 장부 안에만 있습니다. */
-data class Link(val id: String, val memberId: String, val key: String, val createdAt: Long, val revoked: Boolean = false) {
+/**
+ * 보내는 가족(sender)의 링크 키. [inviteId]는 그 가족을 부른 초대의 id로, 중계가 기기마다 알려 주는
+ * 초대 id와 맞춰 가족 화면에서 기기를 사람 이름과 짝짓습니다(DECISIONS.md D-22). 옛 링크는 null.
+ */
+data class Link(val id: String, val memberId: String, val key: String, val createdAt: Long, val revoked: Boolean = false,
+                val inviteId: String? = null) {
     fun json(): JSONObject = JSONObject().put("memberId", memberId).put("key", key).put("createdAt", createdAt)
-        .put("revoked", revoked)
+        .put("revoked", revoked).apply { inviteId?.let { put("inviteId", it) } }
     companion object {
         fun from(id: String, o: JSONObject) =
-            Link(id, o.str("memberId") ?: "", o.str("key") ?: "", o.long("createdAt") ?: 0, o.optBoolean("revoked"))
+            Link(id, o.str("memberId") ?: "", o.str("key") ?: "", o.long("createdAt") ?: 0, o.optBoolean("revoked"), o.str("inviteId"))
     }
 }

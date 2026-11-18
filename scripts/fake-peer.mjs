@@ -1,6 +1,7 @@
 // 가짜 가족 폰: 도란 동기화 프로토콜(design/PROTOCOL.md)을 Node로 구현해 에뮬레이터 한 대와 E2E 시험을 합니다.
 // 에뮬레이터 2대를 동시에 못 띄우는 PC용. 사용법은 README "두 폰 동기화 시험".
-// usage: node scripts/fake-peer.mjs join <code> | pull | push-card | push-sender <code>
+// usage: node scripts/fake-peer.mjs join <code> | pull | push-card | push-sender <링크>
+//        sender-again (push-sender로 붙은 가짜 어머니가 한 건 더 보냄 — 끊은 뒤엔 거절돼야 함)
 //        host (가짜 남편이 가구를 만들고 초대 코드 출력) | push-hyundai (가짜 남편의 현대카드 결제)
 //        leave (이 가짜 기기를 서버에서 지움 — 운영 서버 시험 뒤 정리)
 //        demo (host 뒤 에뮬레이터가 아내로 합류하면, 스토어 화면용 예시 장부를 채움 — 로컬 중계에서만)
@@ -48,7 +49,12 @@ async function call(method, path, token, body) {
 }
 const load = () => (fs.existsSync(STATE) ? JSON.parse(fs.readFileSync(STATE, "utf8")) : {});
 const save = (s) => fs.writeFileSync(STATE, JSON.stringify(s, null, 2));
-const secretOf = (code) => unb64(code.trim().slice(code.indexOf("doran:1:") + 8));
+// 옛 코드(doran:1:<비밀값>)와 초대 링크(…/doran/join/#s.<비밀값>.<초대한 사람>) 둘 다 받습니다.
+const secretOf = (code) => {
+  const t = code.trim();
+  if (t.includes("doran:1:")) return unb64(t.slice(t.indexOf("doran:1:") + 8));
+  return unb64(t.slice(t.indexOf("#") + 1).split(".")[1]);
+};
 let counter = 0;
 const hlc = (dev) => `${String(Date.now()).padStart(13, "0")}-${String(counter++).padStart(5, "0")}-${dev}`;
 
@@ -250,6 +256,7 @@ if (cmd === "join") {
   const st2 = { token: mom.token, deviceId: mom.deviceId, space: c.spaceId };
   const acc = `acc.${bundle.memberId}.현대카드`;
   const tid = "momTxn" + Date.now().toString().slice(-16).padStart(16, "0");
+  const all = load(); all.mom = { ...st2, lk: bundle.lk, memberId: bundle.memberId, acc }; save(all); // sender-again용
   const r = await push(st2, lk, [
     ["account", acc, { name: "현대카드", type: "card", ownerId: bundle.memberId, institution: "현대카드", cycleStartDay: 1 }],
     ["txn", tid, { kind: "e", amount: 21000, at: Date.now() - 30000, accountId: acc, categoryId: "c.medical", merchant: "온누리약국",
@@ -261,4 +268,19 @@ if (cmd === "join") {
   console.log("mom pushed", JSON.stringify(r));
   const denied = await fetch(`${RELAY}/v1/spaces/${c.spaceId}/ops`, { headers: { authorization: `Bearer ${mom.token}` } });
   console.log("mom read attempt ->", denied.status);
+} else if (cmd === "sender-again") {
+  // 가짜 어머니가 한 건 더: 연결돼 있으면 받는 폰에 "어머니가 … 썼어요", 끊겼으면 중계가 거절
+  const mom = load().mom;
+  if (!mom) throw new Error("먼저 push-sender");
+  const tid = "momTxn" + Date.now().toString().slice(-16).padStart(16, "0");
+  try {
+    const r = await push(mom, unb64(mom.lk), [
+      ["txn", tid, { kind: "e", amount: 8500, at: Date.now() - 10000, accountId: mom.acc, categoryId: "c.food", merchant: "동네빵집",
+        memberId: mom.memberId, source: "family", installment: 0, cumulative: 238500, issuer: "현대카드", cardLabel: "현대카드(9012)",
+        receiptIds: [], private: false, createdBy: "mom", createdAt: Date.now() }],
+    ]);
+    console.log("mom pushed again", JSON.stringify(r));
+  } catch (e) {
+    console.log("mom push refused:", e.message);
+  }
 }

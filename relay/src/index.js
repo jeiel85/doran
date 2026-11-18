@@ -247,8 +247,10 @@ async function route(req, env, deps) {
     if (existing === "member") throw new HttpError(409, "already_member");
     await db.batch([
       // sender가 member로 다시 초대받는 경우(부모님이 장부를 함께 쓰기로 함)는 승격합니다.
-      db.prepare(`INSERT INTO members (space, device, role, created_at) VALUES (?1, ?2, ?3, ?4)
-                  ON CONFLICT (space, device) DO UPDATE SET role = excluded.role`).bind(inv.space, me.id, inv.role, now),
+      // 어느 초대로 들어왔는지 남겨, 가족 화면이 기기를 초대한 사람 이름과 짝짓게 합니다(D-22).
+      db.prepare(`INSERT INTO members (space, device, role, created_at, invite) VALUES (?1, ?2, ?3, ?4, ?5)
+                  ON CONFLICT (space, device) DO UPDATE SET role = excluded.role, invite = excluded.invite`)
+        .bind(inv.space, me.id, inv.role, now, claim[1]),
       db.prepare("DELETE FROM invites WHERE id = ?1").bind(claim[1]),
     ]);
     await wakeMembers(env, deps, db, inv.space, me.id, { k: "joined", s: inv.space });
@@ -263,7 +265,7 @@ async function route(req, env, deps) {
   if (method === "GET" && sub === "") {
     await requireRole(db, space, me.id, ["member"]);
     const { results } = await db.prepare(
-      `SELECT m.device, m.role, m.created_at, d.seen_at, d.fcm_token IS NOT NULL AS push, d.wake_fail, d.wake_err
+      `SELECT m.device, m.role, m.created_at, m.invite, d.seen_at, d.fcm_token IS NOT NULL AS push, d.wake_fail, d.wake_err
        FROM members m JOIN devices d ON d.id = m.device WHERE m.space = ?1 ORDER BY m.created_at`).bind(space).all();
     const usage = await db.prepare(
       "SELECT (SELECT COUNT(*) FROM ops WHERE space = ?1) AS ops, (SELECT COALESCE(SUM(size), 0) FROM blobs WHERE space = ?1) AS blobBytes")
@@ -271,7 +273,7 @@ async function route(req, env, deps) {
     return json(200, {
       members: results.map((r) => ({
         deviceId: r.device, role: r.role, createdAt: r.created_at, seenAt: r.seen_at, push: !!r.push, me: r.device === me.id,
-        wakeFail: r.wake_fail ?? 0, wakeErr: r.wake_err ?? null,
+        wakeFail: r.wake_fail ?? 0, wakeErr: r.wake_err ?? null, invite: r.invite ?? null,
       })),
       ops: usage.ops, blobBytes: usage.blobBytes, blobQuota: SPACE_BLOB_QUOTA,
     });

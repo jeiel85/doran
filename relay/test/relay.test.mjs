@@ -16,7 +16,7 @@ class Stmt {
 }
 function d1() {
   const db = new DatabaseSync(":memory:");
-  for (const m of ["0001_init.sql", "0002_wake_failures.sql"]) db.exec(readFileSync(new URL(`../migrations/${m}`, import.meta.url), "utf8"));
+  for (const m of ["0001_init.sql", "0002_wake_failures.sql", "0003_member_invite.sql"]) db.exec(readFileSync(new URL(`../migrations/${m}`, import.meta.url), "utf8"));
   return {
     raw: db,
     prepare: (sql) => new Stmt(db, sql),
@@ -238,6 +238,16 @@ test("sender는 남을 내보낼 수 없지만 자기 연결은 끊을 수 있�
   assert.equal(info.body.members.length, 2);
 });
 
+test("가구 정보는 기기마다 들어온 초대 id를 알려 줌 (보내는 가족 이름 짝짓기)", async () => {
+  const { h, w, spaceId } = await household();
+  const mom = await addSender(h, spaceId);
+  const info = await call("GET", `/v1/spaces/${spaceId}`, { token: w.token });
+  const by = Object.fromEntries(info.body.members.map((m) => [m.deviceId, m.invite]));
+  assert.equal(by[mom.deviceId], "mom".padEnd(43, "M"));
+  assert.equal(by[w.deviceId], "I".repeat(43));
+  assert.equal(by[h.deviceId], null, "가구를 만든 기기는 초대 없이 들어옴");
+});
+
 test("sender를 member로 다시 초대하면 승격", async () => {
   const { h, spaceId } = await household();
   const mom = await addSender(h, spaceId);
@@ -246,6 +256,8 @@ test("sender를 member로 다시 초대하면 승격", async () => {
   });
   assert.equal((await call("POST", `/v1/invites/${"P".repeat(43)}/claim`, { token: mom.token })).body.role, "member");
   assert.equal((await call("GET", `/v1/spaces/${spaceId}/ops`, { token: mom.token })).status, 200);
+  const info = await call("GET", `/v1/spaces/${spaceId}`, { token: h.token });
+  assert.equal(info.body.members.find((m) => m.deviceId === mom.deviceId).invite, "P".repeat(43), "승격하면 새 초대로 바뀜");
 });
 
 test("member가 모두 떠나면 가구 데이터 삭제", async () => {

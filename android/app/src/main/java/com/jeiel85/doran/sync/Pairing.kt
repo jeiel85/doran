@@ -79,17 +79,19 @@ object Pairing {
         val member = Member(id = newId(), name = name.trim().ifEmpty { "가족" }, role = "sender",
             color = (s.members.size + 2) % com.jeiel85.doran.model.Defaults.MEMBER_COLORS, order = s.members.size)
         val key = Crypto.newKey()
+        val secret = Crypto.randomBytes(32)
         Hub.ledger.saveMember(member)
-        Hub.ledger.saveLink(Link(id = newId(), memberId = member.id, key = Crypto.b64(key), createdAt = System.currentTimeMillis()))
+        // 초대 id를 링크에 적어 두면, 그 초대로 들어온 기기를 가족 화면에서 이 사람 이름으로 보여 줄 수 있어요(D-22).
+        Hub.ledger.saveLink(Link(id = newId(), memberId = member.id, key = Crypto.b64(key), createdAt = System.currentTimeMillis(),
+            inviteId = Crypto.inviteId(secret)))
         Hub.sync.sync() // 링크가 받는 쪽 폰들에 먼저 가 있도록
         val bundle = JSONObject().put("v", 1).put("role", "sender").put("space", space).put("lk", Crypto.b64(key))
             .put("memberId", member.id).put("memberName", member.name).put("label", s.household.name)
             .put("inviter", s.member(Hub.identity.value.myMemberId)?.name ?: "")
-        create(space, "sender", bundle, ttlSec)
+        create(space, "sender", bundle, ttlSec, secret)
     }
 
-    private fun create(space: String, role: String, bundle: JSONObject, ttlSec: Int): Invite {
-        val secret = Crypto.randomBytes(32)
+    private fun create(space: String, role: String, bundle: JSONObject, ttlSec: Int, secret: ByteArray = Crypto.randomBytes(32)): Invite {
         val inviteId = Crypto.inviteId(secret)
         val sealed = Crypto.seal(Crypto.inviteKey(secret), bundle.toString().toByteArray(), Crypto.INVITE_AAD)
         val relay = Relay { Hub.identity.token }
@@ -166,15 +168,30 @@ object Pairing {
         Hub.identity.removeOutLink(spaceId)
     }
 
-    /** 가구에서 기기 내보내기(잃어버린 폰 등). 보낸 가족이면 링크도 끊긴 것으로 표시합니다. */
+    /** 가구에서 기기 내보내기(잃어버린 폰 등). 보내는 가족을 아예 끊을 때는 [revokeSender]가 링크와 기기를 함께 끊어요. */
     suspend fun removeDevice(deviceId: String) = withContext(Dispatchers.IO) {
         val space = Hub.identity.value.spaceId ?: return@withContext
         Relay { Hub.identity.token }.removeMember(space, deviceId)
     }
 
-    fun revokeSender(memberId: String) {
+    /**
+     * 보내는 가족 끊기: 링크 키를 끊긴 것으로 표시하고(이후 그 키로 온 내역은 버림), 그 초대로 들어온 기기도
+     * 가구에서 내보냅니다(D-22). 기기 내보내기가 실패해도(오프라인) 링크는 이미 끊겼으니 내역은 들어오지 않아요.
+     */
+    suspend fun revokeSender(memberId: String, devices: List<Relay.SpaceMember>) = withContext(Dispatchers.IO) {
         val s = Hub.ledger.value
-        s.links.values.filter { it.memberId == memberId && !it.revoked }.forEach { Hub.ledger.saveLink(it.copy(revoked = true)) }
+        val links = s.links.values.filter { it.memberId == memberId }
+        links.filter { !it.revoked }.forEach { Hub.ledger.saveLink(it.copy(revoked = true)) }
         s.member(memberId)?.let { Hub.ledger.saveMember(it.copy(removed = true)) }
+        val invites = links.mapNotNull { it.inviteId }.toSet()
+        devices.filter { it.role == "sender" && it.invite != null && it.invite in invites }
+            .forEach { d -> runCatching { removeDevice(d.deviceId) } }
+    }
+
+    /** 중계가 알려 준 기기가 어느 보내는 가족의 것인지(그 기기를 부른 초대로). 모르면 null. */
+    fun senderOf(device: Relay.SpaceMember, s: com.jeiel85.doran.data.LedgerState = Hub.ledger.value): com.jeiel85.doran.model.Member? {
+        if (device.role != "sender" || device.invite == null) return null
+        val link = s.links.values.firstOrNull { it.inviteId == device.invite } ?: return null
+        return s.member(link.memberId)
     }
 }

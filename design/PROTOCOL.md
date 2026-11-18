@@ -63,11 +63,11 @@ bundle   = seal(HKDF(s, salt="", info="doran invite v1"), JSON, aad="doran1|invi
 | `PUT /v1/devices/me` `{fcmToken}` | 기기 | FCM 토큰 갱신(없으면 null) |
 | `DELETE /v1/devices/me` | 기기 | 모든 가구에서 빠짐. member가 없어진 가구는 통째로 삭제 |
 | `POST /v1/spaces` | 기기 | 가구 만들기 → `{spaceId}` |
-| `GET /v1/spaces/:id` | member | 연결된 기기(실시간 알림 연속 실패 `wakeFail`·`wakeErr` 포함)·op 수·사진 용량 |
+| `GET /v1/spaces/:id` | member | 연결된 기기(실시간 알림 연속 실패 `wakeFail`·`wakeErr`, 들어온 초대 `invite` 포함)·op 수·사진 용량 |
 | `DELETE /v1/spaces/:id/members/:device` | member(누구든) / sender(자기만) | 기기 내보내기 |
 | `POST /v1/spaces/:id/invites` `{inviteId, role, bundle, ttlSec}` | member | 초대 맡기기 |
 | `DELETE /v1/spaces/:id/invites/:inviteId` | member | 초대 취소 |
-| `POST /v1/invites/:inviteId/claim` | 기기 | → `{spaceId, role, bundle}`, 다른 member를 `{k:"joined"}`로 깨움 |
+| `POST /v1/invites/:inviteId/claim` | 기기 | → `{spaceId, role, bundle}`, 다른 member를 `{k:"joined"}`로 깨움. 기기에 초대 id를 남김(보내는 가족 이름 짝짓기, DECISIONS.md D-22) |
 | `POST /v1/spaces/:id/ops` `{ops:[{ek,h,env}]}` | member·sender | 최대 200개. 다른 member를 `{k:"sync", s}`로 깨움 |
 | `GET /v1/spaces/:id/ops?after=&limit=` | member | → `{ops:[{seq,ek,h,env}], next, more}` |
 | `PUT/GET/DELETE /v1/spaces/:id/blobs/:blobId` | member | 영수증 사진 봉투(텍스트, 2MB 이하, 가구당 450MB) |

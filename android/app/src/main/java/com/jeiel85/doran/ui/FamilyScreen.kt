@@ -88,6 +88,7 @@ fun FamilyScreen(nav: Nav) {
     var devices by remember { mutableStateOf<Relay.SpaceInfo?>(null) }
     var removeTarget by remember { mutableStateOf<Relay.SpaceMember?>(null) }
     var rename by remember { mutableStateOf<Member?>(null) }
+    var revokeTarget by remember { mutableStateOf<Member?>(null) }
 
     LaunchedEffect(id.spaceId) {
         val space = id.spaceId ?: return@LaunchedEffect
@@ -130,7 +131,7 @@ fun FamilyScreen(nav: Nav) {
                     senders.forEach { m ->
                         val count = s.txns.values.count { it.memberId == m.id }
                         ListRow(m.name, "보낸 내역 ${count}건 · 눌러서 이름 바꾸기", leading = { MemberAvatar(m, 40.dp) }, onClick = { rename = m }) {
-                            SmallButton("끊기", color = P.c.danger) { Pairing.revokeSender(m.id) }
+                            SmallButton("끊기", color = P.c.danger) { revokeTarget = m }
                         }
                     }
                     ListRow("보내 줄 가족 초대", "그 가족 폰에 도란을 깔고 QR을 찍으면 돼요", Icons.Rounded.Send, P.c.apricot,
@@ -143,6 +144,8 @@ fun FamilyScreen(nav: Nav) {
                     SoftCard(padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
                         info.members.forEach { d ->
                             val who = s.members.values.firstOrNull { d.deviceId in it.deviceIds }?.name
+                                // 보내는 가족 기기는 그 기기를 부른 초대로 사람을 찾아요(D-22). 끊긴 가족이면 이름 뒤에 표시.
+                                ?: Pairing.senderOf(d, s)?.let { m -> "${m.name} 폰" + if (m.removed) " · 끊긴 가족" else "" }
                             ListRow(
                                 (who ?: if (d.role == "sender") "보내는 가족 폰" else "가족 폰") + if (d.me) " · 이 폰" else "",
                                 "연결 ${Fmt.date(d.createdAt)} · 최근 ${Fmt.relative(d.seenAt)}" +
@@ -187,6 +190,23 @@ fun FamilyScreen(nav: Nav) {
             com.jeiel85.doran.logic.AllowancePlan.sync(Hub.ledger, renamed) // "○○ 용돈" 고정지출 이름도 함께
             rename = null
         }
+    }
+    revokeTarget?.let { m ->
+        AlertDialog(
+            onDismissRequest = { revokeTarget = null },
+            containerColor = P.c.bg,
+            title = { Text("${m.name} 연결을 끊을까요?") },
+            text = { Text("${m.name} 폰에서 보내는 내역이 더 이상 들어오지 않고, 그 폰은 연결된 기기에서 빠져요. " +
+                "지금까지 보낸 내역은 그대로 남아요. 다시 연결하려면 새로 초대해야 해요.") },
+            confirmButton = { TextButton({
+                scope.launch {
+                    Pairing.revokeSender(m.id, devices?.members.orEmpty())
+                    devices = withContext(Dispatchers.IO) { runCatching { Relay { Hub.identity.token }.space(id.spaceId!!) }.getOrNull() }
+                }
+                revokeTarget = null
+            }) { Text("끊기", color = P.c.danger) } },
+            dismissButton = { TextButton({ revokeTarget = null }) { Text("취소") } },
+        )
     }
     removeTarget?.let { d ->
         AlertDialog(
