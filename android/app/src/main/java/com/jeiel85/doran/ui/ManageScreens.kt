@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Visibility
@@ -357,6 +358,7 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
     var cycleStart by remember { mutableStateOf((o?.cycleStartDay ?: 1).toString()) }
     var institution by remember { mutableStateOf(o?.institution ?: "") }
     var allowanceCard by remember { mutableStateOf(o?.allowanceCard ?: false) }
+    var family by remember { mutableStateOf(o?.family ?: false) }
     var hidden by remember { mutableStateOf(o?.hidden ?: false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val used = o != null && s.txns.values.any { it.accountId == o.id || it.toAccountId == o.id }
@@ -373,7 +375,7 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
             Hub.ledger.saveAccount(base.copy(
                 name = name.trim(), type = type, ownerId = ownerId, institution = institution.trim().ifEmpty { null },
                 billingDay = billingDay.toIntOrNull()?.coerceIn(1, 31), cycleStartDay = cycleStart.toIntOrNull()?.coerceIn(1, 28),
-                allowanceCard = allowanceCard, hidden = hidden,
+                allowanceCard = allowanceCard && !family, family = family, hidden = hidden,
                 anchor = if (changed) bal else base.anchor, anchorAt = if (changed) now else base.anchorAt,
             ))
             nav.back()
@@ -411,7 +413,11 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
                 s.activeMembers.forEach { m -> Chip(m.name, ownerId == m.id, { ownerId = m.id }, color = memberColor(m.color)) }
             }
             Spacer(Modifier.height(10.dp))
-            if (ownerId == id.myMemberId && (type == AccountType.CARD || type == AccountType.CHECK)) {
+            if (type == AccountType.CARD || type == AccountType.CHECK) {
+                ToggleRow("가족 카드", "명의와 관계없이 가족이 함께 쓰는 카드예요. 사람별 지출에서 '가족 공용'으로 묶어요",
+                    Icons.Rounded.Groups, P.c.pine, family) { family = it; if (it) allowanceCard = false }
+            }
+            if (ownerId == id.myMemberId && !family && (type == AccountType.CARD || type == AccountType.CHECK)) {
                 ToggleRow("내 용돈 카드", "이 카드 알림으로 들어온 내역은 용돈으로 처리해 가족에게 합계만 보여요", Icons.Rounded.Visibility, P.c.apricot, allowanceCard) { allowanceCard = it }
             }
             ToggleRow("숨기기", "자산 화면과 합계에서 뺍니다", Icons.Rounded.VisibilityOff, P.c.inkSoft, hidden) { hidden = it }
@@ -439,11 +445,18 @@ fun AllowanceScreen(nav: Nav) {
         item {
             SoftCard {
                 Text("내 한 달 용돈", style = MaterialTheme.typography.titleMedium, color = P.c.ink)
-                Text("용돈으로 표시한 내역은 내 폰에서만 열리고, 가족에게는 이번 달 합계만 보여요.", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                Text("용돈으로 표시한 내역은 내 폰에서만 열리고, 가족에게는 이번 달 합계만 보여요. 월 용돈을 정하면 매달 '내 용돈' 고정지출이 가계부에 한 번 들어가고, 그 안에서 쓴 것은 합계에 더하지 않아요.",
+                    style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
                 Spacer(Modifier.height(12.dp))
                 AmountField("월 용돈 (0이면 쓰지 않음)", amount) { amount = it }
                 Spacer(Modifier.height(10.dp))
-                PrimaryButton("저장", enabled = me != null) { me?.let { Hub.ledger.saveMember(it.copy(allowance = amount.toLongOrNull() ?: 0)) } }
+                PrimaryButton("저장", enabled = me != null) {
+                    me?.let {
+                        val m = it.copy(allowance = amount.toLongOrNull() ?: 0)
+                        Hub.ledger.saveMember(m)
+                        if (com.jeiel85.doran.logic.AllowancePlan.sync(Hub.ledger, m)) com.jeiel85.doran.logic.Recurrer.run(Hub.ledger, Hub.db, Hub.identity.installId)
+                    }
+                }
             }
         }
         if (others.isNotEmpty()) {
@@ -465,7 +478,7 @@ fun AllowanceScreen(nav: Nav) {
             style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft) }
         items(mine, key = { it.id }) { t ->
             val c = s.canceled[t.id] ?: 0
-            TxnRow(com.jeiel85.doran.logic.Entry(t, (t.amount - c).coerceAtLeast(0), c >= t.amount), s, false, showDate = true) {
+            TxnRow(com.jeiel85.doran.logic.Entry(t, (t.amount - c).coerceAtLeast(0), c >= t.amount, counted = Stats.counts(s, t)), s, false, showDate = true) {
                 nav.go(Route.Entry(txnId = t.id))
             }
         }
@@ -532,7 +545,7 @@ fun SearchScreen(nav: Nav) {
                     s.category(t.categoryId)?.name?.contains(needle) == true || t.amount.toString() == needle.replace(",", "")
             }.sortedByDescending { it.at }.take(200).map { t ->
                 val net = (t.amount - (c[t.id] ?: 0)).coerceAtLeast(0)
-                com.jeiel85.doran.logic.Entry(t, net, c[t.id] != null && net == 0L)
+                com.jeiel85.doran.logic.Entry(t, net, c[t.id] != null && net == 0L, counted = Stats.counts(s, t))
             }
         }
     }
@@ -565,7 +578,7 @@ fun CategoryTxnsScreen(categoryId: String, month: String, nav: Nav) {
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
                         Text("${list.size}건", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
-                        Text(Fmt.won(list.sumOf { it.net }), style = MaterialTheme.typography.headlineSmall.merge(Money), color = P.c.ink)
+                        Text(Fmt.won(list.filter { it.counted }.sumOf { it.net }), style = MaterialTheme.typography.headlineSmall.merge(Money), color = P.c.ink)
                     }
                     s.budgets[Budget.idFor(categoryId)]?.let { b ->
                         Text("예산 ${Fmt.compact(b.amount)}", style = MaterialTheme.typography.labelMedium, color = P.c.pine)

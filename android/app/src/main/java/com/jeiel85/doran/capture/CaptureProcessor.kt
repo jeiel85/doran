@@ -247,8 +247,10 @@ class CaptureProcessor(
         mine.firstOrNull { it.last4 == null || last4 == null }?.let { a ->
             return if (a.last4 == null && last4 != null) a.copy(last4 = last4).also { ledger.saveAccount(it) } else a
         }
+        // 정한 결제만 보내는 사람의 보내는 카드는 가족이 함께 쓰는 카드라 처음부터 가족 카드로(D-20).
+        val family = s.member(me)?.let { it.sharesPicked && it.shares(issuer) } == true
         return Account(id = newId(), name = issuer + (last4?.let { " $it" } ?: ""), type = AccountType.CARD, ownerId = me,
-            institution = issuer, last4 = last4, cycleStartDay = 1, openingAt = 0, order = s.accounts.size)
+            institution = issuer, last4 = last4, cycleStartDay = 1, openingAt = 0, order = s.accounts.size, family = family)
             .also { ledger.saveAccount(it) }
     }
 

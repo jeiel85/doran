@@ -73,10 +73,12 @@ fun TxnRow(e: Entry, s: LedgerState, isNew: Boolean, showDate: Boolean = false, 
             }
             val bits = buildList {
                 if (showDate) add(Fmt.date(t.at).let { "${it.monthValue}/${it.dayOfMonth}" })
-                if (e.allowanceSummary) add("세부 내역은 본인만 볼 수 있어요")
+                if (e.allowanceSummary) add(if (e.counted) "세부 내역은 본인만 볼 수 있어요" else "참고 · 용돈 안에서 써서 합계에 안 더함")
                 else {
                     member?.name?.let(::add)
-                    (s.account(t.accountId)?.name ?: t.cardLabel)?.let(::add)
+                    val acc = s.account(t.accountId)
+                    (acc?.name ?: t.cardLabel)?.let { add(if (acc?.family == true) "$it(가족 카드)" else it) }
+                    if (!e.counted) add("용돈 · 합계 제외")
                     if (t.kind == Kind.TRANSFER) s.account(t.toAccountId)?.name?.let { add("→ $it") }
                     if (t.installment > 1) add("${t.installment}개월")
                     if (t.source == Source.RECURRING) add("고정")

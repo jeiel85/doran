@@ -84,7 +84,7 @@ fun HomeScreen(nav: Nav) {
     val fresh = remember(s.version, unseen) {
         s.txns.values.filter { it.id in unseen }.sortedByDescending { it.at }.take(5)
     }
-    val members = Stats.byMember(entries)
+    val members = Stats.byMember(entries, s = s)
     val cards = remember(s.version) {
         s.accounts.values.filter { !it.hidden && (it.type == AccountType.CARD || it.type == AccountType.CHECK) }
             .sortedBy { it.order }.map { Stats.card(s, it, today) }
@@ -185,7 +185,7 @@ fun HomeScreen(nav: Nav) {
                     val c = s.canceled
                     fresh.forEach { t ->
                         val net = (t.amount - (c[t.id] ?: 0)).coerceAtLeast(0)
-                        TxnRow(com.jeiel85.doran.logic.Entry(t, net, net == 0L && c[t.id] != null), s, isNew = true, showDate = false) {
+                        TxnRow(com.jeiel85.doran.logic.Entry(t, net, net == 0L && c[t.id] != null, counted = Stats.counts(s, t)), s, isNew = true, showDate = false) {
                             Hub.local.markSeen(listOf(t.id)); nav.go(Route.Entry(txnId = t.id))
                         }
                     }
@@ -207,7 +207,8 @@ fun HomeScreen(nav: Nav) {
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Row {
-                                    Text(m?.name ?: "공동", style = MaterialTheme.typography.titleSmall, color = P.c.ink, modifier = Modifier.weight(1f))
+                                    Text(if (mid == Stats.FAMILY) "가족 공용 (가족 카드)" else m?.name ?: "공동",
+                                        style = MaterialTheme.typography.titleSmall, color = P.c.ink, modifier = Modifier.weight(1f))
                                     Text(Fmt.won(v), style = MaterialTheme.typography.titleSmall.merge(Money), color = P.c.ink)
                                 }
                                 Spacer(Modifier.height(6.dp))
@@ -396,7 +397,8 @@ fun CardTile(c: com.jeiel85.doran.logic.CardStatus, owner: com.jeiel85.doran.mod
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(c.account.name, style = MaterialTheme.typography.titleSmall, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                if (owner != null) Text(owner.name, style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.85f))
+                if (c.account.family) Text("가족 카드", style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.85f))
+                else if (owner != null) Text(owner.name, style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.85f))
             }
             Spacer(Modifier.weight(1f))
             Text("이번 달", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f))

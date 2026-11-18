@@ -100,7 +100,7 @@ fun AssetsScreen(nav: Nav) {
                         val bal = Stats.balance(s, a)
                         val owner = s.member(a.ownerId)
                         val sub = buildList {
-                            owner?.name?.let(::add)
+                            if (a.family) add("가족 카드" + (owner?.name?.let { " · 명의 $it" } ?: "")) else owner?.name?.let(::add)
                             add(a.type.label)
                             if (a.type == AccountType.CARD) {
                                 val c = Stats.card(s, a)

@@ -104,7 +104,8 @@ if (cmd === "join") {
     if (ek(key, o.t, o.id) !== op.ek) throw new Error("ek mismatch");
     (out[o.t] ??= []).push(o.d ? `${o.id} (deleted)` : o.t === "txn" ? `${o.v.merchant} ${o.v.amount} ${o.v.kind} ${o.v.issuer} src=${o.v.source} cum=${o.v.cumulative} priv=${o.v.private}`
       : o.t === "member" ? `${o.v.name} share=${o.v.share ?? "all"}:${(o.v.shareIssuers ?? []).join("|")} allowance=${o.v.allowance}`
-      : o.t === "account" ? `${o.v.name}/${o.v.type}` : o.t === "allowance" ? `${o.v.month} spent=${o.v.spent} n=${o.v.count}` : o.id);
+      : o.t === "account" ? `${o.v.name}/${o.v.type}${o.v.family ? " family" : ""}` : o.t === "allowance" ? `${o.v.month} spent=${o.v.spent} n=${o.v.count}`
+      : o.t === "recurring" ? `${o.v.name} ${o.v.amount} day=${o.v.day}` : o.id);
   }
   console.log("ops", r.ops.length, "unreadable(private or other keys):", unreadable);
   for (const [t, v] of Object.entries(out)) console.log(t, v.length, JSON.stringify(v.slice(0, 12)));

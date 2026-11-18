@@ -68,7 +68,7 @@ fun StatsScreen(nav: Nav) {
             else pp to Stats.entries(s, pp, id.myMemberId).let { if (kind == Kind.EXPENSE) Stats.expense(it) else Stats.income(it) }
         }
     }
-    val byMember = Stats.byMember(entries, kind)
+    val byMember = Stats.byMember(entries, kind, s)
     val top = Stats.topMerchants(entries)
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 120.dp)) {
@@ -144,7 +144,8 @@ fun StatsScreen(nav: Nav) {
                         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                             MemberAvatar(m, 28.dp)
                             Spacer(Modifier.width(10.dp))
-                            Text(m?.name ?: "공동" + if (m?.isSender == true) " (보낸 가족)" else "", style = MaterialTheme.typography.titleSmall,
+                            Text(if (mid == Stats.FAMILY) "가족 공용 (가족 카드)" else m?.name?.plus(if (m.isSender) " (보낸 가족)" else "") ?: "공동",
+                                style = MaterialTheme.typography.titleSmall,
                                 color = P.c.ink, modifier = Modifier.weight(1f))
                             Text("${(v * 100 / sum)}%", style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint)
                             Spacer(Modifier.width(10.dp))

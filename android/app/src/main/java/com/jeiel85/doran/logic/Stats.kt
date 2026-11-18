@@ -29,6 +29,11 @@ data class Entry(
     val net: Long,
     val canceled: Boolean,
     val allowanceSummary: Boolean = false,
+    /**
+     * 가계부 합계(지출·카테고리·사람별·예산·달력)에 더하는지. 월 용돈이 정해진 사람의 용돈 내역과 그 월 합계는
+     * 이미 "○○ 용돈" 고정지출로 들어가므로 보이기만 하고 더하지 않습니다(DECISIONS.md D-20).
+     */
+    val counted: Boolean = true,
 )
 
 data class CardStatus(
@@ -68,40 +73,52 @@ object Stats {
             if (!includeSenders && s.member(t.memberId)?.isSender == true) continue
             val c = canceled[t.id] ?: 0
             val net = (t.amount - c).coerceAtLeast(0)
-            out += Entry(t, net, canceled = c > 0 && net == 0L)
+            out += Entry(t, net, canceled = c > 0 && net == 0L, counted = counts(s, t))
         }
         for (a in s.allowances.values) {
             if (a.month != p.key || a.memberId == myMemberId || a.spent <= 0) continue
             val name = s.member(a.memberId)?.name ?: "가족"
+            val fixed = hasFixedAllowance(s, a.memberId)
             out += Entry(
                 Txn(id = a.id, kind = Kind.EXPENSE, amount = a.spent, at = p.startMs, categoryId = Defaults.ALLOWANCE,
-                    merchant = "$name 용돈 (${a.count}건)", memberId = a.memberId),
-                net = a.spent, canceled = false, allowanceSummary = true,
+                    merchant = if (fixed) "$name 용돈 사용 (${a.count}건)" else "$name 용돈 (${a.count}건)", memberId = a.memberId),
+                net = a.spent, canceled = false, allowanceSummary = true, counted = !fixed,
             )
         }
         out.sortByDescending { it.txn.at }
         return out
     }
 
-    fun expense(e: List<Entry>) = e.filter { it.txn.kind == Kind.EXPENSE }.sumOf { it.net }
-    fun income(e: List<Entry>) = e.filter { it.txn.kind == Kind.INCOME }.sumOf { it.net }
+    /** 월 용돈이 정해진 사람: 그 용돈은 고정지출 한 번으로 세고, 안에서 쓴 것은 더하지 않습니다. */
+    fun hasFixedAllowance(s: LedgerState, memberId: String?): Boolean = (s.member(memberId)?.allowance ?: 0) > 0
+
+    /** 이 거래를 가계부 합계에 더하는지: 월 용돈이 정해진 사람의 용돈 내역은 빼요. */
+    fun counts(s: LedgerState, t: Txn): Boolean = !(t.private && hasFixedAllowance(s, t.memberId))
+
+    /** 사람별 지출에서 가족 카드 결제를 묶는 칸의 키. */
+    const val FAMILY = "family"
+
+    fun expense(e: List<Entry>) = e.filter { it.counted && it.txn.kind == Kind.EXPENSE }.sumOf { it.net }
+    fun income(e: List<Entry>) = e.filter { it.counted && it.txn.kind == Kind.INCOME }.sumOf { it.net }
 
     fun byCategory(e: List<Entry>, kind: Kind): List<Pair<String, Long>> =
-        e.filter { it.txn.kind == kind && it.net > 0 }
+        e.filter { it.counted && it.txn.kind == kind && it.net > 0 }
             .groupBy { it.txn.categoryId ?: if (kind == Kind.INCOME) Defaults.INCOME_FALLBACK else Defaults.EXPENSE_FALLBACK }
             .map { (k, v) -> k to v.sumOf { it.net } }.sortedByDescending { it.second }
 
-    fun byMember(e: List<Entry>, kind: Kind = Kind.EXPENSE): List<Pair<String?, Long>> =
-        e.filter { it.txn.kind == kind && it.net > 0 }.groupBy { it.txn.memberId }
+    /** 사람별 합계. 가족 카드 결제는 쓴 사람이 아니라 [FAMILY] 칸으로 묶습니다(DECISIONS.md D-20). */
+    fun byMember(e: List<Entry>, kind: Kind = Kind.EXPENSE, s: LedgerState? = null): List<Pair<String?, Long>> =
+        e.filter { it.counted && it.txn.kind == kind && it.net > 0 }
+            .groupBy { if (s?.account(it.txn.accountId)?.family == true) FAMILY else it.txn.memberId }
             .map { (k, v) -> k to v.sumOf { it.net } }.sortedByDescending { it.second }
 
     fun byDay(e: List<Entry>): Map<LocalDate, Pair<Long, Long>> =
-        e.filter { !it.allowanceSummary }.groupBy { Fmt.date(it.txn.at) }.mapValues { (_, v) ->
+        e.filter { it.counted && !it.allowanceSummary }.groupBy { Fmt.date(it.txn.at) }.mapValues { (_, v) ->
             v.filter { it.txn.kind == Kind.EXPENSE }.sumOf { it.net } to v.filter { it.txn.kind == Kind.INCOME }.sumOf { it.net }
         }
 
     fun topMerchants(e: List<Entry>, n: Int = 5): List<Pair<String, Long>> =
-        e.filter { it.txn.kind == Kind.EXPENSE && it.net > 0 && !it.allowanceSummary && it.txn.merchant.isNotBlank() }
+        e.filter { it.counted && it.txn.kind == Kind.EXPENSE && it.net > 0 && !it.allowanceSummary && it.txn.merchant.isNotBlank() }
             .groupBy { it.txn.merchant }.map { (k, v) -> k to v.sumOf { it.net } }.sortedByDescending { it.second }.take(n)
 
     /** 지난 n개 기간의 지출·수입 (오래된 것부터). */

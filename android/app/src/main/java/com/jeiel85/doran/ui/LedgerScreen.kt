@@ -140,8 +140,8 @@ fun LedgerScreen(nav: Nav) {
                 if (days.isEmpty()) item { EmptyState(R.drawable.art_empty, "${Fmt.month(ym)} 내역이 없어요", "가운데 + 버튼으로 기록해 보세요") }
                 days.forEach { (d, list) ->
                     item(key = "h$d") {
-                        DayHeader(Fmt.dayLabel(d), list.filter { it.txn.kind == Kind.EXPENSE }.sumOf { it.net },
-                            list.filter { it.txn.kind == Kind.INCOME }.sumOf { it.net })
+                        DayHeader(Fmt.dayLabel(d), list.filter { it.counted && it.txn.kind == Kind.EXPENSE }.sumOf { it.net },
+                            list.filter { it.counted && it.txn.kind == Kind.INCOME }.sumOf { it.net })
                     }
                     items(list, key = { it.txn.id }) { e -> TxnRow(e, s, e.txn.id in unseen) { open(nav, e) } }
                 }

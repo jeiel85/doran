@@ -211,6 +211,20 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                             }
                         }
                     }
+                    if (!o.private && o.kind == Kind.EXPENSE && o.cancelOf == null && o.memberId == id.myMemberId && id.myMemberId != null &&
+                        s.account(o.accountId)?.family == true) {
+                        Spacer(Modifier.height(10.dp))
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(P.c.apricotSoft).padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Text("가족 카드로 산 내 물건이면 내 용돈으로 옮겨요. 가족 가계부에서는 빠져요.",
+                                style = MaterialTheme.typography.bodySmall, color = P.c.ink, modifier = Modifier.weight(1f))
+                            Spacer(Modifier.width(8.dp))
+                            SmallButton("내 용돈으로", color = P.c.apricot) {
+                                Hub.ledger.putAll((listOf(o) + cancels).map { c -> Triple(com.jeiel85.doran.model.T.TXN, c.id, c.copy(private = true).json()) })
+                                nav.back()
+                            }
+                        }
+                    }
                     if (o.needsReview) Text(if (o.amount == 0L) "원화 금액이 확정되면 넣어 주세요" else "확인이 필요한 내역이에요",
                         style = MaterialTheme.typography.bodySmall, color = P.c.apricot)
                 }

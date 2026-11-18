@@ -53,7 +53,14 @@ fun ShareScreen(memberId: String, nav: Nav) {
 
     SubScreen(if (isMe) "내 공유 범위" else "${m.name} 공유 범위", { nav.back() }, bottom = {
         PrimaryButton("저장", enabled = !picked || issuers.isNotEmpty()) {
-            Hub.ledger.saveMember(draft.copy(shareBy = id.myMemberId, allowance = allowance.toLongOrNull() ?: 0))
+            val saved = draft.copy(shareBy = id.myMemberId, allowance = allowance.toLongOrNull() ?: 0)
+            Hub.ledger.saveMember(saved)
+            // 정한 결제만 보내면, 보내는 카드는 가족 카드(D-20). 카드 설정에서 다시 끌 수 있어요.
+            if (saved.sharesPicked) s.accounts.values.filter {
+                it.ownerId == m.id && !it.family && it.institution in saved.shareIssuers &&
+                    (it.type == com.jeiel85.doran.model.AccountType.CARD || it.type == com.jeiel85.doran.model.AccountType.CHECK)
+            }.forEach { Hub.ledger.saveAccount(it.copy(family = true, allowanceCard = false)) }
+            if (com.jeiel85.doran.logic.AllowancePlan.sync(Hub.ledger, saved)) com.jeiel85.doran.logic.Recurrer.run(Hub.ledger, Hub.db, Hub.identity.installId)
             nav.back()
         }
     }) {
@@ -82,12 +89,13 @@ fun ShareScreen(memberId: String, nav: Nav) {
                 Spacer(Modifier.height(14.dp))
                 if (issuers.isEmpty()) Text("보낼 카드사·은행을 하나 이상 골라 주세요", color = P.c.danger, style = MaterialTheme.typography.bodySmall)
                 Text(ShareScope.detail(draft), style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
-                Text("본인 계좌에서 나가는 그 외 카드값 출금은 두 번 세지 않게 기록하지 않아요.",
+                Text("보내는 카드는 '가족 카드'로 표시돼요(카드 설정에서 바꿀 수 있어요). 본인 계좌에서 나가는 그 외 카드값 출금은 두 번 세지 않게 기록하지 않아요.",
                     style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint, modifier = Modifier.padding(top = 4.dp))
                 Spacer(Modifier.height(16.dp))
                 Field("월 용돈(원)", allowance, { allowance = it.filter(Char::isDigit).take(9) }, "예: 350000", number = true)
                 (allowance.toLongOrNull()?.takeIf { it > 0 })?.let {
-                    Text("${Fmt.won(it)} · 홈에 남은 용돈이 보여요", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft,
+                    Text("${Fmt.won(it)} · 매달 '${m.name} 용돈' 고정지출로 가계부에 한 번 들어가고, 그 안에서 쓴 것은 합계에 더하지 않아요",
+                        style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft,
                         modifier = Modifier.padding(start = 8.dp, top = 4.dp))
                 }
             }

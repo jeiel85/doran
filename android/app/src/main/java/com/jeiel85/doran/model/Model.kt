@@ -134,6 +134,8 @@ data class Account(
     val payFromId: String? = null,
     /** 용돈 카드: 이 계좌로 들어온 내역은 개인 용돈으로 처리합니다. */
     val allowanceCard: Boolean = false,
+    /** 가족 카드: 명의([ownerId])와 관계없이 가족이 함께 쓰는 카드. 사람별 지출에서 "가족 공용"으로 묶습니다(DECISIONS.md D-20). */
+    val family: Boolean = false,
     val color: Int = 0,
     val order: Int = 0,
     val hidden: Boolean = false,
@@ -142,14 +144,14 @@ data class Account(
         .putN("institution", institution).putN("last4", last4).put("opening", opening).put("openingAt", openingAt)
         .putN("anchor", anchor).putN("anchorAt", anchorAt).putN("billingDay", billingDay)
         .putN("cycleStartDay", cycleStartDay).putN("payFromId", payFromId).put("allowanceCard", allowanceCard)
-        .put("color", color).put("order", order).put("hidden", hidden)
+        .put("family", family).put("color", color).put("order", order).put("hidden", hidden)
     companion object {
         fun from(id: String, o: JSONObject) = Account(
             id = id, name = o.str("name") ?: "계좌", type = AccountType.of(o.str("type")), ownerId = o.str("ownerId"),
             institution = o.str("institution"), last4 = o.str("last4"), opening = o.long("opening") ?: 0,
             openingAt = o.long("openingAt") ?: 0, anchor = o.long("anchor"), anchorAt = o.long("anchorAt"),
             billingDay = o.int("billingDay"), cycleStartDay = o.int("cycleStartDay"), payFromId = o.str("payFromId"),
-            allowanceCard = o.optBoolean("allowanceCard"), color = o.int("color") ?: 0, order = o.int("order") ?: 0,
+            allowanceCard = o.optBoolean("allowanceCard"), family = o.optBoolean("family"), color = o.int("color") ?: 0, order = o.int("order") ?: 0,
             hidden = o.optBoolean("hidden"),
         )
     }
