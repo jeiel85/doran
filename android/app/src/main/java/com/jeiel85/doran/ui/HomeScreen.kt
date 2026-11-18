@@ -126,7 +126,7 @@ fun HomeScreen(nav: Nav) {
                     when (val u = update) {
                         is com.jeiel85.doran.update.UpdateState.NeedsConfirm ->
                             runCatching { context.startActivity(u.confirm.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
-                        is com.jeiel85.doran.update.UpdateState.Available ->
+                        is com.jeiel85.doran.update.UpdateState.Available, is com.jeiel85.doran.update.UpdateState.StoreUpdate ->
                             refreshScope.launch { com.jeiel85.doran.update.SelfUpdate.run(context, userInitiated = true) }
                         else -> Unit
                     }
@@ -334,6 +334,7 @@ fun HomeScreen(nav: Nav) {
 /** 새 버전이 있거나 설치 확인이 필요할 때 홈 맨 위에 띄울 문구. 앱이 떠 있으면 자동 설치를 미루므로(D-8) 여기서 누르게 합니다. */
 private fun updateBanner(u: com.jeiel85.doran.update.UpdateState): Pair<String, String>? = when (u) {
     is com.jeiel85.doran.update.UpdateState.Available -> "새 버전 ${u.release.version}이 있어요" to "눌러서 바로 설치해요. 장부는 그대로예요"
+    is com.jeiel85.doran.update.UpdateState.StoreUpdate -> "새 버전 ${u.version}이 나왔어요" to "눌러서 Play 스토어에서 업데이트해요. 장부는 그대로예요"
     is com.jeiel85.doran.update.UpdateState.NeedsConfirm -> "업데이트 설치를 허락해 주세요" to "${u.release.version} · 처음 한 번만 확인해요"
     is com.jeiel85.doran.update.UpdateState.Downloading -> "새 버전 받는 중 ${u.percent}%" to u.release.version
     is com.jeiel85.doran.update.UpdateState.Installing -> "업데이트 설치 중…" to "잠시 뒤 다시 열려요"

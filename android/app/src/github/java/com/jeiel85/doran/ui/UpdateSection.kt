@@ -51,6 +51,7 @@ fun UpdateSection(autoUpdate: Boolean) {
         is UpdateState.Installing -> "설치하는 중…" to "잠시 뒤 앱이 다시 시작돼요"
         is UpdateState.NeedsConfirm -> "설치를 허락해 주세요" to "안드로이드가 한 번 확인을 요청해요"
         is UpdateState.Failed -> st.reason to "현재 ${BuildConfig.VERSION_NAME} · 다시 시도해 주세요"
+        is UpdateState.StoreUpdate -> "새 버전 ${st.version}" to "Play 스토어에서 받아 주세요"
     }
     val busy = state is UpdateState.Checking || state is UpdateState.Downloading || state is UpdateState.Installing
     ListRow(title, sub, Icons.Rounded.InstallMobile, if (state is UpdateState.Failed) P.c.danger else P.c.pine) {

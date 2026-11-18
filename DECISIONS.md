@@ -124,7 +124,7 @@
 
 - product flavor `channel`로 `github`/`play` 두 빌드를 냅니다(전역 지침: 채널별 빌드·키스토어 분리). applicationId는 같은 `com.jeiel85.doran`.
 - **github**: 자가 업데이트(D-8, `REQUEST_INSTALL_PACKAGES`)와 문자 수신(`RECEIVE_SMS`). 권한·리시버는 `src/github/AndroidManifest.xml`에만 있습니다.
-- **play**: 업데이트는 Play에 맡기고(`update.SelfUpdate`가 아무것도 하지 않는 대역), 문자는 문자 앱 알림으로 읽습니다(D-4). 런타임에 설치 출처를 보고 끄는 방식은 쓰지 않습니다.
+- **play**: 업데이트는 Play에 맡기고(`update.SelfUpdate`는 새 버전 확인과 Play 스토어 열기만 — D-21), 문자는 문자 앱 알림으로 읽습니다(D-4). 런타임에 설치 출처를 보고 끄는 방식은 쓰지 않습니다.
 - 서명 키가 다릅니다: GitHub 릴리스 키(`release-signing.properties`)와 Play 업로드 키(`play-upload-signing.properties`). 둘 다 git 밖 `.keystore/`에 있고 Google 드라이브에 백업했습니다. Play는 Play 앱 서명(Google이 배포 키 관리)을 씁니다.
   - **Play 업로드 키를 잃으면**: 먼저 Google 드라이브 `모바일 앱 개발/Doran/릴리즈 키스토어/`의 백업(`doran-play-upload.jks` + `play-upload-signing.properties`)을 `.keystore/`·`android/`로 되돌립니다. 백업도 없으면 앱 서명 키는 Google이 갖고 있으므로 앱은 잃지 않습니다: 새 업로드 키를 만들고(`keytool -genkeypair`, 전역 지침대로 바로 백업) 인증서를 `keytool -export -rfc`로 `.pem`으로 뽑아 Play Console → 테스트 및 출시 → 앱 무결성 → 앱 서명 → **업로드 키 재설정 요청**에 올립니다. 승인(보통 며칠) 뒤부터 새 키로 서명한 AAB를 받습니다.
   - GitHub 릴리스 키는 Google이 대신 갖고 있지 않아, 잃으면 같은 앱으로 업데이트를 낼 수 없습니다(설치본을 지우고 새 키로 다시 설치). 백업이 유일한 복구 수단입니다.
@@ -170,4 +170,14 @@
   - 아내가 계좌이체로 용돈을 보내면 그 은행 알림이 고정지출 맞추기(D-5 근처의 기존 기능)로 이 자리를 채워 한 건만 남습니다.
   - 규칙을 처음 만들 때 이번 가계부 기간에 이미 적어 둔 같은 금액의 용돈 내역이 있으면 그것을 규칙에 잇고, 매달 고정지출은 같은 기간에 이어진 내역이 있으면 날짜가 며칠 달라도 다시 만들지 않습니다(0.1.5).
   - 월 용돈이 없는 사람은 D-7 그대로: 용돈 월 합계가 가구 합계에 들어갑니다.
+
+## D-21 Play 버전의 새 버전 알림: 확인만 하고 Play 스토어로 보냄 (2026-11-18)
+
+- 2026-11-18 사용자 요청: Play 버전도 업데이트가 있다고 알려 주고, GitHub 업데이트 확인을 Play 스토어로 이동하는 것으로 바꾸기.
+- Play 빌드는 Google의 **Play In-App Updates API**(`com.google.android.play:app-update-ktx`, play 채널에만)로 이 사용자에게 열린 트랙(내부·비공개 테스트 포함)에 더 높은 versionCode가 있는지만 묻습니다. 있으면 홈 배너·설정·알림으로 알리고, 누르면 Play 스토어의 도란 페이지(`market://details?id=…`)를 엽니다.
+  - Play의 앱 안 설치 흐름(즉시·유연 업데이트)은 쓰지 않았습니다: 사용자가 말한 대로 스토어로 보내는 편이 단순하고, Play 스토어 자동 업데이트와 겹치지 않습니다.
+  - 확인 시점: 앱 시작, 앱을 다시 열 때 6시간이 지났으면, 그리고 하루 두 번 WorkManager(네트워크 연결 시). 알림은 버전마다 한 번(`kv store.notified`). 설정 "새 버전 알림"(GitHub 빌드의 자동 업데이트와 같은 설정값)으로 끕니다.
+  - versionCode → 화면 버전은 빌드 규칙(주×10000 + 부×100 + 수)을 거꾸로 풉니다.
+  - Play에서 받지 않은 설치본(직접 설치한 디버그 등)에서는 API가 실패하므로 조용히 넘어가고, 사용자가 확인을 누르면 "Play 스토어에서 받은 도란에서만 확인할 수 있어요"라고 보여 줍니다.
+- 자가 업데이트 코드·설치 권한·APK 내려받기는 여전히 play 빌드에 없습니다(D-16). 라이브러리는 권한을 더하지 않습니다(병합 매니페스트로 확인).
 

@@ -56,7 +56,7 @@ GitHub APK도 있지만, 도란은 알림 접근·문자 수신을 요청하는 
 | | GitHub APK | Google Play |
 |---|---|---|
 | 받는 곳 | [릴리스](https://github.com/jeiel85/doran/releases/latest)의 `doran.apk` (Play 프로텍트가 막을 수 있음) | [내부 테스트 참여 링크](https://play.google.com/apps/internaltest/4700525127651558535) (테스터로 등록된 계정만) |
-| 업데이트 | 도란이 하루 두 번 GitHub 릴리스를 확인해 스스로 설치 | Play가 업데이트 |
+| 업데이트 | 도란이 하루 두 번 GitHub 릴리스를 확인해 스스로 설치 | Play가 업데이트. 새 버전이 나오면 도란이 알려 주고 누르면 Play 스토어로 |
 | 카드 문자 | 문자 수신 권한으로 직접 읽음(대화방을 무음으로 해도 읽음) | 문자 권한 없이 문자 앱의 알림으로 읽음(그 대화방 알림을 켜 두세요) |
 
 알아 둘 것:

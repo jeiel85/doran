@@ -79,6 +79,13 @@ object Notifier {
     fun system(context: Context, id: Int, title: String, text: String) =
         post(context, id, builder(context, SYSTEM, title, text).setContentIntent(open(context)))
 
+    /** Play 빌드: Play 스토어에 새 버전이 나왔어요 → 누르면 스토어의 도란 페이지. */
+    fun storeUpdate(context: Context, version: String, store: Intent) {
+        val pi = PendingIntent.getActivity(context, 4003, store.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        post(context, 4003, builder(context, UPDATE, "도란 ${com.jeiel85.doran.logic.Josa.iGa(version)} 나왔어요", "눌러서 Play 스토어에서 업데이트해요").setContentIntent(pi))
+    }
+
     fun updateReady(context: Context, version: String, confirm: Intent) {
         val pi = PendingIntent.getActivity(context, 4001, confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)

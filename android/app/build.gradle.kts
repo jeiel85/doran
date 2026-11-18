@@ -125,6 +125,9 @@ dependencies {
     implementation("com.google.firebase:firebase-messaging")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
 
+    // Play 빌드만: Play에 새 버전이 있는지 묻기(설치는 Play가, DECISIONS.md D-21).
+    "playImplementation"("com.google.android.play:app-update-ktx:2.1.0")
+
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("com.google.zxing:core:3.5.3")
 
