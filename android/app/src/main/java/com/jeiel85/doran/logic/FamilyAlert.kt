@@ -5,6 +5,7 @@ import com.jeiel85.doran.core.Fmt
 import com.jeiel85.doran.data.LedgerState
 import com.jeiel85.doran.model.AccountType
 import com.jeiel85.doran.model.Kind
+import com.jeiel85.doran.model.Source
 import com.jeiel85.doran.model.Txn
 import kotlin.math.abs
 
@@ -62,6 +63,38 @@ object FamilyAlert {
             else -> "$who ${card}에서 ${won}이 나갔어요"
         }
         return Text(title, details.joinToString(" · ").ifEmpty { if (t.kind == Kind.INCOME) "입금" else "결제" })
+    }
+}
+
+/**
+ * 내 폰이 읽은 결제가 '나만 보는 용돈'으로 기록됐을 때 내 폰에 띄우는 알림 (DECISIONS.md D-20).
+ * "용돈에서 9,900원 썼어요 / 구글플레이 · 토스뱅크 · 남은 용돈 240,100원"
+ */
+object AllowanceAlert {
+    private const val RECENT = 86_400_000L
+
+    /** 알릴 거래: 이 폰([installId])이 알림·문자에서 읽어 [me]의 용돈으로 새로 기록한 결제와 그 취소. 입금은 은행 알림으로 충분해 빼요. */
+    fun applies(t: Txn, me: String, installId: String, now: Long): Boolean =
+        t.private && t.memberId == me && t.createdBy == installId && (t.source == Source.PUSH || t.source == Source.SMS) &&
+            t.kind == Kind.EXPENSE && now - t.at <= RECENT
+
+    fun of(s: LedgerState, t: Txn): FamilyAlert.Text {
+        val won = Fmt.won(t.amount)
+        val title = when {
+            t.isCancel -> "용돈 결제 ${Josa.iGa(won)} 취소됐어요"
+            t.amount == 0L && t.foreign != null -> "용돈에서 해외 ${t.foreign} 결제했어요"
+            else -> "용돈에서 $won 썼어요"
+        }
+        val p = Stats.periodOf(Fmt.date(t.at), s.household.monthStartDay)
+        val spent = Stats.allowanceSpent(s, t.memberId, p)
+        val allowance = s.member(t.memberId)?.allowance ?: 0
+        val status = when {
+            allowance <= 0 -> "이번 달 용돈 ${Fmt.won(spent)} 썼어요"
+            spent <= allowance -> "남은 용돈 ${Fmt.won(allowance - spent)}"
+            else -> "용돈을 ${Fmt.won(spent - allowance)} 넘었어요"
+        }
+        val body = listOfNotNull(t.merchant.takeIf { it.isNotBlank() }, t.issuer, status).joinToString(" · ")
+        return FamilyAlert.Text(title, body)
     }
 }
 
