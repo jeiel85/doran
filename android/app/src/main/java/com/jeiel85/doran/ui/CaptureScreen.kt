@@ -143,7 +143,10 @@ fun CaptureScreen(nav: Nav) {
                 if (sample.isNotBlank()) {
                     Spacer(Modifier.height(10.dp))
                     val r = remember(sample) { CaptureProcessor.preview(sample) }
-                    if (r == null) Text("거래로 읽지 못했어요. 이 문구를 개발자에게 알려 주시면 형식을 더할게요.", color = P.c.apricot, style = MaterialTheme.typography.bodyMedium)
+                    if (r == null && com.jeiel85.doran.capture.Parser.isFailure(sample)) {
+                        Text("결제·출금 실패 알림이라 기록하지 않아요. 실제로 돈이 나간 알림이라면 이 문구를 개발자에게 알려 주세요.",
+                            color = P.c.inkSoft, style = MaterialTheme.typography.bodyMedium)
+                    } else if (r == null) Text("거래로 읽지 못했어요. 이 문구를 개발자에게 알려 주시면 형식을 더할게요.", color = P.c.apricot, style = MaterialTheme.typography.bodyMedium)
                     else Column {
                         listOfNotNull(
                             "종류" to when (r.type) {

@@ -108,6 +108,67 @@ class ParserTest {
         assertNull(p("[현대카드] 12월 결제예정금액 523,000원 안내"))
     }
 
+    @Test fun failedPaymentsAreNotTransactions() {
+        // 잔액 부족·한도 초과·미납처럼 돈이 실제로 나가지 않았다는 알림: 금액이 있어도 기록하지 않고 골라 보낼 후보로도 남기지 않음
+        val failures = listOf(
+            "[KB]11/19 09:00\n123456**789\n자동이체출금 50,000\n출금불능(잔액부족)",
+            "현대카드 결제 실패 12,300원 잔액이 부족합니다 11/19 08:10 스타벅스",
+            "[신한] 출금이 되지 않았습니다 30,000원 11/19 09:00",
+            "현대카드 한도초과로 승인되지 않았어요 58,000원",
+            "[현대카드] 결제대금 미납 안내 523,000원",
+            "Transaction DECLINED 현대카드 USD 12.34",
+            "[카카오뱅크] 체크카드 결제를 완료하지 못했어요 9,500원 김밥천국",
+            "[우리] 이체 오류 100,000원 11/19 10:00",
+            "현대카드 승인거절 잔액부족 12,300원",
+        )
+        for (text in failures) {
+            assertNull(text, p(text))
+            assertTrue(text, Parser.isFailure(text))
+            assertTrue(text, Parser.isFailedPayment(text))
+            assertFalse(text, Parser.looksFinancial(text))
+        }
+        // 실패 낱말이 있어도 금액이 없는 알림은 "실패 알림"으로 남길 것이 아님
+        assertFalse(Parser.isFailedPayment("현대카드 앱 로그인에 실패했어요"))
+    }
+
+    @Test fun tossPushFailureAndNormalNotices() {
+        // 실제 토스 앱 푸시 형식(2026-11-19 사용자 폰 "최근 받은 알림"). 제목 + 본문을 CaptureProcessor처럼 줄바꿈으로 이음.
+        // 실패 알림이 공유 범위 밖이라 "나만 보는 용돈"으로 기록됐던 것 — 이제 기록하지 않음
+        val failed = "9,900원 결제 실패\n토스뱅크 체크카드 | 구글플레이_TOSS 잔액이 부족해요."
+        assertNull(Parser.parse(failed, now, hint = "토스"))
+        assertTrue(Parser.isFailedPayment(failed))
+        assertFalse(Parser.looksFinancial(failed))
+
+        // 같은 앱의 정상 알림: 본문에 "잔액 2,064원"처럼 '잔액'이 흔히 들어가도 실패로 보지 않음
+        val sub = Parser.parse("990원 결제\n토스뱅크 체크카드 | 카카오구독료_카카오페이 잔액 2,064원", now, hint = "토스")!!
+        assertEquals(Parsed.Type.APPROVAL, sub.type)
+        assertEquals("토스뱅크", sub.issuer)
+        assertEquals(990L, sub.amount)
+        assertEquals(2_064L, sub.balance)
+        assertTrue(sub.merchant!!, sub.merchant!!.contains("카카오구독료"))
+        val cafe = Parser.parse("3,400원 결제\n토스뱅크 체크카드 | 메가MGC(인증)(2) 네이버페이_CJ 잔액 3,650원", now, hint = "토스")!!
+        assertEquals(Parsed.Type.APPROVAL, cafe.type)
+        assertEquals(3_400L, cafe.amount)
+        assertEquals(3_650L, cafe.balance)
+        val deposit = Parser.parse("6,705원 입금\n김도란 → 내 토스뱅크 통장", now, hint = "토스")!!
+        assertEquals(Parsed.Type.DEPOSIT, deposit.type)
+        assertEquals("토스뱅크", deposit.issuer)
+        assertEquals(6_705L, deposit.amount)
+    }
+
+    @Test fun normalPaymentsAreNotMistakenForFailures() {
+        val r = p("현대카드 승인 홍*동 15,000원 일시불 11/19 12:00 이마트 미아점")!!
+        assertEquals(15_000L, r.amount)
+        assertTrue(r.merchant!!, r.merchant!!.contains("이마트 미아점"))
+        assertFalse(Parser.isFailure("[KB]11/17 09:01\n123456**789\n홍길동\n전자금융출금\n50,000\n잔액1,234,000"))
+        // 간편결제가 잔액 부족분을 자동충전하고 결제한 것은 정상 결제
+        val pay = "동네마트 12,300원 결제 완료 (잔액 부족분 10,000원 자동충전)"
+        assertFalse(Parser.isFailure(pay))
+        val charged = Parser.parse(pay, now, custom = com.jeiel85.doran.capture.Issuer("동네페이", true, listOf("동네페이")))!!
+        assertEquals(Parsed.Type.APPROVAL, charged.type)
+        assertEquals(12_300L, charged.amount)
+    }
+
     @Test fun futureDateMeansLastYear() {
         val jan = LocalDateTime.of(2027, 1, 1, 9, 0)
         val r = Parser.parse("현대카드 승인 홍*동 10,000원 12/31 23:50 편의점", jan)!!
