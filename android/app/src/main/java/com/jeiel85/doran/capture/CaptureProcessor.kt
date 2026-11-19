@@ -44,11 +44,16 @@ class CaptureProcessor(
         val custom = rule?.let { Issuer(it.issuer, it.card, listOf(it.issuer)) }
         val parsed = Parser.parse(body, Fmt.dateTime(postedAt), appLabel, custom)
         if (parsed == null) {
-            // 금액이 적힌데 형식을 몰라 못 읽은 알림은 "최근 받은 알림"에서 골라 보낼 수 있게 남깁니다(이 폰에만, 30일).
-            if (Parser.looksFinancial(body) && !db.hasCandidate(source.code, pkg, text)) {
-                db.logCapture(postedAt, source.code, pkg, title, text, "기록 안 함 · 골라서 보낼 수 있어요", null, status = "candidate",
-                    label = appLabel ?: pkg)
-                db.trimCandidates(source.code, pkg, keep = 30)
+            when {
+                // 결제·출금 실패 알림은 돈이 나가지 않았으니 기록하지도, 골라 보낼 후보로 권하지도 않고 이유만 남깁니다(D-4).
+                Parser.isFailedPayment(body) ->
+                    db.logCapture(postedAt, source.code, pkg, title, text, "결제·출금 실패 알림 · 기록 안 함", null, label = appLabel ?: pkg)
+                // 금액이 적힌데 형식을 몰라 못 읽은 알림은 "최근 받은 알림"에서 골라 보낼 수 있게 남깁니다(이 폰에만, 30일).
+                Parser.looksFinancial(body) && !db.hasCandidate(source.code, pkg, text) -> {
+                    db.logCapture(postedAt, source.code, pkg, title, text, "기록 안 함 · 골라서 보낼 수 있어요", null, status = "candidate",
+                        label = appLabel ?: pkg)
+                    db.trimCandidates(source.code, pkg, keep = 30)
+                }
             }
             return null
         }

@@ -127,13 +127,48 @@ object Parser {
      * 거래로 읽지는 못했지만 금액이 적힌 알림인지. "최근 받은 알림"에서 골라 보낼 수 있게 남겨 둘 후보를 고릅니다.
      * 광고·이벤트는 빼고, 금액과 함께 결제·카드·계좌 같은 낱말이 있어야 합니다.
      */
-    fun looksFinancial(raw: String): Boolean {
+    fun looksFinancial(raw: String): Boolean = !isFailure(raw) && moneyLike(raw, loose = false)
+
+    /**
+     * 금액이 적힌 결제·출금 실패 알림인지. 기록하지 않되, 왜 빠졌는지 "최근 받은 알림"에 남깁니다.
+     * 은행 실패 문자는 "출금불능 50,000"처럼 '원'도 거래 낱말도 금액 앞에 없을 수 있어 쉼표로 묶인 숫자도 금액으로 봅니다.
+     */
+    fun isFailedPayment(raw: String): Boolean = isFailure(raw) && moneyLike(raw, loose = true)
+
+    /**
+     * 결제·출금이 실제로 일어나지 않았다는 알림인지(DECISIONS.md D-4 "돈이 나가지 않은 알림").
+     * 띄어쓰기가 카드사마다 달라("잔액 부족", "출금이 되지 않았습니다") 공백을 지운 본문으로 봅니다.
+     */
+    fun isFailure(raw: String): Boolean {
+        val compact = WHITESPACE.replace(raw, "")
+        if (FAILURE.any { it.containsMatchIn(compact) }) return true
+        // 간편결제는 "잔액 부족분을 자동충전해 결제"하기도 해서, 충전 안내가 함께 있으면 '부족'만으로는 실패가 아닙니다.
+        return SHORTAGE.containsMatchIn(compact) && !compact.contains("충전")
+    }
+
+    private fun moneyLike(raw: String, loose: Boolean): Boolean {
         if (AD.containsMatchIn(raw.trim())) return false
         if (PROMO.containsMatchIn(raw) && !TXN_WORD.containsMatchIn(raw)) return false
-        val amount = WON.containsMatchIn(raw) || BARE_AMOUNT.containsMatchIn(raw) || FOREIGN.containsMatchIn(raw)
+        val amount = WON.containsMatchIn(raw) || BARE_AMOUNT.containsMatchIn(raw) || FOREIGN.containsMatchIn(raw) ||
+            loose && GROUPED_NUMBER.containsMatchIn(raw)
         return amount && (TXN_WORD.containsMatchIn(raw) || MONEY_WORD.containsMatchIn(raw))
     }
     private val MONEY_WORD = Regex("""결제|사용|카드|계좌|잔액|누적|송금|충전|페이""")
+    private val GROUPED_NUMBER = Regex("""(?<![\d.])\d{1,3}(?:,\d{3})+""")
+    private val WHITESPACE = Regex("""\s+""")
+    private const val MONEY_VERB = "결제|출금|이체|승인|처리|납부|지급|송금|충전|거래"
+    private val FAILURE = listOf(
+        Regex("""실패|거절"""),
+        Regex("""(?:$MONEY_VERB|사용|이용)(?:불가|불능)"""),
+        // "미결제"는 '미결제잔액' 같은 정상 안내에도 쓰여 넣지 않습니다.
+        Regex("""미승인|미출금|미이체|미처리|미납|연체"""),
+        Regex("""한도(?:를|가)?초과"""),
+        Regex("""(?:$MONEY_VERB|완료)(?:가|이|를)?(?:되지|하지|할수|될수)(?:않|못|없)"""),
+        Regex("""(?:$MONEY_VERB)(?:가|이)?안(?:됐|돼|되|됨)"""),
+        Regex("""(?:승인|결제|출금|이체|거래|처리)오류"""),
+        Regex("""DECLINED|FAILED""", RegexOption.IGNORE_CASE),
+    )
+    private val SHORTAGE = Regex("""(?:잔액|잔고|한도|예수금)(?:이|가)?부족""")
 
     /** [custom]: "앞으로도 자동으로 보내기"로 사용자가 정한 발신처의 카드사·은행(목록에 없는 곳도 됨). */
     fun parse(raw: String, now: LocalDateTime = LocalDateTime.now(), hint: String? = null, custom: Issuer? = null): Parsed? {
@@ -141,7 +176,8 @@ object Parser {
         if (AD.containsMatchIn(raw.trim())) return null
         if (PROMO.containsMatchIn(raw) && !TXN_WORD.containsMatchIn(raw)) return null
         val text = NOISE.replace(raw, " ").replace('\u00a0', ' ')
-        if (text.contains("거절") || text.contains("승인불가") || text.contains("한도초과")) return null
+        // 돈이 나가지 않은 알림: 결제·출금 실패(거절·잔액 부족·미납 등)와 결제 예정·청구 안내 (DECISIONS.md D-4)
+        if (isFailure(text)) return null
         if (text.contains("결제예정") || text.contains("청구") && !text.contains("승인")) return null
 
         val cancel = Regex("""취소""").containsMatchIn(text) && (text.contains("승인") || text.contains("카드") || text.contains("결제"))
