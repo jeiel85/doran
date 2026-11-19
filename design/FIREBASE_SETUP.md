@@ -1,6 +1,6 @@
 # Firebase (실시간 알림) 설정
 
-없어도 도란은 동작합니다(15분마다·앱을 열 때 동기화). 있으면 가족이 결제하자마자 몇 초 안에 알림이 옵니다 (DECISIONS.md D-9).
+없어도 둥지는 동작합니다(15분마다·앱을 열 때 동기화). 있으면 가족이 결제하자마자 몇 초 안에 알림이 옵니다 (DECISIONS.md D-9).
 포너디와 같은 순서입니다.
 
 1. https://console.firebase.google.com → 프로젝트 추가 → 이름 `doran` (Google 애널리틱스·Gemini 끄기)

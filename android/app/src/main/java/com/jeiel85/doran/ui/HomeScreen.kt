@@ -442,7 +442,7 @@ private fun SenderHome(nav: Nav) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 120.dp)) {
         item {
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 8.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("도란 · 보내기", style = MaterialTheme.typography.headlineSmall, color = P.c.ink, modifier = Modifier.weight(1f))
+                Text("둥지 · 보내기", style = MaterialTheme.typography.headlineSmall, color = P.c.ink, modifier = Modifier.weight(1f))
                 IconButton(onClick = { nav.go(Route.Settings) }) { Icon(Icons.Rounded.Settings, "설정", tint = P.c.ink) }
             }
         }

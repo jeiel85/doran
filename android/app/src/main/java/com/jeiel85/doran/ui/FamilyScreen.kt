@@ -103,7 +103,7 @@ fun FamilyScreen(nav: Nav) {
                 Image(painterResource(R.drawable.art_family), null, Modifier.fillMaxWidth().height(140.dp))
                 Spacer(Modifier.height(10.dp))
                 Text(s.household.name, style = MaterialTheme.typography.titleLarge, color = P.c.ink)
-                Text("가족 폰에서 QR만 찍으면 연결돼요. 내 카드 알림은 내 폰의 도란이 읽어서, 가족 폰에는 \"남편이 현대카드로 12,300원 썼어요\"처럼 도란 알림으로 가요.",
+                Text("가족 폰에서 QR만 찍으면 연결돼요. 내 카드 알림은 내 폰의 둥지가 읽어서, 가족 폰에는 \"남편이 현대카드로 12,300원 썼어요\"처럼 둥지 알림으로 가요.",
                     style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft)
             }
         }
@@ -147,7 +147,7 @@ fun FamilyScreen(nav: Nav) {
                             }
                         }
                     }
-                    ListRow("보내 줄 가족 초대", "그 가족 폰에 도란을 깔고 QR을 찍으면 돼요", Icons.Rounded.Send, P.c.apricot,
+                    ListRow("보내 줄 가족 초대", "그 가족 폰에 둥지를 깔고 QR을 찍으면 돼요", Icons.Rounded.Send, P.c.apricot,
                         onClick = { nav.go(Route.Invite("sender")) })
                 }
             }
@@ -329,7 +329,7 @@ fun InviteScreen(role: String, nav: Nav, presetName: String? = null) {
                 Text(when {
                     joined && role == "sender" -> "이제 ${senderName} 폰의 카드·은행 알림이 이 가계부로 들어와요"
                     joined -> "이제 같은 가계부를 함께 써요"
-                    else -> "폰 기본 카메라로 찍으면 돼요. 도란이 없으면 설치부터 안내하고, 설치하면 바로 이어서 연결돼요."
+                    else -> "폰 기본 카메라로 찍으면 돼요. 둥지가 없으면 설치부터 안내하고, 설치하면 바로 이어서 연결돼요."
                 }, style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(20.dp))
                 val inv = invite
@@ -362,7 +362,7 @@ fun InviteScreen(role: String, nav: Nav, presetName: String? = null) {
                 if (inv != null && left > 0 && !joined) {
                     Text("멀리 있으면 링크를 카톡·문자로 보내도 돼요. 누르면 똑같이 이어져요.", style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint)
                     // Play 내부 테스트는 테스터 목록에 있는 계정만 설치할 수 있어요(#10).
-                    Text("도란은 아직 테스트 중이라, 그 폰에 도란이 없으면 그 폰의 Google 계정(Gmail)을 먼저 테스터로 등록해야 Play에서 받을 수 있어요.",
+                    Text("둥지는 아직 테스트 중이라, 그 폰에 둥지가 없으면 그 폰의 Google 계정(Gmail)을 먼저 테스터로 등록해야 Play에서 받을 수 있어요.",
                         style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint, textAlign = TextAlign.Center,
                         modifier = Modifier.padding(top = 6.dp))
                     Spacer(Modifier.height(8.dp))
@@ -372,7 +372,7 @@ fun InviteScreen(role: String, nav: Nav, presetName: String? = null) {
                             shared = true
                             val who = if (role == "sender") "카드 알림을 우리 가계부로 보내 주세요" else "같이 가계부를 써요"
                             context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain")
-                                .putExtra(Intent.EXTRA_TEXT, "도란 가족 가계부 초대예요. $who!\n아래 링크를 누르면 설치와 연결을 안내해요(30분 동안, 한 번만).\n${inv.code}"),
+                                .putExtra(Intent.EXTRA_TEXT, "둥지 가족 가계부 초대예요. $who!\n아래 링크를 누르면 설치와 연결을 안내해요(30분 동안, 한 번만).\n${inv.code}"),
                                 "초대 링크 보내기"))
                         }
                     }
@@ -399,7 +399,7 @@ fun JoinPanel(needName: Boolean, preset: String? = null, onDone: () -> Unit) {
 
     fun connect(text: String) {
         val secret = Pairing.parseCode(text)
-        if (secret == null) { error = "도란 초대 QR·링크가 아니에요"; return }
+        if (secret == null) { error = "둥지 초대 QR·링크가 아니에요"; return }
         busy = true; error = null
         scope.launch {
             runCatching { Pairing.join(secret, name) }.onSuccess { joined = it }.onFailure { error = friendly(it) }
@@ -454,7 +454,7 @@ fun JoinPanel(needName: Boolean, preset: String? = null, onDone: () -> Unit) {
                 return@Column
             }
             PrimaryButton(if (busy) "연결하는 중…" else "QR 찍어서 연결하기", enabled = !busy && (!askName || name.isNotBlank())) {
-                scan.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("가족 폰에 뜬 도란 QR을 비춰 주세요")
+                scan.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("가족 폰에 뜬 둥지 QR을 비춰 주세요")
                     .setBeepEnabled(false).setOrientationLocked(true))
             }
             error?.let { Text(it, color = P.c.danger, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 10.dp)) }

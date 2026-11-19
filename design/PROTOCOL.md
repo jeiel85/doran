@@ -1,4 +1,4 @@
-# 도란 동기화 프로토콜
+# 둥지 동기화 프로토콜
 
 중계 서버(`relay/`, Cloudflare Worker + D1)와 폰(`android/`)이 주고받는 형식입니다. 왜 이렇게 했는지는 [DECISIONS.md](../DECISIONS.md) D-2·D-3·D-6·D-7.
 

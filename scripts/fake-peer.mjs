@@ -1,4 +1,4 @@
-// 가짜 가족 폰: 도란 동기화 프로토콜(design/PROTOCOL.md)을 Node로 구현해 에뮬레이터 한 대와 E2E 시험을 합니다.
+// 가짜 가족 폰: 둥지 동기화 프로토콜(design/PROTOCOL.md)을 Node로 구현해 에뮬레이터 한 대와 E2E 시험을 합니다.
 // 에뮬레이터 2대를 동시에 못 띄우는 PC용. 사용법은 README "두 폰 동기화 시험".
 // usage: node scripts/fake-peer.mjs join <code> | pull | push-card | push-sender <링크>
 //        sender-again (push-sender로 붙은 가짜 어머니가 한 건 더 보냄 — 끊은 뒤엔 거절돼야 함)
@@ -260,7 +260,7 @@ if (cmd === "join") {
       cumulative: extra.cum ?? null, issuer: extra.issuer ?? null, cardLabel: extra.label ?? null, receiptIds: [], private: false,
       createdBy: "demo", createdAt: at, needsReview: false, toAccountId: extra.to ?? null }]);
   const HY = ["accHyundai000000000000", { issuer: "현대카드", label: "현대카드(1234)" }], SH = ["accShinhan000000000000", { issuer: "신한카드", label: "신한카드(5678)" }];
-  t(0, "i", 3850000, day(10, 9), "accKB00000000000000000", "c.salary", "(주)도란 급여", H, { source: "sms", issuer: "KB국민은행" });
+  t(0, "i", 3850000, day(10, 9), "accKB00000000000000000", "c.salary", "(주)둥지 급여", H, { source: "sms", issuer: "KB국민은행" });
   t(0, "i", 2400000, day(15, 9), "accKB00000000000000000", "c.salary", "11월 급여", wife, { source: "sms", issuer: "KB국민은행" });
   const spend = [
     [1, "c.food", "이마트 성수점", 86400, wife, SH], [2, "c.cafe", "스타벅스 성수점", 12300, H, HY], [2, "c.transit", "카카오T", 8900, H, HY],

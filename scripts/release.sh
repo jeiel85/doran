@@ -5,7 +5,7 @@
 #
 # 그 버전으로 빌드 → 태그와 GitHub 릴리스(APK + SHA-256) → 연결된 폰 모두에 같은 APK 설치(로컬 배포)
 # → design/hardening-<버전>.md가 있으면 "Hardening candidates" 이슈 등록.
-# 폰의 도란은 하루 두 번 releases/latest를 보고, 서명과 해시가 맞으면 스스로 업데이트합니다(DECISIONS.md D-8).
+# 폰의 둥지는 하루 두 번 releases/latest를 보고, 서명과 해시가 맞으면 스스로 업데이트합니다(DECISIONS.md D-8).
 # 자산 이름은 반드시 doran.apk — 앱 업데이터와 소개·연결 페이지의 다운로드 링크가 이 이름을 씁니다.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -29,7 +29,7 @@ SHA=$(sha256sum dist/doran.apk | cut -d' ' -f1)
 NOTES=$(mktemp)
 awk -v a="## [$VER]" -v b="## v$VER" 'index($0, a)==1 || index($0, b)==1 {on=1; next} /^## / {on=0} on' CHANGELOG.md > "$NOTES"
 printf '\n---\n**APK SHA-256** `%s`\n\n설치·가족 연결 안내: https://jeiel85.github.io/doran/\n' "$SHA" >> "$NOTES"
-gh release create "$TAG" dist/doran.apk --title "도란 $TAG" --notes-file "$NOTES" --target main
+gh release create "$TAG" dist/doran.apk --title "둥지 $TAG" --notes-file "$NOTES" --target main
 rm -f "$NOTES"
 echo "✓ released $TAG (sha256 $SHA)"
 

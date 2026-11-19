@@ -193,7 +193,7 @@ class MainActivity : FragmentActivity() {
         val prompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) { locked = false }
         })
-        val info = BiometricPrompt.PromptInfo.Builder().setTitle("도란 열기").setSubtitle("가계부를 보려면 잠금을 풀어 주세요")
+        val info = BiometricPrompt.PromptInfo.Builder().setTitle("둥지 열기").setSubtitle("가계부를 보려면 잠금을 풀어 주세요")
             .setAllowedAuthenticators(authenticators).build()
         runCatching { prompt.authenticate(info) }.onFailure {
             // 폰에 화면 잠금이 아예 없으면 잠글 수 없으므로 잠금을 끕니다(설정 화면에서 안내).
@@ -207,7 +207,7 @@ class MainActivity : FragmentActivity() {
 private fun LockScreen(onUnlock: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Image(painterResource(R.mipmap.ic_launcher_foreground), null, Modifier.size(140.dp))
-        Text("도란", style = MaterialTheme.typography.headlineSmall, color = P.c.ink)
+        Text("둥지", style = MaterialTheme.typography.headlineSmall, color = P.c.ink)
         Spacer(Modifier.height(6.dp))
         Text("우리 집 가계부가 잠겨 있어요", style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft)
         Spacer(Modifier.height(32.dp))

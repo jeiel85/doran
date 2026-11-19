@@ -97,7 +97,7 @@ def feature_graphic():
     icon = rounded(Image.open(ROOT / "design/art/icon-full.png").convert("RGB").resize((112, 112), Image.LANCZOS), 26)
     img.alpha_composite(icon, (60, 92))
     d = ImageDraw.Draw(img)
-    d.text((190, 148), "도란", font=font(FONT_B, 64), fill=(255, 255, 255), anchor="lm")
+    d.text((190, 148), "둥지", font=font(FONT_B, 64), fill=(255, 255, 255), anchor="lm")
     d.text((60, 270), "카드 알림이 오면", font=font(FONT_B, 46), fill=(255, 255, 255))
     d.text((60, 330), "바로 장부에, 가족 폰에", font=font(FONT_B, 46), fill=(255, 211, 107))
     d.text((60, 410), "부부가 함께 쓰는 가족 가계부", font=font(FONT_R, 28), fill=(220, 236, 228))

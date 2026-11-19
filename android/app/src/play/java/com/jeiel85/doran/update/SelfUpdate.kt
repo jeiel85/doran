@@ -27,9 +27,9 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 /**
- * Play 빌드: 설치는 Google Play가 하고, 도란은 새 버전이 있는지만 알려 줍니다(DECISIONS.md D-21).
+ * Play 빌드: 설치는 Google Play가 하고, 둥지는 새 버전이 있는지만 알려 줍니다(DECISIONS.md D-21).
  * Play In-App Updates API로 이 사용자에게 열린 트랙(내부·비공개 테스트 포함)에 더 높은 버전이 있는지 보고,
- * 있으면 홈 배너·설정·알림으로 알려 누르면 Play 스토어의 도란 페이지로 보냅니다.
+ * 있으면 홈 배너·설정·알림으로 알려 누르면 Play 스토어의 둥지 페이지로 보냅니다.
  * 자가 업데이트 코드·설치 권한·APK 내려받기는 여전히 없습니다(D-16).
  */
 object SelfUpdate {
@@ -72,14 +72,14 @@ object SelfUpdate {
             else UpdateState.UpToDate
         }.getOrElse { e ->
             Log.i(TAG, "update check unavailable: ${e.message}")
-            if (userInitiated) UpdateState.Failed("Play 스토어에서 받은 도란에서만 확인할 수 있어요") else UpdateState.Idle
+            if (userInitiated) UpdateState.Failed("Play 스토어에서 받은 둥지에서만 확인할 수 있어요") else UpdateState.Idle
         }
         lastCheckAt = System.currentTimeMillis()
         _state.value = next
         return next
     }
 
-    /** Play 스토어 앱의 도란 페이지(없으면 웹). 테스트 참여자에게는 그 트랙의 새 버전이 보입니다. */
+    /** Play 스토어 앱의 둥지 페이지(없으면 웹). 테스트 참여자에게는 그 트랙의 새 버전이 보입니다. */
     fun openStore(context: Context) {
         val pkg = context.packageName
         val market = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg")).setPackage("com.android.vending")

@@ -16,7 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 /**
- * "도란도란" 저녁 식탁 팔레트 (DECISIONS.md D-14): 오트 크림 바탕, 짙은 잉크, 소나무 초록, 살구 강조.
+ * 저녁 식탁 팔레트 (DECISIONS.md D-14): 오트 크림 바탕, 짙은 잉크, 소나무 초록, 살구 강조.
  */
 @Immutable
 data class Palette(
