@@ -70,14 +70,18 @@ class CaptureProcessor(
         // "앞으로도 자동으로" 규칙으로 읽은 간편결제 앱 알림(카드사·은행 목록 밖)도, 같은 결제의 카드·은행 기록이 이미 있으면
         // 따로 기록하지 않고 그 기록에 묶습니다(#18, D-5).
         // 앱 이름은 규칙의 이름으로 씁니다: 합친 카드 기록의 표시("토스뱅크 · 네이버페이")로 나중에 그 앱의 취소를 찾기 때문입니다.
+        // 보내기 링크는 링크마다 따로 보냅니다: 이미 보낸 같은 결제면 forward가 링크별로 거릅니다(#21 리뷰).
         if (rule != null && parsed.issuer == rule.issuer && !Issuers.listed(parsed.issuer) &&
             (parsed.type == Parsed.Type.APPROVAL || parsed.type == Parsed.Type.CANCEL)) {
             val at = txnAt(parsed, postedAt)
-            val joined = joinRecorded(parsed, at, parsed.issuer)
+            val joined = joinRecorded(parsed, at, parsed.issuer, links = false)
                 ?: if (parsed.type == Parsed.Type.CANCEL) cancelAbsorbed(parsed, at, source) else null
             if (joined != null) {
-                db.logCapture(postedAt, source.code, pkg, title, text, joined.result, joined.txnId, label = appLabel ?: pkg)
-                return joined.copy(handled = true)
+                val sent = identity.value.outLinks.filter { sendsTo(it, parsed.issuer) }.map { forward(parsed, at, it) }
+                val result = (listOf(joined.result) + sent.map { it.text }).joinToString(" · ")
+                db.logCapture(postedAt, source.code, pkg, title, text, result, joined.txnId, label = appLabel ?: pkg)
+                requestSync()
+                return joined.copy(result = result, handled = true)
             }
         }
         // 같은 결제를 알린 간편결제 앱 알림이 먼저 와서 후보로 남아 있으면 그 가맹점·앱 이름을 보태 함께 묶습니다(D-5).
@@ -105,9 +109,23 @@ class CaptureProcessor(
             .filterNot { p -> db.capturesOf(p.id).any { Parser.paidFromBalance(Parser.payMethodIn(it.text)) } }
             .minByOrNull { abs(it.at - card.at) } ?: return
         joinStored(card.id, SamePayment.noticeOf(pay), pay.issuer.orEmpty())
+        // 간편결제 기록에 이미 걸린 취소(앱이 먼저 알린 취소)는 지우지 않고 카드 기록의 취소로 옮깁니다(#21 리뷰).
+        val joined = ledger.value.txns[card.id] ?: card
+        for (c in ledger.value.txns.values.filter { it.cancelOf == pay.id }) {
+            ledger.saveTxn(c.copy(cancelOf = joined.id, accountId = joined.accountId, issuer = joined.issuer, cardLabel = joined.cardLabel,
+                memberId = joined.memberId, private = joined.private, categoryId = joined.categoryId), auto = true)
+        }
         ledger.deleteTxn(pay.id)
         db.relinkCaptures(pay.id, card.id, "같은 결제 · ${card.issuer} 알림 기록에 묶음")
     }
+
+    /** 수집 기록이 카드·은행 알림인지(간편결제 앱 알림이 아니라): 본문이나 앱 이름에서 아는 카드사·은행을 찾으면. */
+    private fun isCardRow(row: Db.CaptureRow): Boolean =
+        (Issuers.find(listOfNotNull(row.title, row.text).joinToString("\n")) ?: row.label?.let { Issuers.find(it) }) != null
+
+    /** 취소 [c]가 이미 간편결제 앱 알림과 짝지어졌는지 / 카드·은행 알림과 짝지어졌는지(그 알림의 수집 기록이 이어져 있는지). */
+    private fun appPaired(c: Txn) = db.capturesOf(c.id).any { !isCardRow(it) }
+    private fun cardPaired(c: Txn) = db.capturesOf(c.id).any { isCardRow(it) }
 
     /**
      * 규칙으로 읽은 간편결제 앱의 취소 알림인데, 그 앱의 결제가 카드·은행 기록으로 합쳐져(#18) 앱 쪽 원래 기록이 없을 때(#21 리뷰):
@@ -118,6 +136,12 @@ class CaptureProcessor(
         if (!identity.value.inHousehold || p.paidFromBalance) return null
         val me = identity.installId
         val s = ledger.value
+        // 카드사가 먼저 알린 같은 취소가 있으면(아직 앱 알림과 짝지어지지 않은 것) 그 취소와 같은 취소입니다. 원래 결제보다 먼저 봐야
+        // 부분 취소가 3분 넘게 떨어져 와도 두 번 세지 않습니다(#21 리뷰).
+        SamePayment.unpairedCardCancel(s, me, p.amount, at, p.issuer, ::appPaired)?.let { c ->
+            joinStored(c.id, p, p.issuer)
+            return Outcome("같은 취소 · ${c.issuer} 알림 기록에 묶음", c.id)
+        }
         SamePayment.absorbedOriginal(s, me, p, at, p.issuer)?.let { t ->
             val c = Txn(
                 id = newId(), kind = Kind.EXPENSE, amount = p.amount, at = at, accountId = t.accountId, merchant = t.merchant,
@@ -126,11 +150,7 @@ class CaptureProcessor(
             )
             ledger.saveTxn(c)
             settings.markUnseen(listOf(c.id))
-            requestSync()
             return Outcome("${t.issuer} 결제의 취소로 기록(${p.issuer} 알림)", c.id)
-        }
-        SamePayment.cancelOfAbsorbed(s, me, p.amount, at, p.issuer)?.let { c ->
-            return Outcome("같은 취소 · ${c.issuer} 알림 기록에 묶음", c.id)
         }
         return null
     }
@@ -166,8 +186,12 @@ class CaptureProcessor(
                 ?.let { Notice(row, it, app) }
         }.minWithOrNull(compareByDescending<Notice> { SamePayment.related(card.merchant, it.parsed.merchant) }.thenBy { abs(it.row.at - at) })
 
-    /** 이 폰이 이미 기록하거나 보낸 카드·은행 결제 중 간편결제 알림 [notice]와 같은 것을 찾아 묶습니다. [pool]: 찾아볼 거래(기본 장부 전체). */
-    private fun joinRecorded(notice: Parsed, at: Long, app: String, pool: Collection<Txn> = ledger.value.txns.values): Outcome? {
+    /**
+     * 이 폰이 이미 기록하거나 보낸 카드·은행 결제 중 간편결제 알림 [notice]와 같은 것을 찾아 묶습니다. [pool]: 찾아볼 거래(기본 장부 전체).
+     * [links]: 보낸 기록도 볼지. 후보로 남길지 정할 때만 봅니다(규칙으로 보내는 알림은 forward가 링크마다 거름).
+     */
+    private fun joinRecorded(notice: Parsed, at: Long, app: String, pool: Collection<Txn> = ledger.value.txns.values,
+                             links: Boolean = true): Outcome? {
         val t = pool
             .filter { it.createdBy == identity.installId && SamePayment.matches(notice, at, it) }
             .minWithOrNull(compareByDescending<Txn> { SamePayment.related(it.merchant, notice.merchant) }.thenBy { abs(it.at - at) })
@@ -177,6 +201,7 @@ class CaptureProcessor(
         }
         // 보내기만 하는 폰(부모님 폰): 이미 보낸 결제와 같으면 다시 보내라고 권하지 않습니다. 머니·포인트 결제는 같은 결제가 아닙니다.
         // 이 앱 이름으로 올 취소가 원래 거래를 찾게 별칭을 남깁니다(#21 리뷰).
+        if (!links) return null
         for (link in identity.value.outLinks) {
             val items = sentTo(link)
             val sent = SentLog.sameSent(items, notice, at) ?: continue
@@ -318,9 +343,10 @@ class CaptureProcessor(
             }
             return Outcome("이미 기록됨(중복 알림)", dup.id)
         }
-        // 간편결제 앱 알림이 먼저 이 카드 기록에 같은 취소를 걸어 두어 남은 원래 결제가 없으면 다시 세지 않습니다(#18, #21 리뷰).
-        if (isCancel && findOriginal(ledger.value, account.id, p, at) == null) {
-            SamePayment.payAppCancel(ledger.value.txns.values.filter { it.accountId == account.id }, p.amount, at)
+        // 간편결제 앱 알림이 먼저 이 카드 기록에 같은 취소를 걸어 두었으면(아직 카드 알림과 짝지어지지 않은 것) 다시 세지 않습니다.
+        // 원래 결제의 남은 금액보다 먼저 봐야 부분 취소가 3분 넘게 떨어져 와도 한 번만 셉니다(#18, #21 리뷰).
+        if (isCancel) {
+            SamePayment.unpairedAppCancel(ledger.value, ledger.value.txns.values.filter { it.accountId == account.id }, p.amount, at, p.merchant, ::cardPaired)
                 ?.let { return Outcome("이미 기록됨(간편결제 알림의 같은 취소)", it.id) }
         }
         // 다른 가족 폰이 같은 결제를 이미 올려 둔 경우(가족카드 알림이 양쪽에 오는 등)
@@ -384,8 +410,8 @@ class CaptureProcessor(
         mine.firstOrNull {
             it.amount == p.amount && it.kind == kind && (it.cancelOf != null) == isCancel && abs(it.at - at) <= sameMinutes && it.source.captured
         }?.let { return Outcome("이미 기록됨(중복 알림)", it.id) }
-        if (isCancel && pickOriginal(ledger.value, mine.asSequence(), p, at) == null) {
-            SamePayment.payAppCancel(mine, p.amount, at)?.let { return Outcome("이미 기록됨(간편결제 알림의 같은 취소)", it.id) }
+        if (isCancel) {
+            SamePayment.unpairedAppCancel(ledger.value, mine, p.amount, at, p.merchant, ::cardPaired)?.let { return Outcome("이미 기록됨(간편결제 알림의 같은 취소)", it.id) }
         }
 
         val first = Txn(
@@ -471,7 +497,7 @@ class CaptureProcessor(
         }
         // 같은 카드사의 중복 알림, 또는 규칙으로 보낸 간편결제 앱 알림과 같은 결제의 카드·은행 알림(#18)이면 다시 보내지 않고,
         // 이 이름으로 올 취소가 원래 거래를 찾게 별칭만 남깁니다(#21 리뷰).
-        SentLog.sameSent(items, p, at)?.let { hit ->
+        (SentLog.sameSent(items, p, at) ?: SentLog.sameCancelSent(items, p, at))?.let { hit ->
             SentLog.withAlias(items, hit, p.issuer)?.let { saveSent(link, it) }
             return Sent("${link.label}: 이미 보냄", true)
         }

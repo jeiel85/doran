@@ -13,7 +13,8 @@ import kotlin.math.abs
  */
 object SentLog {
     private const val WINDOW = 3 * 60_000L
-    private const val CANCEL_WINDOW = 60L * 86_400_000
+    private const val DAY = 86_400_000L
+    private const val CANCEL_WINDOW = 60L * DAY
 
     fun entry(id: String, p: Parsed, at: Long, kind: Kind, of: String?): JSONObject = JSONObject()
         .put("id", id).put("issuer", p.issuer).put("amount", p.amount).put("at", at).put("cancel", p.type == Parsed.Type.CANCEL)
@@ -33,6 +34,24 @@ object SentLog {
                 (sent == p.issuer || crossable && it.optString("kind") == Kind.EXPENSE.code && !it.optBoolean("balance") &&
                     Issuers.listed(sent) != Issuers.listed(p.issuer))
         }
+    }
+
+    /**
+     * 이름이 다른 쪽(간편결제 앱 ↔ 카드·은행)으로 이미 보낸 같은 취소: 같은 금액·하루 안, 원래 거래가 이 이름으로도 이어져 있고
+     * 아직 이 이름과 짝지어지지 않은 것(#21 리뷰). 3분이 넘게 떨어져 온 부분 취소를 두 번 보내지 않게 합니다.
+     * 짝지으면 [withAlias]로 이 이름의 별칭을 남겨, 같은 금액의 다음 부분 취소는 따로 셉니다.
+     */
+    fun sameCancelSent(items: List<JSONObject>, p: Parsed, at: Long): JSONObject? {
+        if (p.type != Parsed.Type.CANCEL || p.paidFromBalance) return null
+        return items.filter { e ->
+            val of = e.optString("of")
+            val sent = e.optString("issuer")
+            e.optBoolean("cancel") && !e.optBoolean("alias") && !e.optBoolean("balance") && of.isNotEmpty() &&
+                e.optLong("amount") == p.amount && abs(e.optLong("at") - at) <= DAY && sent != p.issuer &&
+                Issuers.listed(sent) != Issuers.listed(p.issuer) &&
+                items.any { o -> o.optString("id") == of && !o.optBoolean("cancel") && o.optString("issuer") == p.issuer } &&
+                items.none { a -> a.optBoolean("alias") && a.optBoolean("cancel") && a.optString("id") == e.optString("id") && a.optString("issuer") == p.issuer }
+        }.minByOrNull { abs(it.optLong("at") - at) }
     }
 
     /**

@@ -226,17 +226,52 @@ class HardeningTest {
             issuer = "토스뱅크", cardLabel = card.cardLabel, createdBy = "me")
         val after = s.copy(txns = s.txns + ("A" to appCancel))
         assertNull(SamePayment.absorbedOriginal(after, "me", cancel, ms + 3_700_000, "네이버페이"))
-        // 그 뒤 카드사의 취소 알림이 늦게 와도 같은 취소로 봄(간편결제 앱이 붙은 취소)
-        assertEquals("A", SamePayment.payAppCancel(after.txns.values, 3_610, ms + 3_600_000 + 10 * 60_000)?.id)
-        assertNull(SamePayment.payAppCancel(after.txns.values, 3_600, ms + 3_600_000))
+        // 그 뒤 카드사의 취소 알림이 늦게 와도 아직 카드 알림과 짝지어지지 않은 그 취소와 같은 취소로 봄
+        val late = ms + 3_600_000 + 10 * 60_000
+        assertEquals("A", SamePayment.unpairedAppCancel(after, after.txns.values, 3_610, late, "씨유(CU)가산하이엔드6차점") { false }?.id)
+        assertNull(SamePayment.unpairedAppCancel(after, after.txns.values, 3_610, late, "씨유(CU)가산하이엔드6차점") { it.id == "A" })
+        assertNull(SamePayment.unpairedAppCancel(after, after.txns.values, 3_600, late, null) { false })
+        // 같은 금액이어도 가맹점이 다른 결제의 취소면 같은 취소가 아님
+        assertNull(SamePayment.unpairedAppCancel(after, after.txns.values, 3_610, late, "스타벅스") { false })
         // 거꾸로 카드사의 취소가 먼저 기록돼 있으면 앱의 취소 알림은 같은 취소
         val cardCancel = Txn("K", Kind.EXPENSE, 3_610, ms + 3_600_000, source = Source.PUSH, cancelOf = "T", issuer = "토스뱅크",
             cardLabel = "토스뱅크", createdBy = "me")
         val cardFirst = s.copy(txns = s.txns + ("K" to cardCancel))
-        assertEquals("K", SamePayment.cancelOfAbsorbed(cardFirst, "me", 3_610, ms + 3_600_000 + 10 * 60_000, "네이버페이")?.id)
-        assertNull(SamePayment.cancelOfAbsorbed(cardFirst, "me", 3_610, ms + 3_600_000, "카카오페이"))
+        assertEquals("K", SamePayment.unpairedCardCancel(cardFirst, "me", 3_610, late, "네이버페이") { false }?.id)
+        assertNull(SamePayment.unpairedCardCancel(cardFirst, "me", 3_610, late, "카카오페이") { false })
         assertEquals("네이버페이", SamePayment.via(card))
         assertNull(SamePayment.via(other))
+    }
+
+    @Test fun partialCancelsReportedByBothNamesCountOnce() {
+        // 합쳐진 10,000원 결제에서 2,000원 부분 취소를 카드사가 먼저, 10분 뒤 앱이 알림(#21 리뷰 2차)
+        val card = recorded("T", "토스뱅크", merchant = "CU 가산점").copy(amount = 10_000, cardLabel = "토스뱅크 · 네이버페이")
+        val c1 = Txn("C1", Kind.EXPENSE, 2_000, ms + 60_000, source = Source.PUSH, cancelOf = "T", issuer = "토스뱅크", cardLabel = "토스뱅크", createdBy = "me")
+        val s = LedgerState(txns = listOf(card, c1).associateBy { it.id })
+        val paired = mutableSetOf<String>()
+        // 앱의 취소 알림: 원래 결제에 8,000원이 남아 있어도 먼저 카드 취소(C1)와 짝지음 → 새로 기록하지 않음
+        assertEquals("C1", SamePayment.unpairedCardCancel(s, "me", 2_000, ms + 11 * 60_000, "네이버페이") { it.id in paired }?.id)
+        paired += "C1"
+        // 다음 2,000원 부분 취소는 따로: 카드 취소와 이미 짝지어졌으니 원래 결제(남은 8,000원)에 새로 걺
+        assertNull(SamePayment.unpairedCardCancel(s, "me", 2_000, ms + 20 * 60_000, "네이버페이") { it.id in paired })
+        val second = Parsed(Parsed.Type.CANCEL, "네이버페이", true, 2_000, merchant = "CU")
+        assertEquals("T", SamePayment.absorbedOriginal(s, "me", second, ms + 20 * 60_000, "네이버페이")?.id)
+
+        // 보내는 가족 폰: 앱 이름으로 보낸 결제 X, 그 2,000원 부분 취소를 앱이 먼저 보냄 → 10분 뒤 카드사의 같은 취소는 보내지 않음
+        val pay = Parsed(Parsed.Type.APPROVAL, "네이버페이", true, 10_000, merchant = "CU")
+        val cardApproval = Parsed(Parsed.Type.APPROVAL, "토스뱅크", false, 10_000, merchant = "CU 가산점")
+        var items = listOf(SentLog.entry("X", pay, ms, Kind.EXPENSE, null))
+        items = SentLog.withAlias(items, SentLog.sameSent(items, cardApproval, ms + 30_000)!!, "토스뱅크")!!
+        items = items + SentLog.entry("P1", pay.copy(type = Parsed.Type.CANCEL, amount = 2_000), ms + 60_000, Kind.EXPENSE, "X")
+        val cardCancel = cardApproval.copy(type = Parsed.Type.CANCEL, amount = 2_000)
+        val hit = SentLog.sameCancelSent(items, cardCancel, ms + 11 * 60_000)!!
+        assertEquals("P1", hit.optString("id"))
+        items = SentLog.withAlias(items, hit, "토스뱅크")!!
+        // 카드사의 다음 2,000원 부분 취소는 짝이 없으니 원래 거래(남은 8,000원)로 보냄
+        assertNull(SentLog.sameCancelSent(items, cardCancel, ms + 20 * 60_000))
+        assertEquals("X", SentLog.original(items, cardCancel, ms + 20 * 60_000)?.optString("id"))
+        // 같은 이름끼리(앱이 두 번 부분 취소)는 같은 취소로 보지 않음
+        assertNull(SentLog.sameCancelSent(items, pay.copy(type = Parsed.Type.CANCEL, amount = 2_000), ms + 20 * 60_000))
     }
 
     private fun recorded(id: String, issuer: String, merchant: String = "CU", at: Long = ms) =

@@ -69,19 +69,28 @@ object SamePayment {
             .firstOrNull()
     }
 
-    /** 앱 [app]이 합쳐진 카드 결제의 취소가 카드 알림으로 이미 기록돼 있는지(같은 금액·하루 안): 그러면 앱의 취소 알림은 같은 취소입니다. */
-    fun cancelOfAbsorbed(s: LedgerState, installId: String, amount: Long, at: Long, app: String): Txn? =
-        s.txns.values.firstOrNull { c ->
+    /**
+     * 앱 [app]이 합쳐진 카드 결제의 취소 중, 카드 알림으로 기록됐고 아직 앱의 취소 알림과 짝지어지지 않은 것(같은 금액·하루 안).
+     * 있으면 앱의 취소 알림은 그 취소와 같은 취소입니다. 취소는 하나씩만 짝지어([appPaired]) 같은 금액의 부분 취소가 여러 번이어도
+     * 각각 한 번씩 셉니다(#21 리뷰).
+     */
+    fun unpairedCardCancel(s: LedgerState, installId: String, amount: Long, at: Long, app: String, appPaired: (Txn) -> Boolean): Txn? =
+        s.txns.values.filter { c ->
             c.createdBy == installId && c.cancelOf != null && c.amount == amount && abs(c.at - at) <= DAY &&
-                s.txns[c.cancelOf]?.let { via(it) == app } == true
-        }
+                s.txns[c.cancelOf]?.let { via(it) == app } == true && !appPaired(c)
+        }.minByOrNull { abs(it.at - at) }
 
     /**
-     * 카드·은행 취소 알림이 왔는데 남은 원래 결제가 없을 때: 같은 취소를 간편결제 앱 알림이 먼저 이 카드 기록에 걸어 두었는지
-     * ([candidates] 중 같은 금액·하루 안, 간편결제 앱이 붙은 취소). 그러면 다시 세지 않습니다.
+     * 카드·은행 취소 알림이 왔을 때: 같은 취소를 간편결제 앱 알림이 먼저 이 카드 기록에 걸어 두었고 아직 카드 알림과 짝지어지지 않았는지
+     * ([candidates] 중 같은 금액·하루 안, 간편결제 앱이 붙은 취소, [cardPaired]가 아닌 것). 그러면 다시 세지 않습니다.
      */
-    fun payAppCancel(candidates: Collection<Txn>, amount: Long, at: Long): Txn? =
-        candidates.firstOrNull { it.cancelOf != null && it.amount == amount && abs(it.at - at) <= DAY && via(it) != null }
+    fun unpairedAppCancel(s: LedgerState, candidates: Collection<Txn>, amount: Long, at: Long, merchant: String?,
+                          cardPaired: (Txn) -> Boolean): Txn? =
+        candidates.filter {
+            it.cancelOf != null && it.amount == amount && abs(it.at - at) <= DAY && via(it) != null && !cardPaired(it) &&
+                // 카드 취소 알림에 가맹점이 있으면 그 취소의 원래 결제와 가맹점이 겹쳐야 같은 취소(같은 금액의 다른 결제 취소와 헷갈리지 않게)
+                (merchant.isNullOrBlank() || s.txns[it.cancelOf]?.merchant.isNullOrBlank() || related(merchant, s.txns[it.cancelOf]?.merchant))
+        }.minByOrNull { abs(it.at - at) }
 
     private const val DAY = 86_400_000L
     private const val CANCEL_WINDOW = 60L * DAY
