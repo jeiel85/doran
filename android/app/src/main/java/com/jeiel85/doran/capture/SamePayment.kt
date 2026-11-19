@@ -58,7 +58,9 @@ object SamePayment {
     /** 기록 뒤: 이미 기록된 [t]를 간편결제 알림으로 보탭니다. 자동으로 정한 카테고리만 새 가맹점으로 다시 고릅니다(직접 고친 것은 그대로). */
     fun enrich(s: LedgerState, t: Txn, notice: Parsed, app: String): Txn {
         val merchant = merchant(t.merchant, shop(notice, app))
-        val auto = t.cancelOf == null && t.categoryId == Categorizer.categorize(s, t.merchant, t.kind)
+        // 사람이 카테고리를 고르면 그 가맹점 규칙이 생깁니다(Hooks.learnCategories). 규칙이 있으면 사람의 선택으로 보고 그대로 둡니다.
+        val learned = t.merchant.isNotBlank() && s.rules.containsKey(Categorizer.ruleId(t.merchant))
+        val auto = t.cancelOf == null && !learned && t.categoryId == Categorizer.categorize(s, t.merchant, t.kind)
         return t.copy(
             merchant = merchant,
             cardLabel = label(t.cardLabel ?: t.issuer.orEmpty(), app),

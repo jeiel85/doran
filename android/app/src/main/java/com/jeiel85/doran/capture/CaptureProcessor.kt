@@ -33,7 +33,8 @@ class CaptureProcessor(
     private val sync: SyncEngine,
     private val requestSync: () -> Unit,
 ) {
-    data class Outcome(val result: String, val txnId: String?)
+    /** [handled]: 이 폰 가계부에 기록했거나(이미 기록된 것 포함) 다른 가계부로 보냈는지. */
+    data class Outcome(val result: String, val txnId: String?, val handled: Boolean = txnId != null)
 
     private val sameMinutes = 3 * 60_000L
 
@@ -68,7 +69,8 @@ class CaptureProcessor(
         val notice = pendingNotice(parsed, txnAt(parsed, postedAt))
         val out = deliver(notice?.let { SamePayment.enrich(parsed, it.parsed, it.app) } ?: parsed, source, pkg, title, text, postedAt,
             appLabel, logId = null, note = notice?.let { "${it.app} 알림과 같은 결제" })
-        if (notice != null) {
+        // 실제로 기록하거나 보냈을 때만 묶습니다. 보내지 않는 카드사면 간편결제 알림은 골라 보낼 수 있게 후보로 둡니다.
+        if (notice != null && out.handled) {
             out.txnId?.let { joinStored(it, notice.parsed, notice.app) }
             db.updateCapture(notice.row.id, "done", "같은 결제 · ${parsed.issuer} 알림과 묶음", out.txnId)
         }
@@ -167,23 +169,27 @@ class CaptureProcessor(
         val at = txnAt(parsed, postedAt)
         val results = ArrayList<String>()
         var txnId: String? = null
+        var handled = false
         if (identity.value.inHousehold) {
             val me = ledger.value.member(identity.value.myMemberId)
             val r = if (!forceShare && me != null && !me.shares(parsed.issuer)) recordPrivate(parsed, source, at, me.id)
                 else recordLocal(parsed, source, at)
             results += r.result
             txnId = r.txnId
+            if (r.txnId != null) handled = true
         }
         for (link in identity.value.outLinks) {
             if (!sendsTo(link, parsed.issuer)) continue
-            results += forward(parsed, at, link)
+            val sent = forward(parsed, at, link)
+            results += sent.text
+            if (sent.ok) handled = true
         }
         if (results.isEmpty()) results += "가계부가 없어 기록하지 않음"
-        note?.let { results += it }
+        note?.takeIf { handled }?.let { results += it }
         if (logId != null) db.updateCapture(logId, "done", results.joinToString(" · "), txnId)
         else db.logCapture(postedAt, source.code, pkg, title, text, results.joinToString(" · "), txnId, label = appLabel)
         requestSync()
-        return Outcome(results.joinToString(" · "), txnId)
+        return Outcome(results.joinToString(" · "), txnId, handled)
     }
 
     // --- 내 가구에 기록 -------------------------------------------------------------------------
@@ -345,13 +351,16 @@ class CaptureProcessor(
         return (0 until recent.length()).map { recent.getJSONObject(it) }
     }
 
-    private fun forward(p: Parsed, at: Long, link: OutLink): String {
+    private class Sent(val text: String, val ok: Boolean)
+
+    /** [Sent.ok]: 보냈거나 이미 보낸 결제인지. */
+    private fun forward(p: Parsed, at: Long, link: OutLink): Sent {
         val recentKey = "fwd.recent.${link.spaceId}"
         val items = sentTo(link)
         val isCancel = p.type == Parsed.Type.CANCEL
         if (items.any { it.optString("issuer") == p.issuer && it.optLong("amount") == p.amount &&
                 it.optBoolean("cancel") == isCancel && abs(it.optLong("at") - at) <= sameMinutes }) {
-            return "${link.label}: 이미 보냄"
+            return Sent("${link.label}: 이미 보냄", true)
         }
         val accountId = "acc.${link.memberId}.${Categorizer.normalize(p.issuer)}"
         val kind = when (p.type) {
@@ -361,7 +370,7 @@ class CaptureProcessor(
         val original = if (isCancel) items.filter {
             it.optString("issuer") == p.issuer && !it.optBoolean("cancel") && it.optLong("amount") >= p.amount && at - it.optLong("at") in 0..60L * 86_400_000
         }.maxByOrNull { (if (it.optString("merchant") == p.merchant) 1_000_000_000_000L else 0L) + it.optLong("at") } else null
-        if (isCancel && original == null) return "${link.label}: 원래 승인을 찾지 못해 보내지 않음"
+        if (isCancel && original == null) return Sent("${link.label}: 원래 승인을 찾지 못해 보내지 않음", false)
 
         val txn = Txn(
             id = newId(), kind = kind, amount = p.amount, at = at, accountId = accountId, merchant = p.merchant.orEmpty(),
@@ -382,7 +391,7 @@ class CaptureProcessor(
             .put("cancel", isCancel).put("merchant", p.merchant ?: "")
         val keep = (items + entry).takeLast(300)
         db.setKv(recentKey, JSONArray(keep).toString())
-        return "${link.label}에 보냄"
+        return Sent("${link.label}에 보냄", true)
     }
 
     companion object {

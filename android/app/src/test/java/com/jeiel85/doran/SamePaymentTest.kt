@@ -63,6 +63,13 @@ class SamePaymentTest {
         assertTrue(joined.private) // 나만 보는 용돈은 그대로
         // 사람이 고친 카테고리는 그대로
         assertEquals("c.cafe", SamePayment.enrich(s, old.copy(categoryId = "c.cafe"), naver, "네이버페이").categoryId)
+        // 고친 카테고리가 그 가맹점 규칙으로 배워져 자동 분류와 같아 보여도 사람의 선택으로 보고 그대로(Codex 리뷰 #17)
+        val rule = com.jeiel85.doran.model.MerchantRule(Categorizer.ruleId("가산하이엔드6차점"), "가산하이엔드6차점", "c.cafe")
+        val learned = LedgerState(categories = com.jeiel85.doran.model.Defaults.categories.associateBy { it.id }, rules = mapOf(rule.id to rule))
+        val edited = old.copy(categoryId = "c.cafe")
+        assertEquals("c.cafe", Categorizer.categorize(learned, edited.merchant, Kind.EXPENSE))
+        assertEquals("c.cafe", SamePayment.enrich(learned, edited, naver, "네이버페이").categoryId)
+        assertEquals("CU 가산하이엔드6차점", SamePayment.enrich(learned, edited, naver, "네이버페이").merchant)
         // 두 번 묶어도 같음
         assertEquals(joined, SamePayment.enrich(s, joined, naver, "네이버페이"))
         // 가족 폰이 보내 준 거래, 다른 금액, 이체는 묶지 않음
