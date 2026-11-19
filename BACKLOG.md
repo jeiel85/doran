@@ -37,7 +37,7 @@
 - [x] **비공개 테스트(Alpha) 0.1.2 승인·게시**(2026-11-17 제출, 테스터에게 제공 중): 대한민국, 테스터 목록 "도란 가족"·"테스터들"(14명), 0.1.2(102), 의견 → GitHub 이슈. 승인 뒤 참여 링크 https://play.google.com/apps/testing/com.jeiel85.doran 를 테스터에게 전달. 프로덕션 신청은 테스터 12명 이상이 14일 동안 참여한 뒤
 - [x] 앱 안에 개인정보처리방침 링크(Play 정책: 스토어와 앱 안 모두) — 설정 화면, 0.1.6
 - [x] 네이티브 디버그 기호 경고 — 해당 없음: 앱의 네이티브 코드는 AndroidX(Compose)의 미리 빌드된 `libandroidx.graphics.path.so`뿐이고 기호 없이 배포돼 올릴 기호가 없음(`ndk.debugSymbolLevel`을 켜도 아무것도 생기지 않음을 0.1.6에서 확인). Play 출시 경고는 무시해도 됨
-- [ ] Play 빠른 검사 "필수 하드웨어 기능 선언으로 인해 앱의 사용 가능 여부가 제한됨"(2026-11-20 Alpha 114 제출 때): QR 스캔 화면(`CaptureActivity`)을 세로로 고정해 `android.hardware.screen.portrait`가 필수 기능이 됨 — 0.1.0부터 있던 것(105도 필수 기능 9개로 같음). 가로만 되는 기기(일부 TV·Chromebook)는 설치 불가, 가족 폰에는 영향 없음. 다음 버전에서 `AndroidManifest.xml`에 `<uses-feature android:name="android.hardware.screen.portrait" android:required="false" />` 추가
+- [x] Play 빠른 검사 "필수 하드웨어 기능 선언으로 인해 앱의 사용 가능 여부가 제한됨"(2026-11-20 Alpha 114 제출 때) — 0.1.15에서 선택 기능으로 선언: QR 스캔 화면(`CaptureActivity`)을 세로로 고정해 `android.hardware.screen.portrait`가 필수 기능이 됨 — 0.1.0부터 있던 것(105도 필수 기능 9개로 같음). 가로만 되는 기기(일부 TV·Chromebook)는 설치 불가, 가족 폰에는 영향 없음. 다음 버전에서 `AndroidManifest.xml`에 `<uses-feature android:name="android.hardware.screen.portrait" android:required="false" />` 추가
 
 ## 하드닝에서 미룬 것 (2026-11-19, 0.1.14에서 #13·#15·#19·#18 정리 때)
 

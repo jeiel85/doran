@@ -8,6 +8,9 @@
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- QR 스캔 화면을 세로로 고정하면 Play가 세로 화면을 필수 기능으로 봐서 가로만 되는 기기(일부 TV·Chromebook)에 설치가 막힙니다.
+         세로로 못 돌리는 기기에서도 스캔 화면은 그대로 열리므로 선택 기능으로 둡니다. -->
+    <uses-feature android:name="android.hardware.screen.portrait" android:required="false" />
 
     <!-- 알림을 올린 카드사·은행 앱의 이름(예: 현대카드)을 읽으려면 그 앱이 보여야 합니다(Android 11+ 패키지 가시성).
          모든 앱 목록(QUERY_ALL_PACKAGES) 대신 런처에 보이는 앱만. -->
