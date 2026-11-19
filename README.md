@@ -139,5 +139,5 @@ scripts/release.sh 0.1.2
 scripts/play-bundle.sh 0.1.2
 ```
 
-`release.sh`는 GitHub 채널(시험 → 빌드 → 태그·릴리스(`doran.apk` + SHA-256) → 연결된 폰 설치 → 하드닝 이슈), `play-bundle.sh`는 Play 업로드 키로 서명한 `dist/doran-play-<버전>.aab`를 만듭니다(Play Console에 올림).
+`release.sh`는 GitHub 채널(시험 → 빌드 → 태그·릴리스(`doran.apk` + SHA-256) → 연결된 폰 설치 → 하드닝 이슈), `play-bundle.sh`는 Play 업로드 키로 서명한 `dist/doran-play-<버전>-<커밋>.aab`를 만듭니다(Play Console에 올림, 같은 이름이 있으면 멈춤, 빌드 기록은 `dist/play-builds.log`).
 소개·연결 페이지는 GitHub Pages(`main` 브랜치 `/docs`)로 나갑니다. 서명 키는 git 밖 `.keystore/`에 있고 백업돼 있습니다(Play 업로드 키를 잃었을 때 절차는 DECISIONS.md D-16). FCM 서비스 계정 키 교체는 `scripts/rotate-fcm-key.sh`. 실기기 확인 목록은 [design/VERIFY.md](design/VERIFY.md), 남은 일은 [BACKLOG.md](BACKLOG.md).

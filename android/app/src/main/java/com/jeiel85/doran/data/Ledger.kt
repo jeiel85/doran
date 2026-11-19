@@ -67,8 +67,12 @@ data class LedgerState(
     }
 }
 
-/** 장부 변경 알림. local = 이 폰에서 바꿈, remote = 동기화로 받음. */
-data class Change(val type: String, val id: String, val before: JSONObject?, val after: JSONObject?, val local: Boolean)
+/**
+ * 장부 변경 알림. local = 이 폰에서 바꿈, remote = 동기화로 받음.
+ * [auto] = 사람이 아니라 앱이 스스로 고친 것(같은 결제 묶기 등) — 가맹점 카테고리 규칙으로 배우지 않습니다(#19).
+ */
+data class Change(val type: String, val id: String, val before: JSONObject?, val after: JSONObject?, val local: Boolean,
+                  val auto: Boolean = false)
 
 data class RemoteRow(val type: String, val id: String, val hlc: String, val deleted: Boolean, val json: JSONObject?)
 
@@ -108,10 +112,10 @@ class Ledger(private val db: Db, val hlc: Hlc) {
      * outbox에 넣어 앱이 죽어도 다음에 올라가게 합니다.
      */
     @Synchronized
-    fun put(type: String, id: String, json: JSONObject) = putAll(listOf(Triple(type, id, json)))
+    fun put(type: String, id: String, json: JSONObject, auto: Boolean = false) = putAll(listOf(Triple(type, id, json)), auto)
 
     @Synchronized
-    fun putAll(items: List<Triple<String, String, JSONObject>>) {
+    fun putAll(items: List<Triple<String, String, JSONObject>>, auto: Boolean = false) {
         if (items.isEmpty()) return
         val changes = mutableListOf<Change>()
         var s = _state.value
@@ -125,7 +129,7 @@ class Ledger(private val db: Db, val hlc: Hlc) {
                 db.writeEntity(this, Db.Row(type, id, hlc.next(), false, merged.toString()))
                 db.enqueue(this, type, id)
                 s = s.with(type, id, merged)
-                changes += Change(type, id, before, merged, local = true)
+                changes += Change(type, id, before, merged, local = true, auto = auto)
             }
         }
         _state.value = s
@@ -185,7 +189,7 @@ class Ledger(private val db: Db, val hlc: Hlc) {
     fun saveMember(m: Member) = put(T.MEMBER, m.id, m.json())
     fun saveAccount(a: Account) = put(T.ACCOUNT, a.id, a.json())
     fun saveCategory(c: Category) = put(T.CATEGORY, c.id, c.json())
-    fun saveTxn(t: Txn) = put(T.TXN, t.id, t.json())
+    fun saveTxn(t: Txn, auto: Boolean = false) = put(T.TXN, t.id, t.json(), auto)
     fun saveBudget(b: Budget) = if (b.amount <= 0) delete(T.BUDGET, b.id) else put(T.BUDGET, b.id, b.json())
     fun saveRecurring(r: Recurring) = put(T.RECURRING, r.id, r.json())
     fun saveGoal(g: Goal) = put(T.GOAL, g.id, g.json())

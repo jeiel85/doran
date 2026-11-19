@@ -24,6 +24,8 @@ data class Parsed(
     val checkCard: Boolean = false,
     /** 같은 결제를 따로 알린 간편결제 앱(예: "네이버페이"). 카드 표시에 덧붙입니다(DECISIONS.md D-5). */
     val via: String? = null,
+    /** 간편결제 알림의 결제 수단 문구("결제 수단: 카드 간편결제"). 머니·포인트로 냈는지 가리는 데 씁니다(D-5). */
+    val payMethod: String? = null,
 ) {
     enum class Type { APPROVAL, CANCEL, DEPOSIT, WITHDRAWAL }
 
@@ -33,6 +35,9 @@ data class Parsed(
     /** 은행 출금 중 카드값(카드사 이름이 적힌 출금) — 지출이 아니라 이체입니다 (DECISIONS.md D-5). */
     val cardPaymentTo: String? get() =
         if (type == Type.WITHDRAWAL) merchant?.let { m -> Issuers.cards.firstOrNull { c -> c.matches(m) }?.name } else null
+
+    /** 간편결제 머니·포인트로 낸 결제: 카드·계좌에서 돈이 나가지 않아 짝이 되는 카드·은행 알림이 없습니다(D-5). */
+    val paidFromBalance: Boolean get() = Parser.paidFromBalance(payMethod)
 }
 
 data class Issuer(val name: String, val card: Boolean, val aliases: List<String>) {
@@ -85,6 +90,9 @@ object Issuers {
     }
 
     fun same(a: String, b: String) = canonical(a) == canonical(b)
+
+    /** 해석기가 아는 카드사·은행 이름인지. 아니면 "앞으로도 자동으로" 규칙으로 정한 간편결제 앱 등입니다(#18). */
+    fun listed(name: String?): Boolean = name != null && all.any { it.name == name }
 
     /** 카드사를 먼저 봅니다: "현대카드 출금"이 담긴 은행 문자는 은행 쪽 이름도 함께 있기 때문입니다. */
     fun find(text: String, preferBank: Boolean = false): Issuer? {
@@ -181,14 +189,18 @@ object Parser {
     )
     private val SHORTAGE = Regex("""(?:잔액|잔고|한도|예수금)(?:이|가)?부족""")
 
-    /** [custom]: "앞으로도 자동으로 보내기"로 사용자가 정한 발신처의 카드사·은행(목록에 없는 곳도 됨). */
-    fun parse(raw: String, now: LocalDateTime = LocalDateTime.now(), hint: String? = null, custom: Issuer? = null): Parsed? {
+    /**
+     * [custom]: "앞으로도 자동으로 보내기"로 사용자가 정한 발신처의 카드사·은행(목록에 없는 곳도 됨).
+     * [ignoreFailure]: 실패 알림으로 빠진 것을 사용자가 "그래도 보내기"로 고를 때 초기값을 채우려고만 씁니다(#13).
+     */
+    fun parse(raw: String, now: LocalDateTime = LocalDateTime.now(), hint: String? = null, custom: Issuer? = null,
+              ignoreFailure: Boolean = false): Parsed? {
         // 광고·이벤트 알림은 금액이 적혀 있어도 거래가 아닙니다.
         if (AD.containsMatchIn(raw.trim())) return null
         if (PROMO.containsMatchIn(raw) && !TXN_WORD.containsMatchIn(raw)) return null
         val text = NOISE.replace(raw, " ").replace('\u00a0', ' ')
         // 돈이 나가지 않은 알림: 결제·출금 실패(거절·잔액 부족·미납 등)와 결제 예정·청구 안내 (DECISIONS.md D-4)
-        if (isFailure(text)) return null
+        if (!ignoreFailure && isFailure(text)) return null
         if (text.contains("결제예정") || text.contains("청구") && !text.contains("승인")) return null
 
         val cancel = Regex("""취소""").containsMatchIn(text) && (text.contains("승인") || text.contains("카드") || text.contains("결제"))
@@ -228,7 +240,7 @@ object Parser {
             val from = maxOf(0, m.range.first - 6)
             AT_PLACE.find(text.substring(from, m.range.first))?.let { (from + it.range.first).also { p -> consumed += p until m.range.first } }
         }
-        PAY_METHOD.findAll(text).forEach { take(it) }
+        val payMethod = PAY_METHOD.findAll(text).map { take(it)!!.value.trim('(', ')', ' ') }.toList().firstOrNull()
 
         val at = parseDate(text, now, consumed)
         val installment = when {
@@ -248,7 +260,7 @@ object Parser {
         return Parsed(
             type = type, issuer = issuer.name, isCard = issuer.card, amount = amount, last4 = last4,
             installment = installment, merchant = merchant, at = at, cumulative = cumulative, balance = balance,
-            foreign = foreign, checkCard = check || !issuer.card && type == Parsed.Type.APPROVAL,
+            foreign = foreign, checkCard = check || !issuer.card && type == Parsed.Type.APPROVAL, payMethod = payMethod,
         )
     }
 
@@ -317,6 +329,22 @@ object Parser {
         return parse(raw, now, custom = Issuer(name, true, listOf(name)))
             ?.takeIf { (it.type == Parsed.Type.APPROVAL || it.type == Parsed.Type.CANCEL) && it.amount > 0 }
     }
+
+    /**
+     * 실패 알림을 "그래도 보내기"로 고를 때 가맹점 초기값에서 실패 문구를 뗍니다("올리브영 이 부족해요" → "올리브영", #13).
+     */
+    fun withoutFailureWords(merchant: String?): String? =
+        merchant?.let { FAILURE_TAIL.replace(it, "") }?.trim()?.takeIf { it.length >= 2 }
+    private val FAILURE_TAIL = Regex("""\s*(?:이|가)?\s*(?:부족|실패|거절|불가|불능|초과|안\s*됐|되지\s*않|하지\s*못)\S*.*$""")
+
+    /** 알림 원문의 결제 수단 문구("결제 수단: 네이버페이 머니"). 없으면 null. */
+    fun payMethodIn(raw: String): String? = PAY_METHOD.find(raw)?.value?.trim('(', ')', ' ')
+
+    /** 결제 수단이 간편결제 머니·포인트뿐인지(카드·계좌 언급 없음). */
+    fun paidFromBalance(method: String?): Boolean =
+        method != null && BALANCE_PAY.containsMatchIn(method) && !CARD_OR_ACCOUNT.containsMatchIn(method)
+    private val BALANCE_PAY = Regex("""머니|포인트|충전금|캐시""")
+    private val CARD_OR_ACCOUNT = Regex("""카드|계좌|통장""")
 
     /** 한글·영문이 많은 덩어리일수록 가맹점일 가능성이 높습니다. */
     private fun scoreMerchant(s: String): Int = s.count { it.isLetter() } * 2 - s.count { it.isDigit() }

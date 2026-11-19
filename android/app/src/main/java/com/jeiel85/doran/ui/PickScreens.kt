@@ -14,14 +14,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoMode
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -33,6 +36,8 @@ import com.jeiel85.doran.R
 import com.jeiel85.doran.capture.Parsed
 import com.jeiel85.doran.core.Fmt
 import com.jeiel85.doran.core.Hub
+import com.jeiel85.doran.data.Db
+import com.jeiel85.doran.model.Txn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -48,6 +53,10 @@ fun CaptureLogScreen(nav: Nav) {
     val candidates = rows.filter { it.isCandidate }
     var tab by remember { mutableIntStateOf(if (candidates.isNotEmpty()) 0 else 1) }
     val shown = if (tab == 0) candidates else rows.filter { it.status != "dismissed" }
+    val counts = remember(tick) { Hub.db.captureCounts() }
+    val failures by produceState(emptyList<Pair<Db.CaptureRow, Txn>>(), tick) {
+        value = withContext(Dispatchers.IO) { Hub.capture.recordedFailures() }
+    }
     val resumed = rememberResumeTick()
     androidx.compose.runtime.LaunchedEffect(resumed) { if (resumed > 0) tick++ }
 
@@ -59,7 +68,11 @@ fun CaptureLogScreen(nav: Nav) {
             Spacer(Modifier.height(10.dp))
             Text(if (tab == 0) "금액이 적혀 있는데 도란이 형식을 몰라 기록하지 못한 알림이에요. 골라서 보낼 수 있어요."
             else "원문은 이 폰에만 30일 남아요.", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+            // 묶기·실패 기준이 실제 알림에서 어떻게 도는지 보이게(#13·#19)
+            if (tab == 1) Text("최근 30일 · 기록 ${counts.recorded} · 같은 결제로 묶음 ${counts.joined} · 실패라 뺀 것 ${counts.failed} · 기록 안 된 것 ${counts.candidates}",
+                style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint, modifier = Modifier.padding(top = 4.dp))
         }
+        if (failures.isNotEmpty()) item { RecordedFailuresCard(failures) { tick++ } }
         if (shown.isEmpty()) item {
             EmptyState(R.drawable.art_capture, if (tab == 0) "기록 안 된 금액 알림이 없어요" else "아직 읽은 알림이 없어요",
                 if (tab == 0) "카드·은행 알림이 모두 잘 기록되고 있어요" else "카드 결제 알림이 오면 여기에 원문과 결과가 남아요")
@@ -79,11 +92,56 @@ fun CaptureLogScreen(nav: Nav) {
                         SmallButton("숨기기", color = P.c.inkSoft) { Hub.db.updateCapture(r.id, "dismissed", "숨김", null); tick++ }
                     }
                 } else {
-                    Text(r.result, style = MaterialTheme.typography.labelMedium, color = P.c.pine)
+                    Text(r.result, style = MaterialTheme.typography.labelMedium, color = if (r.isFailed) P.c.inkSoft else P.c.pine)
+                    // 실패 기준에 걸렸지만 실제로 돈이 나간 알림(오탐)이면 직접 입력하지 않고 바로 보낼 수 있게(#13)
+                    if (r.isFailed) {
+                        Spacer(Modifier.height(8.dp))
+                        SmallButton("그래도 보내기", color = P.c.inkSoft) { nav.go(Route.SendPicked(r.id)) }
+                    }
                 }
             }
         }
     }
+}
+
+/**
+ * 0.1.11 전에 지출로 들어간 결제·출금 실패 알림을 한 번 묻습니다(#13): 모두 지우기(가족 폰에서도) 또는 그대로 두기.
+ */
+@Composable
+private fun RecordedFailuresCard(items: List<Pair<Db.CaptureRow, Txn>>, changed: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var confirm by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    Spacer(Modifier.height(10.dp))
+    SoftCard(color = P.c.apricotSoft, padding = PaddingValues(16.dp)) {
+        Text("결제 실패 알림이 지출로 기록돼 있어요 ${items.size}건", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
+        Spacer(Modifier.height(4.dp))
+        Text("예전 버전은 잔액 부족 등으로 실패한 결제도 지출로 기록했어요. 돈이 나가지 않았다면 지워 주세요.",
+            style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+        Spacer(Modifier.height(8.dp))
+        items.forEach { (_, t) ->
+            Text("· ${Fmt.full(t.at)} · ${t.merchant.ifBlank { t.issuer ?: "결제" }} · ${Fmt.won(t.amount)}",
+                style = MaterialTheme.typography.bodyMedium, color = P.c.ink)
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SmallButton("모두 지우기", enabled = !busy, color = P.c.danger) { confirm = true }
+            SmallButton("그대로 두기", enabled = !busy, color = P.c.inkSoft) {
+                busy = true
+                scope.launch { withContext(Dispatchers.IO) { Hub.capture.keepRecordedFailures(items) }; busy = false; changed() }
+            }
+        }
+    }
+    if (confirm) AlertDialog(onDismissRequest = { confirm = false }, containerColor = P.c.bg,
+        title = { Text("실패 알림 내역 ${items.size}건 지우기") },
+        text = { Text("가계부와 가족 폰에서도 지워지고 되돌릴 수 없어요.") },
+        confirmButton = {
+            TextButton({
+                confirm = false; busy = true
+                scope.launch { withContext(Dispatchers.IO) { Hub.capture.deleteRecordedFailures(items) }; busy = false; changed() }
+            }) { Text("지우기", color = P.c.danger) }
+        },
+        dismissButton = { TextButton({ confirm = false }) { Text("두기") } })
 }
 
 /** 고른 알림을 확인·고쳐서 보내기. */
@@ -103,7 +161,8 @@ fun SendPickedScreen(logId: Long, nav: Nav) {
     var amount by remember { mutableStateOf(preview?.amount?.takeIf { it > 0 }?.toString() ?: "") }
     var merchant by remember { mutableStateOf(preview?.merchant.orEmpty()) }
     var isCard by remember { mutableStateOf(preview?.isCard ?: true) }
-    var remember by remember { mutableStateOf(true) }
+    // 실패로 뺀 알림을 보내는 것은 이번 한 건만: 실패 알림은 규칙이 있어도 기록하지 않으므로 "앞으로도"가 뜻이 없습니다.
+    var remember by remember { mutableStateOf(!row.isFailed) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val value = amount.toLongOrNull() ?: 0L
@@ -131,6 +190,11 @@ fun SendPickedScreen(logId: Long, nav: Nav) {
                 Spacer(Modifier.height(4.dp))
                 Text(listOfNotNull(row.title, row.text).joinToString("\n"), style = MaterialTheme.typography.bodyMedium, color = P.c.ink)
             }
+            if (row.isFailed) {
+                Spacer(Modifier.height(10.dp))
+                Text("결제·출금 실패 알림으로 보고 기록하지 않았던 알림이에요. 실제로 돈이 나갔을 때만 보내 주세요.",
+                    style = MaterialTheme.typography.bodySmall, color = P.c.apricot)
+            }
             Spacer(Modifier.height(18.dp))
             Text("어떤 거래인가요?", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
             Spacer(Modifier.height(8.dp))
@@ -146,9 +210,11 @@ fun SendPickedScreen(logId: Long, nav: Nav) {
             Spacer(Modifier.height(10.dp))
             Field("가맹점·내용", merchant, { merchant = it.take(40) }, "예: 스타벅스")
             Spacer(Modifier.height(16.dp))
-            ToggleRow("앞으로도 자동으로 보내기", "${row.label ?: "이 발신처"}에서 오는 금액 알림을 '${issuer.ifBlank { "카드사" }}'(으)로 읽어 바로 보내요",
-                Icons.Rounded.AutoMode, P.c.pine, remember) { remember = it }
-            Spacer(Modifier.height(10.dp))
+            if (!row.isFailed) {
+                ToggleRow("앞으로도 자동으로 보내기", "${row.label ?: "이 발신처"}에서 오는 금액 알림을 '${issuer.ifBlank { "카드사" }}'(으)로 읽어 바로 보내요",
+                    Icons.Rounded.AutoMode, P.c.pine, remember) { remember = it }
+                Spacer(Modifier.height(10.dp))
+            }
             if (target.isEmpty()) Text("연결된 가계부가 없어요. 가족 화면에서 먼저 연결해 주세요.", color = P.c.danger, style = MaterialTheme.typography.bodyMedium)
             household.member(id.myMemberId)?.takeIf { id.inHousehold && issuer.isNotBlank() && !it.shares(issuer.trim()) }?.let {
                 Text("· '${issuer.trim()}'는 내 공유 범위 밖이지만, 직접 고른 이 건은 가계부에 보내요" +
@@ -174,6 +240,22 @@ fun ForwardRulesSection() {
                 SmallButton("그만", color = P.c.danger) { Hub.local.removeRule(r.key) }
             }
         }
+    }
+}
+
+/** 홈에 띄우는 "결제 실패 알림이 지출로 기록돼 있어요 N건" 카드(#13). 답하면(지우기·그대로 두기) 사라집니다. */
+@Composable
+fun FailedRecordsCard(nav: Nav) {
+    val tick = rememberResumeTick()
+    val count by produceState(0, tick) { value = withContext(Dispatchers.IO) { Hub.capture.recordedFailures().size } }
+    if (count == 0) return
+    Spacer(Modifier.height(14.dp))
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(P.c.apricotSoft).padding(16.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text("결제 실패 알림이 지출로 기록돼 있어요 ${count}건", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
+            Text("잔액 부족 등으로 돈이 나가지 않은 결제예요. 확인하고 지워 주세요", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+        }
+        SmallButton("보기", color = P.c.apricot) { nav.go(Route.CaptureLog) }
     }
 }
 

@@ -21,15 +21,86 @@ object SamePayment {
     /** 간편결제 알림을 올린 앱 이름을 모를 때(문자 등). */
     const val UNKNOWN_APP = "간편결제"
 
-    /** 간편결제 알림 [notice](받은 시각 [noticeAt])와 카드·은행 알림 [card](거래 시각 [cardAt])가 같은 결제를 알렸는지. */
+    /**
+     * 간편결제 알림 [notice](받은 시각 [noticeAt])와 카드·은행 알림 [card](거래 시각 [cardAt])가 같은 결제를 알렸는지.
+     * 머니·포인트로 낸 결제는 카드·계좌에서 돈이 나가지 않으므로, 같은 때 같은 금액의 다른 카드 결제와 묶지 않습니다(#19).
+     * 짝은 해석기가 아는 카드사·은행이어야 합니다(규칙으로 읽은 다른 간편결제 앱 알림끼리는 묶지 않음).
+     */
     fun matches(notice: Parsed, noticeAt: Long, card: Parsed, cardAt: Long): Boolean =
-        card.type != Parsed.Type.DEPOSIT && card.cardPaymentTo == null && notice.amount == card.amount &&
-            (notice.type == Parsed.Type.CANCEL) == (card.type == Parsed.Type.CANCEL) && abs(noticeAt - cardAt) <= WINDOW
+        !notice.paidFromBalance && Issuers.listed(card.issuer) && card.type != Parsed.Type.DEPOSIT && card.cardPaymentTo == null &&
+            notice.amount == card.amount && (notice.type == Parsed.Type.CANCEL) == (card.type == Parsed.Type.CANCEL) &&
+            abs(noticeAt - cardAt) <= WINDOW
 
     /** 간편결제 알림이 카드·은행 알림으로 이미 기록된 [t]와 같은 결제인지. */
     fun matches(notice: Parsed, noticeAt: Long, t: Txn): Boolean =
-        (t.source == Source.PUSH || t.source == Source.SMS) && t.kind == Kind.EXPENSE && notice.amount == t.amount &&
-            (notice.type == Parsed.Type.CANCEL) == (t.cancelOf != null) && abs(noticeAt - t.at) <= WINDOW
+        !notice.paidFromBalance && Issuers.listed(t.issuer) && (t.source == Source.PUSH || t.source == Source.SMS) &&
+            t.kind == Kind.EXPENSE && notice.amount == t.amount && (notice.type == Parsed.Type.CANCEL) == (t.cancelOf != null) &&
+            abs(noticeAt - t.at) <= WINDOW
+
+    /**
+     * "앞으로도 자동으로" 규칙으로 따로 기록된 간편결제 앱 거래 [pay](카드사·은행 목록 밖)가 카드·은행 기록 [card]와 같은 결제인지(#18).
+     * 돈은 카드·계좌에서 한 번 나갔으므로 카드 쪽을 남기고 [pay]는 지웁니다.
+     */
+    fun sameAsCard(pay: Txn, card: Txn): Boolean =
+        pay.id != card.id && !Issuers.listed(pay.issuer) && Issuers.listed(card.issuer) &&
+            (pay.source == Source.PUSH || pay.source == Source.SMS) && pay.kind == Kind.EXPENSE && card.kind == Kind.EXPENSE &&
+            pay.amount == card.amount && pay.isCancel == card.isCancel && abs(pay.at - card.at) <= WINDOW
+
+    /** 규칙으로 기록됐던 간편결제 앱 거래를 묶을 알림 내용으로(가맹점·결제/취소). */
+    fun noticeOf(pay: Txn): Parsed = Parsed(type = if (pay.isCancel) Parsed.Type.CANCEL else Parsed.Type.APPROVAL,
+        issuer = pay.issuer.orEmpty(), isCard = true, amount = pay.amount, merchant = pay.merchant.ifBlank { null })
+
+    /** 카드 표시에 덧붙은 간편결제 앱 이름("토스뱅크 · 네이버페이" → "네이버페이"). 없으면 null. */
+    fun via(t: Txn): String? = t.cardLabel?.substringAfter(" · ", "")?.trim()?.ifEmpty { null }
+
+    /**
+     * 규칙으로 읽은 간편결제 앱 [app]의 취소 알림 [p]가 가리키는 원래 결제(#18, #21 리뷰): 그 앱 알림이 합쳐진 이 폰의 카드·은행 결제 중
+     * 60일 안이고 아직 취소되지 않은 금액이 취소액 이상인 것. 가맹점이 겹치는 것 → 금액이 같은 것 → 최근 것.
+     * 간편결제 기록은 카드 기록으로 합치며 지웠으므로, 앱이 알린 취소는 이 카드 기록에 겁니다.
+     */
+    fun absorbedOriginal(s: LedgerState, installId: String, p: Parsed, at: Long, app: String): Txn? {
+        val canceled = s.canceled
+        return s.txns.values
+            .filter {
+                it.createdBy == installId && Issuers.listed(it.issuer) && it.kind == Kind.EXPENSE && it.cancelOf == null && via(it) == app &&
+                    at - it.at in 0..CANCEL_WINDOW && it.amount - (canceled[it.id] ?: 0L) >= p.amount
+            }
+            .sortedWith(compareByDescending<Txn> { related(it.merchant, p.merchant) }.thenByDescending { it.amount == p.amount }.thenByDescending { it.at })
+            .firstOrNull()
+    }
+
+    /**
+     * 앱 [app]이 합쳐진 카드 결제의 취소 중, 카드 알림으로 기록됐고 아직 앱의 취소 알림과 짝지어지지 않은 것(같은 금액·하루 안).
+     * 있으면 앱의 취소 알림은 그 취소와 같은 취소입니다. 취소는 하나씩만 짝지어([appPaired]) 같은 금액의 부분 취소가 여러 번이어도
+     * 각각 한 번씩 셉니다(#21 리뷰).
+     */
+    fun unpairedCardCancel(s: LedgerState, installId: String, amount: Long, at: Long, app: String, appPaired: (Txn) -> Boolean): Txn? =
+        s.txns.values.filter { c ->
+            c.createdBy == installId && c.cancelOf != null && c.amount == amount && abs(c.at - at) <= DAY &&
+                s.txns[c.cancelOf]?.let { via(it) == app } == true && !appPaired(c)
+        }.minByOrNull { abs(it.at - at) }
+
+    /**
+     * 카드·은행 취소 알림이 왔을 때: 같은 취소를 간편결제 앱 알림이 먼저 이 카드 기록에 걸어 두었고 아직 카드 알림과 짝지어지지 않았는지
+     * ([candidates] 중 같은 금액·하루 안, 간편결제 앱이 붙은 취소, [cardPaired]가 아닌 것). 그러면 다시 세지 않습니다.
+     */
+    fun unpairedAppCancel(s: LedgerState, candidates: Collection<Txn>, amount: Long, at: Long, merchant: String?,
+                          cardPaired: (Txn) -> Boolean): Txn? =
+        candidates.filter {
+            it.cancelOf != null && it.amount == amount && abs(it.at - at) <= DAY && via(it) != null && !cardPaired(it) &&
+                // 카드 취소 알림에 가맹점이 있으면 그 취소의 원래 결제와 가맹점이 겹쳐야 같은 취소(같은 금액의 다른 결제 취소와 헷갈리지 않게)
+                (merchant.isNullOrBlank() || s.txns[it.cancelOf]?.merchant.isNullOrBlank() || related(merchant, s.txns[it.cancelOf]?.merchant))
+        }.minByOrNull { abs(it.at - at) }
+
+    private const val DAY = 86_400_000L
+    private const val CANCEL_WINDOW = 60L * DAY
+
+    /** 두 가맹점 이름이 겹치는지(한쪽이 다른 쪽을 포함). 같은 금액·시각의 짝이 여럿일 때 고르는 데만 씁니다(#19). */
+    fun related(a: String?, b: String?): Boolean {
+        val x = squash(a.orEmpty())
+        val y = squash(b.orEmpty())
+        return x.isNotEmpty() && y.isNotEmpty() && (x.contains(y) || y.contains(x))
+    }
 
     /**
      * 카드 알림의 가맹점에 간편결제 알림의 가맹점을 더합니다. 이미 들어 있으면 그대로("씨유(CU)가산하이엔드6차점"),
@@ -59,7 +130,7 @@ object SamePayment {
     fun enrich(s: LedgerState, t: Txn, notice: Parsed, app: String): Txn {
         val merchant = merchant(t.merchant, shop(notice, app))
         // 사람이 카테고리를 고르면 그 가맹점 규칙이 생깁니다(Hooks.learnCategories). 규칙이 있으면 사람의 선택으로 보고 그대로 둡니다.
-        val learned = t.merchant.isNotBlank() && s.rules.containsKey(Categorizer.ruleId(t.merchant))
+        val learned = t.merchant.isNotBlank() && Categorizer.rule(s, t.merchant) != null
         val auto = t.cancelOf == null && !learned && t.categoryId == Categorizer.categorize(s, t.merchant, t.kind)
         return t.copy(
             merchant = merchant,

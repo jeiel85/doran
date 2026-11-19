@@ -162,6 +162,7 @@ fun HomeScreen(nav: Nav) {
             }
         }
 
+        item { FailedRecordsCard(nav) }
         item { CandidatesCard(nav) }
 
         if (!captureOn) item {
