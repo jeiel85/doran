@@ -257,11 +257,7 @@ fun HomeScreen(nav: Nav) {
 
         if (me != null && me.allowance > 0) item {
             Spacer(Modifier.height(20.dp))
-            val mine = remember(s.version, p) {
-                val c = s.canceled
-                s.txns.values.filter { it.private && it.memberId == me.id && it.cancelOf == null && it.at in p }
-                    .sumOf { (it.amount - (c[it.id] ?: 0)).coerceAtLeast(0) }
-            }
+            val mine = remember(s.version, p) { Stats.allowanceSpent(s, me.id, p) }
             SoftCard(onClick = { nav.go(Route.Allowance) }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CatTile("allowance", 44.dp, P.c.apricotSoft)

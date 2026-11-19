@@ -30,6 +30,8 @@ data class Settings(
     val mutedPackages: Set<String> = emptySet(),
     /** 다른 구성원·가족이 쓴 내역 알림. */
     val notifyFamily: Boolean = true,
+    /** 내 결제가 나만 보는 용돈으로 기록될 때 남은 용돈과 함께. */
+    val notifyAllowance: Boolean = true,
     val notifyBudget: Boolean = true,
     val notifyRecurring: Boolean = true,
     val lastBackupAt: Long = 0,
@@ -50,6 +52,7 @@ class LocalSettings(context: Context) {
         captureSms = prefs.getBoolean("captureSms", true),
         mutedPackages = prefs.getStringSet("mutedPackages", emptySet())?.toSet() ?: emptySet(),
         notifyFamily = prefs.getBoolean("notifyFamily", true),
+        notifyAllowance = prefs.getBoolean("notifyAllowance", true),
         notifyBudget = prefs.getBoolean("notifyBudget", true),
         notifyRecurring = prefs.getBoolean("notifyRecurring", true),
         lastBackupAt = prefs.getLong("lastBackupAt", 0),
@@ -62,6 +65,7 @@ class LocalSettings(context: Context) {
             .putString("theme", s.theme).putBoolean("appLock", s.appLock).putBoolean("autoUpdate", s.autoUpdate)
             .putBoolean("capturePush", s.capturePush).putBoolean("captureSms", s.captureSms)
             .putStringSet("mutedPackages", s.mutedPackages).putBoolean("notifyFamily", s.notifyFamily)
+            .putBoolean("notifyAllowance", s.notifyAllowance)
             .putBoolean("notifyBudget", s.notifyBudget).putBoolean("notifyRecurring", s.notifyRecurring)
             .putLong("lastBackupAt", s.lastBackupAt).putBoolean("showSenders", s.showSenders)
             .apply()

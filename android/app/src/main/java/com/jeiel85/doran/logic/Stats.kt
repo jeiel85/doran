@@ -96,6 +96,18 @@ object Stats {
     fun counts(s: LedgerState, t: Txn): Boolean = !t.personal && !(t.private && hasFixedAllowance(s, t.memberId))
 
     /**
+     * 이 기간에 [memberId]가 용돈으로 쓴 결제(본인 폰에만 있음, D-7). 용돈 계좌로 들어온 입금(내 다른 통장에서 옮긴 돈 등)은
+     * 쓴 돈이 아니라 빼고, 취소 엔티티는 원거래에서 상쇄합니다.
+     */
+    fun allowanceTxns(s: LedgerState, memberId: String?, p: Period): List<Txn> =
+        s.txns.values.filter { it.private && it.memberId == memberId && it.cancelOf == null && it.kind == Kind.EXPENSE && it.at in p }
+
+    fun allowanceSpent(s: LedgerState, memberId: String?, p: Period): Long {
+        val canceled = s.canceled
+        return allowanceTxns(s, memberId, p).sumOf { (it.amount - (canceled[it.id] ?: 0)).coerceAtLeast(0) }
+    }
+
+    /**
      * 카드·계좌 금액에 넣는 거래. 가족 카드에서 용돈으로 옮긴 결제는 금액 자리(personal)가 대신 들어가므로
      * 본인 폰의 용돈 원본은 빼서 두 번 세지 않습니다(DECISIONS.md D-20).
      */

@@ -15,6 +15,7 @@ import com.jeiel85.doran.R
 /** 이 폰에서 만드는 알림. 금액·가맹점은 폰에서 복호화한 뒤에만 알림에 들어갑니다 (DECISIONS.md D-9). */
 object Notifier {
     const val FAMILY = "family"
+    const val ALLOWANCE = "allowance"
     const val BUDGET = "budget"
     const val RECURRING = "recurring"
     const val UPDATE = "update"
@@ -26,6 +27,9 @@ object Notifier {
         nm.createNotificationChannels(listOf(
             NotificationChannel(FAMILY, "가족 내역", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "다른 가족의 카드·계좌 내역이 들어오면 알려 줘요"
+            },
+            NotificationChannel(ALLOWANCE, "내 용돈", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "내 결제가 나만 보는 용돈으로 기록되면 남은 용돈과 함께 알려 줘요"
             },
             NotificationChannel(BUDGET, "예산", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "예산의 80%와 100%를 넘으면 알려 줘요"
@@ -68,6 +72,13 @@ object Notifier {
         post(context, txnId.hashCode(), builder(context, FAMILY, title, text)
             .setContentIntent(open(context, txnId, txnId.hashCode()))
             .setGroup("doran.family"))
+    }
+
+    /** "용돈에서 9,900원 썼어요" / "구글플레이 · 토스뱅크 · 남은 용돈 240,100원" */
+    fun allowanceTxn(context: Context, txnId: String, title: String, text: String) {
+        post(context, txnId.hashCode(), builder(context, ALLOWANCE, title, text)
+            .setContentIntent(open(context, txnId, txnId.hashCode()))
+            .setGroup("doran.allowance"))
     }
 
     fun budget(context: Context, key: String, title: String, text: String) =

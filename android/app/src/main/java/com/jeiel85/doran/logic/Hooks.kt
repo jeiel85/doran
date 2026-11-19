@@ -22,6 +22,7 @@ object Hooks {
     fun onChanges(context: Context, changes: List<Change>) {
         if (changes.any { it.local }) Hub.requestSync()
         updateAllowance(changes)
+        notifyAllowance(context, changes)
         learnCategories(changes)
         budgetCheck(context)
         SummaryWidget.refresh(context)
@@ -80,14 +81,33 @@ object Hooks {
             .map { Stats.periodOf(Fmt.date(it.at), s.household.monthStartDay) }
             .distinctBy { it.key }
         for (p in months) {
-            val canceled = s.canceled
-            val list = s.txns.values.filter { it.private && it.memberId == me && it.cancelOf == null && it.kind == Kind.EXPENSE && it.at in p }
-            val spent = list.sumOf { (it.amount - (canceled[it.id] ?: 0)).coerceAtLeast(0) }
+            val list = Stats.allowanceTxns(s, me, p)
+            val spent = Stats.allowanceSpent(s, me, p)
             val id = AllowanceSummary.idFor(me, p.key)
             val cur = s.allowances[id]
             if (cur?.spent != spent || cur.count != list.size) {
                 Hub.ledger.saveAllowance(AllowanceSummary(id, me, p.key, spent, list.size))
             }
+        }
+    }
+
+    /**
+     * 이 폰이 알림에서 읽어 내 용돈으로 기록한 새 결제를 내 폰에 알립니다(남은 용돈과 함께).
+     * 가계부로 올라간 결제(가족 카드 등)는 가족 폰에 "가족이 쓴 내역"으로 가므로 내 폰에는 띄우지 않습니다.
+     */
+    private fun notifyAllowance(context: Context, changes: List<Change>) {
+        if (!Hub.settings.value.notifyAllowance) return
+        val me = Hub.identity.value.myMemberId ?: return
+        val install = Hub.identity.installId
+        val now = System.currentTimeMillis()
+        val fresh = changes.filter { it.local && it.type == T.TXN && it.before == null && it.after != null }
+            .map { Txn.from(it.id, it.after!!) }
+            .filter { AllowanceAlert.applies(it, me, install, now) }
+        if (fresh.isEmpty()) return
+        val s = Hub.ledger.value
+        for (t in fresh.sortedBy { it.at }.takeLast(5)) {
+            val text = AllowanceAlert.of(s, t)
+            Notifier.allowanceTxn(context, t.id, text.title, text.body)
         }
     }
 

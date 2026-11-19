@@ -133,6 +133,9 @@ fun SettingsScreen(nav: Nav) {
                 ToggleRow("가족이 쓴 내역", "다른 가족 카드 알림이 들어오면", Icons.Rounded.NotificationsActive, P.c.pine, settings.notifyFamily) { on ->
                     Hub.local.update { it.copy(notifyFamily = on) }
                 }
+                ToggleRow("내 용돈 결제", "나만 보는 용돈으로 기록되면 남은 용돈과 함께", Icons.Rounded.Savings, P.c.apricot, settings.notifyAllowance) { on ->
+                    Hub.local.update { it.copy(notifyAllowance = on) }
+                }
                 ToggleRow("예산 80%·100%", "한 달에 한 번씩만", Icons.Rounded.Wallet, P.c.pine, settings.notifyBudget) { on -> Hub.local.update { it.copy(notifyBudget = on) } }
                 ToggleRow("고정지출 기록", "정해진 날 장부에 넣을 때", Icons.Rounded.EventRepeat, P.c.pine, settings.notifyRecurring) { on ->
                     Hub.local.update { it.copy(notifyRecurring = on) }
