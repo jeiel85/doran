@@ -50,6 +50,42 @@ object SamePayment {
     fun noticeOf(pay: Txn): Parsed = Parsed(type = if (pay.isCancel) Parsed.Type.CANCEL else Parsed.Type.APPROVAL,
         issuer = pay.issuer.orEmpty(), isCard = true, amount = pay.amount, merchant = pay.merchant.ifBlank { null })
 
+    /** 카드 표시에 덧붙은 간편결제 앱 이름("토스뱅크 · 네이버페이" → "네이버페이"). 없으면 null. */
+    fun via(t: Txn): String? = t.cardLabel?.substringAfter(" · ", "")?.trim()?.ifEmpty { null }
+
+    /**
+     * 규칙으로 읽은 간편결제 앱 [app]의 취소 알림 [p]가 가리키는 원래 결제(#18, #21 리뷰): 그 앱 알림이 합쳐진 이 폰의 카드·은행 결제 중
+     * 60일 안이고 아직 취소되지 않은 금액이 취소액 이상인 것. 가맹점이 겹치는 것 → 금액이 같은 것 → 최근 것.
+     * 간편결제 기록은 카드 기록으로 합치며 지웠으므로, 앱이 알린 취소는 이 카드 기록에 겁니다.
+     */
+    fun absorbedOriginal(s: LedgerState, installId: String, p: Parsed, at: Long, app: String): Txn? {
+        val canceled = s.canceled
+        return s.txns.values
+            .filter {
+                it.createdBy == installId && Issuers.listed(it.issuer) && it.kind == Kind.EXPENSE && it.cancelOf == null && via(it) == app &&
+                    at - it.at in 0..CANCEL_WINDOW && it.amount - (canceled[it.id] ?: 0L) >= p.amount
+            }
+            .sortedWith(compareByDescending<Txn> { related(it.merchant, p.merchant) }.thenByDescending { it.amount == p.amount }.thenByDescending { it.at })
+            .firstOrNull()
+    }
+
+    /** 앱 [app]이 합쳐진 카드 결제의 취소가 카드 알림으로 이미 기록돼 있는지(같은 금액·하루 안): 그러면 앱의 취소 알림은 같은 취소입니다. */
+    fun cancelOfAbsorbed(s: LedgerState, installId: String, amount: Long, at: Long, app: String): Txn? =
+        s.txns.values.firstOrNull { c ->
+            c.createdBy == installId && c.cancelOf != null && c.amount == amount && abs(c.at - at) <= DAY &&
+                s.txns[c.cancelOf]?.let { via(it) == app } == true
+        }
+
+    /**
+     * 카드·은행 취소 알림이 왔는데 남은 원래 결제가 없을 때: 같은 취소를 간편결제 앱 알림이 먼저 이 카드 기록에 걸어 두었는지
+     * ([candidates] 중 같은 금액·하루 안, 간편결제 앱이 붙은 취소). 그러면 다시 세지 않습니다.
+     */
+    fun payAppCancel(candidates: Collection<Txn>, amount: Long, at: Long): Txn? =
+        candidates.firstOrNull { it.cancelOf != null && it.amount == amount && abs(it.at - at) <= DAY && via(it) != null }
+
+    private const val DAY = 86_400_000L
+    private const val CANCEL_WINDOW = 60L * DAY
+
     /** 두 가맹점 이름이 겹치는지(한쪽이 다른 쪽을 포함). 같은 금액·시각의 짝이 여럿일 때 고르는 데만 씁니다(#19). */
     fun related(a: String?, b: String?): Boolean {
         val x = squash(a.orEmpty())

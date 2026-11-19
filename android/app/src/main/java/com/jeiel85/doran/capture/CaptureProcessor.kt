@@ -69,10 +69,13 @@ class CaptureProcessor(
         }
         // "앞으로도 자동으로" 규칙으로 읽은 간편결제 앱 알림(카드사·은행 목록 밖)도, 같은 결제의 카드·은행 기록이 이미 있으면
         // 따로 기록하지 않고 그 기록에 묶습니다(#18, D-5).
+        // 앱 이름은 규칙의 이름으로 씁니다: 합친 카드 기록의 표시("토스뱅크 · 네이버페이")로 나중에 그 앱의 취소를 찾기 때문입니다.
         if (rule != null && parsed.issuer == rule.issuer && !Issuers.listed(parsed.issuer) &&
             (parsed.type == Parsed.Type.APPROVAL || parsed.type == Parsed.Type.CANCEL)) {
-            val app = payApp(source.code, appLabel, title, pkg).takeUnless { it == SamePayment.UNKNOWN_APP } ?: parsed.issuer
-            joinRecorded(parsed, txnAt(parsed, postedAt), app)?.let { joined ->
+            val at = txnAt(parsed, postedAt)
+            val joined = joinRecorded(parsed, at, parsed.issuer)
+                ?: if (parsed.type == Parsed.Type.CANCEL) cancelAbsorbed(parsed, at, source) else null
+            if (joined != null) {
                 db.logCapture(postedAt, source.code, pkg, title, text, joined.result, joined.txnId, label = appLabel ?: pkg)
                 return joined.copy(handled = true)
             }
@@ -104,6 +107,32 @@ class CaptureProcessor(
         joinStored(card.id, SamePayment.noticeOf(pay), pay.issuer.orEmpty())
         ledger.deleteTxn(pay.id)
         db.relinkCaptures(pay.id, card.id, "같은 결제 · ${card.issuer} 알림 기록에 묶음")
+    }
+
+    /**
+     * 규칙으로 읽은 간편결제 앱의 취소 알림인데, 그 앱의 결제가 카드·은행 기록으로 합쳐져(#18) 앱 쪽 원래 기록이 없을 때(#21 리뷰):
+     * 카드 기록의 취소로 겁니다. 카드 알림의 취소가 이미 기록돼 있으면 같은 취소로 보고 새로 만들지 않습니다.
+     * 이 폰 가계부의 기록만 다룹니다(보내는 가족 폰은 [SentLog]의 별칭으로 같은 일을 함).
+     */
+    private fun cancelAbsorbed(p: Parsed, at: Long, source: Source): Outcome? {
+        if (!identity.value.inHousehold || p.paidFromBalance) return null
+        val me = identity.installId
+        val s = ledger.value
+        SamePayment.absorbedOriginal(s, me, p, at, p.issuer)?.let { t ->
+            val c = Txn(
+                id = newId(), kind = Kind.EXPENSE, amount = p.amount, at = at, accountId = t.accountId, merchant = t.merchant,
+                memberId = t.memberId, source = source, cancelOf = t.id, issuer = t.issuer, cardLabel = t.cardLabel,
+                categoryId = t.categoryId, private = t.private, createdBy = me, createdAt = System.currentTimeMillis(),
+            )
+            ledger.saveTxn(c)
+            settings.markUnseen(listOf(c.id))
+            requestSync()
+            return Outcome("${t.issuer} 결제의 취소로 기록(${p.issuer} 알림)", c.id)
+        }
+        SamePayment.cancelOfAbsorbed(s, me, p.amount, at, p.issuer)?.let { c ->
+            return Outcome("같은 취소 · ${c.issuer} 알림 기록에 묶음", c.id)
+        }
+        return null
     }
 
     /**
@@ -146,12 +175,12 @@ class CaptureProcessor(
             joinStored(t.id, notice, app)
             return Outcome("같은 결제 · ${t.issuer ?: "카드"} 알림 기록에 묶음", t.id)
         }
-        // 보내기만 하는 폰(부모님 폰): 이미 보낸 결제와 같으면 다시 보내라고 권하지 않습니다.
-        val isCancel = notice.type == Parsed.Type.CANCEL
+        // 보내기만 하는 폰(부모님 폰): 이미 보낸 결제와 같으면 다시 보내라고 권하지 않습니다. 머니·포인트 결제는 같은 결제가 아닙니다.
+        // 이 앱 이름으로 올 취소가 원래 거래를 찾게 별칭을 남깁니다(#21 리뷰).
         for (link in identity.value.outLinks) {
-            val sent = sentTo(link).firstOrNull {
-                it.optLong("amount") == notice.amount && it.optBoolean("cancel") == isCancel && abs(it.optLong("at") - at) <= SamePayment.WINDOW
-            } ?: continue
+            val items = sentTo(link)
+            val sent = SentLog.sameSent(items, notice, at) ?: continue
+            SentLog.withAlias(items, sent, notice.issuer)?.let { saveSent(link, it) }
             return Outcome("같은 결제 · ${link.label}에 이미 보낸 ${sent.optString("issuer")} 알림", null)
         }
         return null
@@ -289,6 +318,11 @@ class CaptureProcessor(
             }
             return Outcome("이미 기록됨(중복 알림)", dup.id)
         }
+        // 간편결제 앱 알림이 먼저 이 카드 기록에 같은 취소를 걸어 두어 남은 원래 결제가 없으면 다시 세지 않습니다(#18, #21 리뷰).
+        if (isCancel && findOriginal(ledger.value, account.id, p, at) == null) {
+            SamePayment.payAppCancel(ledger.value.txns.values.filter { it.accountId == account.id }, p.amount, at)
+                ?.let { return Outcome("이미 기록됨(간편결제 알림의 같은 취소)", it.id) }
+        }
         // 다른 가족 폰이 같은 결제를 이미 올려 둔 경우(가족카드 알림이 양쪽에 오는 등)
         val probe = Txn(id = "probe", kind = kind, amount = p.amount, at = at, merchant = p.merchant.orEmpty(), source = source,
             issuer = p.issuer, cardLabel = label, cancelOf = if (isCancel) "?" else null)
@@ -350,6 +384,9 @@ class CaptureProcessor(
         mine.firstOrNull {
             it.amount == p.amount && it.kind == kind && (it.cancelOf != null) == isCancel && abs(it.at - at) <= sameMinutes && it.source.captured
         }?.let { return Outcome("이미 기록됨(중복 알림)", it.id) }
+        if (isCancel && pickOriginal(ledger.value, mine.asSequence(), p, at) == null) {
+            SamePayment.payAppCancel(mine, p.amount, at)?.let { return Outcome("이미 기록됨(간편결제 알림의 같은 취소)", it.id) }
+        }
 
         val first = Txn(
             id = newId(), kind = kind, amount = p.amount, at = at, accountId = null, merchant = p.merchant.orEmpty(),
@@ -413,36 +450,33 @@ class CaptureProcessor(
 
     // --- 다른 가구로 보내기 (부모님 폰 → 우리 가구) ----------------------------------------------
 
-    /** 이 링크로 최근 보낸 결제(최근 300건): 중복 보내기를 막고 취소의 원래 승인을 찾는 데 씁니다. */
+    /** 이 링크로 최근 보낸 결제(최근 300건, [SentLog]): 중복 보내기를 막고 취소의 원래 승인을 찾는 데 씁니다. */
     private fun sentTo(link: OutLink): List<JSONObject> {
         val recent = db.kv("fwd.recent.${link.spaceId}")?.let { runCatching { JSONArray(it) }.getOrNull() } ?: JSONArray()
         return (0 until recent.length()).map { recent.getJSONObject(it) }
     }
 
+    private fun saveSent(link: OutLink, items: List<JSONObject>) =
+        db.setKv("fwd.recent.${link.spaceId}", JSONArray(items.takeLast(300)).toString())
+
     private class Sent(val text: String, val ok: Boolean)
 
     /** [Sent.ok]: 보냈거나 이미 보낸 결제인지. */
     private fun forward(p: Parsed, at: Long, link: OutLink): Sent {
-        val recentKey = "fwd.recent.${link.spaceId}"
         val items = sentTo(link)
         val isCancel = p.type == Parsed.Type.CANCEL
         val kind = when (p.type) {
             Parsed.Type.DEPOSIT -> Kind.INCOME
             else -> Kind.EXPENSE
         }
-        // 같은 카드사의 중복 알림, 또는 규칙으로 보낸 간편결제 앱 알림과 같은 결제의 카드·은행 알림(#18)이면 다시 보내지 않습니다.
-        if (items.any {
-                val sent = it.optString("issuer")
-                (sent == p.issuer || kind == Kind.EXPENSE && p.cardPaymentTo == null && it.optString("kind") == Kind.EXPENSE.code &&
-                    Issuers.listed(sent) != Issuers.listed(p.issuer)) && it.optLong("amount") == p.amount &&
-                    it.optBoolean("cancel") == isCancel && abs(it.optLong("at") - at) <= sameMinutes
-            }) {
+        // 같은 카드사의 중복 알림, 또는 규칙으로 보낸 간편결제 앱 알림과 같은 결제의 카드·은행 알림(#18)이면 다시 보내지 않고,
+        // 이 이름으로 올 취소가 원래 거래를 찾게 별칭만 남깁니다(#21 리뷰).
+        SentLog.sameSent(items, p, at)?.let { hit ->
+            SentLog.withAlias(items, hit, p.issuer)?.let { saveSent(link, it) }
             return Sent("${link.label}: 이미 보냄", true)
         }
         val accountId = "acc.${link.memberId}.${Categorizer.normalize(p.issuer)}"
-        val original = if (isCancel) items.filter {
-            it.optString("issuer") == p.issuer && !it.optBoolean("cancel") && it.optLong("amount") >= p.amount && at - it.optLong("at") in 0..60L * 86_400_000
-        }.maxByOrNull { (if (it.optString("merchant") == p.merchant) 1_000_000_000_000L else 0L) + it.optLong("at") } else null
+        val original = if (isCancel) SentLog.original(items, p, at) else null
         if (isCancel && original == null) return Sent("${link.label}: 원래 승인을 찾지 못해 보내지 않음", false)
 
         val txn = Txn(
@@ -460,10 +494,7 @@ class CaptureProcessor(
             val op = sync.seal(link.spaceId, link.key, type, id, h, false, json)
             db.addForward(link.spaceId, op.ek, op.h, op.env)
         }
-        val entry = JSONObject().put("id", txn.id).put("issuer", p.issuer).put("amount", p.amount).put("at", at)
-            .put("cancel", isCancel).put("merchant", p.merchant ?: "").put("kind", kind.code)
-        val keep = (items + entry).takeLast(300)
-        db.setKv(recentKey, JSONArray(keep).toString())
+        saveSent(link, items + SentLog.entry(txn.id, p, at, kind, original?.optString("id")))
         return Sent("${link.label}에 보냄", true)
     }
 

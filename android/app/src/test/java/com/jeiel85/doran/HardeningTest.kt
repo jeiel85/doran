@@ -5,6 +5,7 @@ import com.jeiel85.doran.capture.Issuers
 import com.jeiel85.doran.capture.Parsed
 import com.jeiel85.doran.capture.Parser
 import com.jeiel85.doran.capture.SamePayment
+import com.jeiel85.doran.capture.SentLog
 import com.jeiel85.doran.core.Fmt
 import com.jeiel85.doran.data.LedgerState
 import com.jeiel85.doran.logic.AllowanceAlert
@@ -167,6 +168,75 @@ class HardeningTest {
         assertEquals(listOf("s3"), g3.ids)
         // 이 폰에 저장했다 다시 읽어도 같음
         assertEquals(g2, AllowanceAlert.Group.from(JSONObject(g2.json().toString())))
+    }
+
+    // --- #21 리뷰: 보내는 가족 폰의 보낸 기록 ---------------------------------------------------------------
+
+    @Test fun forwardingDoesNotMergeMoneyPaymentsWithCardPayments() {
+        val money = Parser.payNotice("네이버페이\n이마트24에서 6,000원 결제되었습니다. (결제 수단: 네이버페이 머니)", at, "네이버페이")!!
+        val card = Parser.parse("6,000원 결제\n토스뱅크 체크카드 | 올리브영 잔액 3,000원", at, hint = "토스")!!
+        // 머니로 낸 간편결제를 보낸 뒤 같은 금액의 카드 결제가 와도 다른 결제 → 보냄
+        val sent = listOf(SentLog.entry("x", money, ms, Kind.EXPENSE, null))
+        assertNull(SentLog.sameSent(sent, card, ms + 60_000))
+        // 거꾸로도(카드를 보낸 뒤 머니 결제 알림)
+        assertNull(SentLog.sameSent(listOf(SentLog.entry("y", card, ms, Kind.EXPENSE, null)), money, ms + 60_000))
+        // 카드 간편결제였으면 같은 결제
+        val viaCard = Parser.payNotice("네이버페이\n올리브영에서 6,000원 결제되었습니다. (결제 수단: 카드 간편결제)", at, "네이버페이")!!
+        assertNotNull(SentLog.sameSent(listOf(SentLog.entry("z", viaCard, ms, Kind.EXPENSE, null)), card, ms + 60_000))
+        // 같은 카드사의 중복 알림은 그대로 같은 결제, 입금은 이름이 다르면 같은 결제가 아님
+        assertNotNull(SentLog.sameSent(listOf(SentLog.entry("c", card, ms, Kind.EXPENSE, null)), card, ms + 60_000))
+        val deposit = Parser.parse("6,000원 입금\n김도란 → 내 토스뱅크 통장", at, hint = "토스")!!
+        assertNull(SentLog.sameSent(listOf(SentLog.entry("z", viaCard, ms, Kind.EXPENSE, null)), deposit, ms + 60_000))
+    }
+
+    @Test fun cardCancelFindsThePaymentSentUnderThePayAppName() {
+        val pay = Parsed(Parsed.Type.APPROVAL, "네이버페이", true, 3_610, merchant = "CU")
+        val card = Parsed(Parsed.Type.APPROVAL, "토스뱅크", false, 3_610, merchant = "씨유(CU)가산하이엔드6차점")
+        var items = listOf(SentLog.entry("X", pay, ms, Kind.EXPENSE, null))
+        // 카드 알림은 같은 결제라 보내지 않되, 카드사 이름으로 별칭을 남김
+        val hit = SentLog.sameSent(items, card, ms + 30_000)!!
+        items = SentLog.withAlias(items, hit, card.issuer)!!
+        assertNull(SentLog.withAlias(items, hit, card.issuer)) // 두 번 남기지 않음
+        // 카드사만 알리는 취소가 와도 원래 거래(X)를 찾아 취소를 보냄
+        val cardCancel = card.copy(type = Parsed.Type.CANCEL)
+        val original = SentLog.original(items, cardCancel, ms + 3_600_000)!!
+        assertEquals("X", original.optString("id"))
+        items = items + SentLog.entry("C1", cardCancel, ms + 3_600_000, Kind.EXPENSE, "X")
+        // 간편결제 앱의 취소가 3분 넘어 늦게 와도 이미 다 취소됐으니 원래 거래가 없음 → 두 번 돌려받지 않음
+        assertNull(SentLog.original(items, pay.copy(type = Parsed.Type.CANCEL), ms + 3_600_000 + 10 * 60_000))
+        // 부분 취소는 남은 금액만큼만
+        val partial = SentLog.entry("C0", pay.copy(type = Parsed.Type.CANCEL, amount = 1_000), ms + 1_000, Kind.EXPENSE, "X")
+        val two = listOf(SentLog.entry("X", pay, ms, Kind.EXPENSE, null), partial)
+        assertNotNull(SentLog.original(two, pay.copy(type = Parsed.Type.CANCEL, amount = 2_610), ms + 2_000))
+        assertNull(SentLog.original(two, pay.copy(type = Parsed.Type.CANCEL, amount = 2_611), ms + 2_000))
+    }
+
+    // --- #21 리뷰: 이 폰 가계부에서 합쳐진 결제의 취소 -----------------------------------------------------------
+
+    @Test fun payAppCancelGoesToTheCardRecordItWasMergedInto() {
+        val card = recorded("T", "토스뱅크", merchant = "씨유(CU)가산하이엔드6차점").copy(cardLabel = "토스뱅크 · 네이버페이")
+        val other = recorded("U", "토스뱅크", merchant = "스타벅스").copy(cardLabel = "토스뱅크")
+        val s = LedgerState(txns = listOf(card, other).associateBy { it.id })
+        val cancel = Parsed(Parsed.Type.CANCEL, "네이버페이", true, 3_610, merchant = "CU")
+        assertEquals("T", SamePayment.absorbedOriginal(s, "me", cancel, ms + 3_600_000, "네이버페이")?.id)
+        assertNull(SamePayment.absorbedOriginal(s, "me", cancel, ms + 3_600_000, "카카오페이"))
+        assertNull(SamePayment.absorbedOriginal(s, "other-phone", cancel, ms + 3_600_000, "네이버페이"))
+        // 앱의 취소를 카드 기록에 걸면 남은 금액이 없어 다시 걸지 않음
+        val appCancel = Txn("A", Kind.EXPENSE, 3_610, ms + 3_600_000, merchant = card.merchant, source = Source.PUSH, cancelOf = "T",
+            issuer = "토스뱅크", cardLabel = card.cardLabel, createdBy = "me")
+        val after = s.copy(txns = s.txns + ("A" to appCancel))
+        assertNull(SamePayment.absorbedOriginal(after, "me", cancel, ms + 3_700_000, "네이버페이"))
+        // 그 뒤 카드사의 취소 알림이 늦게 와도 같은 취소로 봄(간편결제 앱이 붙은 취소)
+        assertEquals("A", SamePayment.payAppCancel(after.txns.values, 3_610, ms + 3_600_000 + 10 * 60_000)?.id)
+        assertNull(SamePayment.payAppCancel(after.txns.values, 3_600, ms + 3_600_000))
+        // 거꾸로 카드사의 취소가 먼저 기록돼 있으면 앱의 취소 알림은 같은 취소
+        val cardCancel = Txn("K", Kind.EXPENSE, 3_610, ms + 3_600_000, source = Source.PUSH, cancelOf = "T", issuer = "토스뱅크",
+            cardLabel = "토스뱅크", createdBy = "me")
+        val cardFirst = s.copy(txns = s.txns + ("K" to cardCancel))
+        assertEquals("K", SamePayment.cancelOfAbsorbed(cardFirst, "me", 3_610, ms + 3_600_000 + 10 * 60_000, "네이버페이")?.id)
+        assertNull(SamePayment.cancelOfAbsorbed(cardFirst, "me", 3_610, ms + 3_600_000, "카카오페이"))
+        assertEquals("네이버페이", SamePayment.via(card))
+        assertNull(SamePayment.via(other))
     }
 
     private fun recorded(id: String, issuer: String, merchant: String = "CU", at: Long = ms) =
