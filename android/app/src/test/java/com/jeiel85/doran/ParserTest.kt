@@ -131,6 +131,31 @@ class ParserTest {
         assertFalse(Parser.isFailedPayment("현대카드 앱 로그인에 실패했어요"))
     }
 
+    @Test fun tossPushFailureAndNormalNotices() {
+        // 실제 토스 앱 푸시 형식(2026-11-19 사용자 폰 "최근 받은 알림"). 제목 + 본문을 CaptureProcessor처럼 줄바꿈으로 이음.
+        // 실패 알림이 공유 범위 밖이라 "나만 보는 용돈"으로 기록됐던 것 — 이제 기록하지 않음
+        val failed = "9,900원 결제 실패\n토스뱅크 체크카드 | 구글플레이_TOSS 잔액이 부족해요."
+        assertNull(Parser.parse(failed, now, hint = "토스"))
+        assertTrue(Parser.isFailedPayment(failed))
+        assertFalse(Parser.looksFinancial(failed))
+
+        // 같은 앱의 정상 알림: 본문에 "잔액 2,064원"처럼 '잔액'이 흔히 들어가도 실패로 보지 않음
+        val sub = Parser.parse("990원 결제\n토스뱅크 체크카드 | 카카오구독료_카카오페이 잔액 2,064원", now, hint = "토스")!!
+        assertEquals(Parsed.Type.APPROVAL, sub.type)
+        assertEquals("토스뱅크", sub.issuer)
+        assertEquals(990L, sub.amount)
+        assertEquals(2_064L, sub.balance)
+        assertTrue(sub.merchant!!, sub.merchant!!.contains("카카오구독료"))
+        val cafe = Parser.parse("3,400원 결제\n토스뱅크 체크카드 | 메가MGC(인증)(2) 네이버페이_CJ 잔액 3,650원", now, hint = "토스")!!
+        assertEquals(Parsed.Type.APPROVAL, cafe.type)
+        assertEquals(3_400L, cafe.amount)
+        assertEquals(3_650L, cafe.balance)
+        val deposit = Parser.parse("6,705원 입금\n김도란 → 내 토스뱅크 통장", now, hint = "토스")!!
+        assertEquals(Parsed.Type.DEPOSIT, deposit.type)
+        assertEquals("토스뱅크", deposit.issuer)
+        assertEquals(6_705L, deposit.amount)
+    }
+
     @Test fun normalPaymentsAreNotMistakenForFailures() {
         val r = p("현대카드 승인 홍*동 15,000원 일시불 11/19 12:00 이마트 미아점")!!
         assertEquals(15_000L, r.amount)
