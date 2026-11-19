@@ -44,7 +44,7 @@ object Defaults {
         "c.subscription" to listOf("넷플릭스", "NETFLIX", "유튜브", "YOUTUBE", "디즈니", "DISNEY", "티빙", "TVING", "웨이브",
             "왓챠", "쿠팡와우", "와우멤버십", "멜론", "지니뮤직", "스포티파이", "SPOTIFY", "APPLE.COM", "애플", "GOOGLE",
             "구글", "네이버플러스", "밀리의서재", "리디", "CHATGPT", "OPENAI", "ANTHROPIC", "CLAUDE"),
-        "c.cafe" to listOf("스타벅스", "STARBUCKS", "투썸", "이디야", "메가커피", "메가엠지씨", "컴포즈", "빽다방", "폴바셋",
+        "c.cafe" to listOf("스타벅스", "STARBUCKS", "투썸", "이디야", "메가커피", "메가엠지씨", "메가MGC", "컴포즈", "빽다방", "폴바셋",
             "할리스", "커피", "카페", "CAFE", "COFFEE", "파리바게", "뚜레쥬르", "베이커리", "제과", "배스킨", "던킨", "설빙",
             "공차", "노티드"),
         "c.drinks" to listOf("호프", "포차", "주점", "와인", "BAR", "펍", "PUB", "노래", "이자카야"),

@@ -160,6 +160,8 @@ object Hooks {
         if (last == 0L && Hub.ledger.value.txns.size >= 100 && Hub.local.once("backup.first100")) {
             Notifier.system(context, 5002, "내역이 100건을 넘었어요", "폰을 바꾸거나 잃어도 되살릴 수 있게 설정 → 백업에서 파일로 저장해 두세요")
         }
+        // 후보로 남은 간편결제 알림 중 이미 기록된 결제와 같은 것을 묶습니다(DECISIONS.md D-5).
+        Hub.capture.rejoinCandidates()
     }
 }
 

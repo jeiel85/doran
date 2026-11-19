@@ -22,8 +22,13 @@ data class Parsed(
     val foreign: String? = null,
     /** 체크카드 승인처럼 은행 계좌에서 바로 나가는 카드. */
     val checkCard: Boolean = false,
+    /** 같은 결제를 따로 알린 간편결제 앱(예: "네이버페이"). 카드 표시에 덧붙입니다(DECISIONS.md D-5). */
+    val via: String? = null,
 ) {
     enum class Type { APPROVAL, CANCEL, DEPOSIT, WITHDRAWAL }
+
+    /** 내역의 "카드" 표시: "토스뱅크", "현대카드(1234)", 간편결제로 냈으면 "토스뱅크 · 네이버페이". */
+    val cardLabel: String get() = SamePayment.label(issuer + (last4?.let { "($it)" } ?: ""), via)
 
     /** 은행 출금 중 카드값(카드사 이름이 적힌 출금) — 지출이 아니라 이체입니다 (DECISIONS.md D-5). */
     val cardPaymentTo: String? get() =
@@ -113,6 +118,12 @@ object Parser {
     private val CARD_NO = Regex("""\(?\s*(?:\d{4}[-*]?\*{2,}[-*]?\*{0,4}[-*]?(\d{3,4})|[*]{2,}(\d{3,4}))\s*\)?|\((\d{4})\)""")
     private val ACCOUNT_NO = Regex("""\d{2,6}[-*]+\*+[-*\d]*\d{2,4}|\d{3,6}\*{2,}\d{2,4}""")
     private val HOLDER = Regex("""[가-힣A-Z][*＊][가-힣A-Z]{0,2}\s*님?|[가-힣]{1,2}\*\s*님?""")
+    /** 간편결제 알림의 "(결제 수단: 카드 간편결제)" — 가맹점이 아닙니다. */
+    private val PAY_METHOD = Regex("""\(\s*결제\s*수단[^)\n]*\)|결제\s*수단\s*:[^\n|·,()]*""")
+    /** "CU에서 3,610원 결제"처럼 금액 바로 앞의 '에서'. */
+    private val AT_PLACE = Regex("""에서\s*$""")
+    private val EMPTY_PARENS = Regex("""\(\s*\)""")
+    private val SPACES = Regex("""\s+""")
     private val KEYWORDS = Regex(
         """승인취소|취소승인|해외승인|승인|취소|체크카드|체크|신용|일시불|사용|결제|입금|출금|이체|지급|자동이체|전자금융|님""" +
             """|본인|해외|누적|잔액|국내|금액|이용안내|안내|일반|가맹점""" +
@@ -212,6 +223,12 @@ object Parser {
             ?: BARE_AMOUNT.findAll(text).firstOrNull { m -> consumed.none { r -> m.range.first in r } }
         val amount = amountMatch?.let { take(it); toLong(it.groupValues[1]) } ?: 0L
         if (amount <= 0 && foreign == null) return null
+        // "CU에서 3,610원": '에서' 바로 앞이 가맹점입니다. 알림 제목(앱 이름)이 더 길어도 그쪽을 고르지 않게 위치를 기억합니다.
+        val place = amountMatch?.let { m ->
+            val from = maxOf(0, m.range.first - 6)
+            AT_PLACE.find(text.substring(from, m.range.first))?.let { (from + it.range.first).also { p -> consumed += p until m.range.first } }
+        }
+        PAY_METHOD.findAll(text).forEach { take(it) }
 
         val at = parseDate(text, now, consumed)
         val installment = when {
@@ -227,7 +244,7 @@ object Parser {
         issuer.aliases.forEach { a -> Regex(Regex.escape(a), RegexOption.IGNORE_CASE).findAll(text).forEach { take(it) } }
         HOLDER.findAll(text).forEach { take(it) }
 
-        val merchant = merchantFrom(text, consumed)
+        val merchant = merchantFrom(text, consumed, place)
         return Parsed(
             type = type, issuer = issuer.name, isCard = issuer.card, amount = amount, last4 = last4,
             installment = installment, merchant = merchant, at = at, cumulative = cumulative, balance = balance,
@@ -265,16 +282,40 @@ object Parser {
         return null
     }
 
-    private fun merchantFrom(text: String, consumed: List<IntRange>): String? {
+    /** [place]: "…에서 N원"의 '에서' 위치. 있으면 그 바로 앞 덩어리를 가맹점으로 씁니다. */
+    private fun merchantFrom(text: String, consumed: List<IntRange>, place: Int? = null): String? {
         val sb = StringBuilder(text)
         for (r in consumed.sortedByDescending { it.first }) {
             val end = minOf(r.last + 1, sb.length)
             if (r.first < end) for (i in r.first until end) sb.setCharAt(i, '\n')
         }
-        val chunks = sb.toString().split('\n', '|', '/', '·', ',', '[', ']', '(', ')')
-            .map { KEYWORDS.replace(it, " ").replace(Regex("""\s+"""), " ").trim(' ', ':', '-', '.', '>') }
-            .filter { it.length >= 2 && !it.all { c -> c.isDigit() || c == '*' || c == ' ' } }
+        fun usable(s: String) = s.length >= 2 && !s.all { c -> c.isDigit() || c == '*' || c == ' ' }
+        place?.let { p -> tidy(sb.substring(0, p).split(*SEPARATORS).last()).takeIf(::usable)?.let { return it.take(40) } }
+        // 괄호로는 나누지 않습니다: "씨유(CU)가산하이엔드6차점"이 "가산하이엔드6차점"만 남아 브랜드를 잃기 때문입니다.
+        val chunks = sb.toString().split(*SEPARATORS).map(::tidy).filter(::usable)
         return chunks.maxByOrNull { scoreMerchant(it) }?.take(40)
+    }
+    private val SEPARATORS = charArrayOf('\n', '|', '/', '·', ',', '[', ']')
+
+    /** 낱말을 지운 뒤 남은 빈 괄호·짝 없는 괄호("(할부 3개월)" 앞의 "(")와 통째로 싼 괄호를 정리합니다. */
+    private fun tidy(chunk: String): String {
+        var s = EMPTY_PARENS.replace(KEYWORDS.replace(chunk, " "), " ")
+        if (s.count { it == '(' } != s.count { it == ')' }) s = s.replace('(', ' ').replace(')', ' ')
+        s = SPACES.replace(s, " ").trim(' ', ':', '-', '.', '>')
+        if (s.length > 2 && s.first() == '(' && s.indexOf(')') == s.lastIndex) s = s.substring(1, s.lastIndex).trim()
+        return s
+    }
+
+    /**
+     * 카드사·은행이 아닌 간편결제 앱(네이버페이 등)의 결제·취소 안내를 읽습니다: "CU에서 3,610원 결제되었습니다. (결제 수단: 카드 간편결제)".
+     * 돈은 카드·계좌에서 나가므로 이것만으로 기록하지 않고, 같은 결제의 카드·은행 알림과 묶는 데 씁니다(DECISIONS.md D-5).
+     * [app]: 알림을 올린 앱 이름. 그 이름이 가맹점으로 읽히지 않게 지웁니다.
+     */
+    fun payNotice(raw: String, now: LocalDateTime, app: String?): Parsed? {
+        if (!looksFinancial(raw)) return null
+        val name = app?.trim()?.takeIf { it.isNotEmpty() } ?: SamePayment.UNKNOWN_APP
+        return parse(raw, now, custom = Issuer(name, true, listOf(name)))
+            ?.takeIf { (it.type == Parsed.Type.APPROVAL || it.type == Parsed.Type.CANCEL) && it.amount > 0 }
     }
 
     /** 한글·영문이 많은 덩어리일수록 가맹점일 가능성이 높습니다. */
