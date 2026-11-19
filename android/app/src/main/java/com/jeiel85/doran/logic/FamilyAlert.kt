@@ -115,9 +115,10 @@ object Twins {
         val lb = b.cardLabel?.let { digits.find(it)?.groupValues?.get(1) }
         if (la != null && lb != null && la != lb) return false
         if (a.merchant.isNotBlank() && b.merchant.isNotBlank()) {
+            // 한쪽이 간편결제 알림의 가맹점을 앞에 붙였을 수 있어("CU 네이버페이" ↔ "네이버페이") 앞부분 일치가 아니라 포함으로 봅니다.
             val ma = Categorizer.normalize(a.merchant)
             val mb = Categorizer.normalize(b.merchant)
-            if (!ma.startsWith(mb) && !mb.startsWith(ma)) return false
+            if (!ma.contains(mb) && !mb.contains(ma)) return false
         }
         return true
     }

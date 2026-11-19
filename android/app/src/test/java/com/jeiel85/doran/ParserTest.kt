@@ -156,6 +156,46 @@ class ParserTest {
         assertEquals(6_705L, deposit.amount)
     }
 
+    @Test fun merchantKeepsBrandInParentheses() {
+        // 실제 토스 앱 푸시(2026-11-19 사용자 폰): 괄호로 나눠 "가산하이엔드6차점"만 남아 CU를 잃고 '기타'로 분류되던 것
+        val cu = Parser.parse("3,610원 결제\n토스뱅크 체크카드 | 씨유(CU)가산하이엔드6차점 잔액 540원", now, hint = "토스")!!
+        assertEquals("씨유(CU)가산하이엔드6차점", cu.merchant)
+        assertEquals(540L, cu.balance)
+        assertEquals("c.food", com.jeiel85.doran.capture.Categorizer.categorize(
+            com.jeiel85.doran.data.LedgerState(), cu.merchant, com.jeiel85.doran.model.Kind.EXPENSE))
+        val mega = Parser.parse("3,400원 결제\n토스뱅크 체크카드 | 메가MGC(인증)(2) 네이버페이_CJ 잔액 3,650원", now, hint = "토스")!!
+        assertEquals("메가MGC(인증)(2) 네이버페이_CJ", mega.merchant)
+        assertEquals("c.cafe", com.jeiel85.doran.capture.Categorizer.categorize(
+            com.jeiel85.doran.data.LedgerState(), mega.merchant, com.jeiel85.doran.model.Kind.EXPENSE))
+        // 낱말을 지우고 남은 빈 괄호·짝 없는 괄호는 가맹점이 아님
+        assertEquals("가구나라", p("신한카드(5678)승인 김*수 45,000원(할부 6개월)11/15 10:20 가구나라")!!.merchant)
+        assertEquals("동네빵집", p("현대카드 승인 7,000원 (일시불) 동네빵집")!!.merchant)
+        assertEquals("(주)도란컴퍼니", p("[Web발신]\n[신한]11/25 10:00\n110-***-123456\n입금 3,200,000\n잔액 5,600,000\n(주)도란컴퍼니")!!.merchant)
+    }
+
+    @Test fun payAppNoticeIsReadButNotRecordedAlone() {
+        // 실제 네이버페이 앱 푸시(2026-11-19 사용자 폰, 토스뱅크 체크카드를 등록해 CU에서 결제). 제목 + 본문.
+        val naver = "네이버페이\nCU에서 3,610원 결제되었습니다. (결제 수단: 카드 간편결제)"
+        // 카드사·은행이 아니라 혼자서는 기록하지 않음(돈은 카드 알림 쪽으로 기록됨) — 골라 보낼 후보이자 묶을 짝
+        assertNull(Parser.parse(naver, now, hint = "네이버페이"))
+        assertTrue(Parser.looksFinancial(naver))
+        val n = Parser.payNotice(naver, now, "네이버페이")!!
+        assertEquals(Parsed.Type.APPROVAL, n.type)
+        assertEquals(3_610L, n.amount)
+        assertEquals("CU", n.merchant)
+        val cancel = Parser.payNotice("네이버페이\nCU에서 3,610원 결제가 취소되었습니다.", now, "네이버페이")!!
+        assertEquals(Parsed.Type.CANCEL, cancel.type)
+        assertEquals("CU", cancel.merchant)
+        // 앱 이름을 못 읽어 제목("네이버페이")이 지워지지 않아도 '…에서 N원' 앞을 가맹점으로(에뮬레이터 시험에서 발견)
+        assertEquals("CU", Parser.payNotice(naver, now, "Shell")!!.merchant)
+        assertEquals("GS25 가산점", Parser.payNotice("Npay\nGS25 가산점에서 4,200원 결제했어요", now, null)!!.merchant)
+        // 결제 실패·광고는 묶을 짝이 아님
+        assertNull(Parser.payNotice("네이버페이\nCU에서 3,610원 결제에 실패했어요. 잔액이 부족해요", now, "네이버페이"))
+        assertNull(Parser.payNotice("(광고) 네이버페이로 결제하면 1,000원 할인", now, "네이버페이"))
+        // 골라 보내기 화면의 초기값도 같은 문장에서 가맹점을 읽음
+        assertEquals("CU", Parser.parse(naver, now, custom = com.jeiel85.doran.capture.Issuer("네이버페이", true, listOf("네이버페이")))!!.merchant)
+    }
+
     @Test fun normalPaymentsAreNotMistakenForFailures() {
         val r = p("현대카드 승인 홍*동 15,000원 일시불 11/19 12:00 이마트 미아점")!!
         assertEquals(15_000L, r.amount)

@@ -180,6 +180,11 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 2) {
     fun capture(id: Long): CaptureRow? = readableDatabase.rawQuery(
         "SELECT $captureCols FROM capture_log WHERE id = ?", arrayOf(id.toString())).use { c -> if (c.moveToFirst()) readCapture(c) else null }
 
+    /** [from]..[to]에 받은, 골라 보낼 후보로 남은 알림. 같은 결제의 간편결제 알림을 찾는 데 씁니다. */
+    fun candidatesBetween(from: Long, to: Long): List<CaptureRow> = readableDatabase.rawQuery(
+        "SELECT $captureCols FROM capture_log WHERE status = 'candidate' AND at BETWEEN ? AND ? ORDER BY at DESC",
+        arrayOf(from.toString(), to.toString())).use { c -> buildList { while (c.moveToNext()) add(readCapture(c)) } }
+
     fun candidateCount(since: Long): Int = readableDatabase.rawQuery(
         "SELECT COUNT(*) FROM capture_log WHERE status = 'candidate' AND at >= ?", arrayOf(since.toString())).use { it.moveToFirst(); it.getInt(0) }
 
