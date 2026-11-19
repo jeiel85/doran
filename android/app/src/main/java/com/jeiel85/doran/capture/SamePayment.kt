@@ -21,15 +21,41 @@ object SamePayment {
     /** 간편결제 알림을 올린 앱 이름을 모를 때(문자 등). */
     const val UNKNOWN_APP = "간편결제"
 
-    /** 간편결제 알림 [notice](받은 시각 [noticeAt])와 카드·은행 알림 [card](거래 시각 [cardAt])가 같은 결제를 알렸는지. */
+    /**
+     * 간편결제 알림 [notice](받은 시각 [noticeAt])와 카드·은행 알림 [card](거래 시각 [cardAt])가 같은 결제를 알렸는지.
+     * 머니·포인트로 낸 결제는 카드·계좌에서 돈이 나가지 않으므로, 같은 때 같은 금액의 다른 카드 결제와 묶지 않습니다(#19).
+     * 짝은 해석기가 아는 카드사·은행이어야 합니다(규칙으로 읽은 다른 간편결제 앱 알림끼리는 묶지 않음).
+     */
     fun matches(notice: Parsed, noticeAt: Long, card: Parsed, cardAt: Long): Boolean =
-        card.type != Parsed.Type.DEPOSIT && card.cardPaymentTo == null && notice.amount == card.amount &&
-            (notice.type == Parsed.Type.CANCEL) == (card.type == Parsed.Type.CANCEL) && abs(noticeAt - cardAt) <= WINDOW
+        !notice.paidFromBalance && Issuers.listed(card.issuer) && card.type != Parsed.Type.DEPOSIT && card.cardPaymentTo == null &&
+            notice.amount == card.amount && (notice.type == Parsed.Type.CANCEL) == (card.type == Parsed.Type.CANCEL) &&
+            abs(noticeAt - cardAt) <= WINDOW
 
     /** 간편결제 알림이 카드·은행 알림으로 이미 기록된 [t]와 같은 결제인지. */
     fun matches(notice: Parsed, noticeAt: Long, t: Txn): Boolean =
-        (t.source == Source.PUSH || t.source == Source.SMS) && t.kind == Kind.EXPENSE && notice.amount == t.amount &&
-            (notice.type == Parsed.Type.CANCEL) == (t.cancelOf != null) && abs(noticeAt - t.at) <= WINDOW
+        !notice.paidFromBalance && Issuers.listed(t.issuer) && (t.source == Source.PUSH || t.source == Source.SMS) &&
+            t.kind == Kind.EXPENSE && notice.amount == t.amount && (notice.type == Parsed.Type.CANCEL) == (t.cancelOf != null) &&
+            abs(noticeAt - t.at) <= WINDOW
+
+    /**
+     * "앞으로도 자동으로" 규칙으로 따로 기록된 간편결제 앱 거래 [pay](카드사·은행 목록 밖)가 카드·은행 기록 [card]와 같은 결제인지(#18).
+     * 돈은 카드·계좌에서 한 번 나갔으므로 카드 쪽을 남기고 [pay]는 지웁니다.
+     */
+    fun sameAsCard(pay: Txn, card: Txn): Boolean =
+        pay.id != card.id && !Issuers.listed(pay.issuer) && Issuers.listed(card.issuer) &&
+            (pay.source == Source.PUSH || pay.source == Source.SMS) && pay.kind == Kind.EXPENSE && card.kind == Kind.EXPENSE &&
+            pay.amount == card.amount && pay.isCancel == card.isCancel && abs(pay.at - card.at) <= WINDOW
+
+    /** 규칙으로 기록됐던 간편결제 앱 거래를 묶을 알림 내용으로(가맹점·결제/취소). */
+    fun noticeOf(pay: Txn): Parsed = Parsed(type = if (pay.isCancel) Parsed.Type.CANCEL else Parsed.Type.APPROVAL,
+        issuer = pay.issuer.orEmpty(), isCard = true, amount = pay.amount, merchant = pay.merchant.ifBlank { null })
+
+    /** 두 가맹점 이름이 겹치는지(한쪽이 다른 쪽을 포함). 같은 금액·시각의 짝이 여럿일 때 고르는 데만 씁니다(#19). */
+    fun related(a: String?, b: String?): Boolean {
+        val x = squash(a.orEmpty())
+        val y = squash(b.orEmpty())
+        return x.isNotEmpty() && y.isNotEmpty() && (x.contains(y) || y.contains(x))
+    }
 
     /**
      * 카드 알림의 가맹점에 간편결제 알림의 가맹점을 더합니다. 이미 들어 있으면 그대로("씨유(CU)가산하이엔드6차점"),
@@ -59,7 +85,7 @@ object SamePayment {
     fun enrich(s: LedgerState, t: Txn, notice: Parsed, app: String): Txn {
         val merchant = merchant(t.merchant, shop(notice, app))
         // 사람이 카테고리를 고르면 그 가맹점 규칙이 생깁니다(Hooks.learnCategories). 규칙이 있으면 사람의 선택으로 보고 그대로 둡니다.
-        val learned = t.merchant.isNotBlank() && s.rules.containsKey(Categorizer.ruleId(t.merchant))
+        val learned = t.merchant.isNotBlank() && Categorizer.rule(s, t.merchant) != null
         val auto = t.cancelOf == null && !learned && t.categoryId == Categorizer.categorize(s, t.merchant, t.kind)
         return t.copy(
             merchant = merchant,

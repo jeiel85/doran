@@ -1,6 +1,7 @@
 package com.jeiel85.doran.logic
 
 import android.content.Context
+import android.util.Log
 import com.jeiel85.doran.capture.Categorizer
 import com.jeiel85.doran.core.Fmt
 import com.jeiel85.doran.core.Hub
@@ -14,6 +15,7 @@ import com.jeiel85.doran.model.T
 import com.jeiel85.doran.model.Txn
 import com.jeiel85.doran.ui.Notifier
 import com.jeiel85.doran.widget.SummaryWidget
+import org.json.JSONObject
 import java.time.LocalDate
 
 /** 장부가 바뀐 뒤 따라오는 일: 동기화 요청, 용돈 요약, 가족 알림, 예산 알림, 위젯 갱신. */
@@ -104,17 +106,23 @@ object Hooks {
             .map { Txn.from(it.id, it.after!!) }
             .filter { AllowanceAlert.applies(it, me, install, now) }
         if (fresh.isEmpty()) return
+        // 몇 분 안에 잇달아 온 것은 한 알림을 고쳐 가며 묶어 보여 줍니다(#15). 지워진 것은 빼고요.
+        val prev = Hub.db.kv(ALLOWANCE_GROUP)?.let { runCatching { AllowanceAlert.Group.from(JSONObject(it)) }.getOrNull() }
+        val group = AllowanceAlert.group(prev, fresh.sortedBy { it.at }.map { it.id }, now)
+        Hub.db.setKv(ALLOWANCE_GROUP, group.json().toString())
         val s = Hub.ledger.value
-        for (t in fresh.sortedBy { it.at }.takeLast(5)) {
-            val text = AllowanceAlert.of(s, t)
-            Notifier.allowanceTxn(context, t.id, text.title, text.body)
-        }
+        val txns = group.ids.mapNotNull { s.txns[it] }.filter { AllowanceAlert.applies(it, me, install, now) }.sortedBy { it.at }
+        if (txns.isEmpty()) return
+        val text = AllowanceAlert.ofMany(s, txns)
+        Notifier.allowanceTxn(context, group.key, txns.last().id, text.title, text.body)
     }
 
-    /** 사람이 카테고리를 고치면 그 가맹점 규칙을 기억해 다음 자동 분류에 씁니다. */
+    private const val ALLOWANCE_GROUP = "notify.allowance.group"
+
+    /** 사람이 카테고리를 고치면 그 가맹점 규칙을 기억해 다음 자동 분류에 씁니다. 앱이 스스로 고친 것(같은 결제 묶기)은 빼요(#19). */
     private fun learnCategories(changes: List<Change>) {
         for (c in changes) {
-            if (!c.local || c.type != T.TXN || c.before == null || c.after == null) continue
+            if (!c.local || c.auto || c.type != T.TXN || c.before == null || c.after == null) continue
             val before = Txn.from(c.id, c.before)
             val after = Txn.from(c.id, c.after)
             if (after.merchant.isBlank() || after.categoryId == null || before.categoryId == after.categoryId) continue
@@ -143,13 +151,32 @@ object Hooks {
         }
     }
 
-    /** 하루 한 번(앱 시작·작업 관리자): 고정지출 기록, 백업 알림. */
+    /**
+     * 하루 한 번(앱 시작·작업 관리자): 고정지출 기록, 백업 알림, 간편결제 알림 다시 묶기.
+     * 일마다 따로 감싸, 하나가 예외를 내도 앱 범위 코루틴이 죽거나 나머지 일이 빠지지 않게 합니다(#19).
+     */
     fun daily(context: Context) {
-        val made = Recurrer.run(Hub.ledger, Hub.db, Hub.identity.installId)
-        if (made.isNotEmpty() && Hub.settings.value.notifyRecurring) {
-            val names = made.joinToString(", ") { it.merchant.ifBlank { "고정지출" } }
-            Notifier.recurring(context, "고정지출 ${made.size}건을 기록했어요", names)
+        step("고정지출") {
+            val made = Recurrer.run(Hub.ledger, Hub.db, Hub.identity.installId)
+            if (made.isNotEmpty() && Hub.settings.value.notifyRecurring) {
+                val names = made.joinToString(", ") { it.merchant.ifBlank { "고정지출" } }
+                Notifier.recurring(context, "고정지출 ${made.size}건을 기록했어요", names)
+            }
         }
+        step("백업 알림") { backupReminder(context) }
+        // 후보로 남은 간편결제 알림 중 이미 기록된 결제와 같은 것을 묶습니다(DECISIONS.md D-5).
+        step("간편결제 다시 묶기") { Hub.capture.rejoinCandidates() }
+    }
+
+    private inline fun step(name: String, block: () -> Unit) {
+        try {
+            block()
+        } catch (e: Exception) {
+            Log.w("doran", "하루 일 '$name' 실패", e)
+        }
+    }
+
+    private fun backupReminder(context: Context) {
         val last = Hub.settings.value.lastBackupAt
         val hasData = Hub.ledger.value.txns.size >= 20
         if (hasData && System.currentTimeMillis() - last > 30L * 86_400_000 &&
@@ -160,8 +187,6 @@ object Hooks {
         if (last == 0L && Hub.ledger.value.txns.size >= 100 && Hub.local.once("backup.first100")) {
             Notifier.system(context, 5002, "내역이 100건을 넘었어요", "폰을 바꾸거나 잃어도 되살릴 수 있게 설정 → 백업에서 파일로 저장해 두세요")
         }
-        // 후보로 남은 간편결제 알림 중 이미 기록된 결제와 같은 것을 묶습니다(DECISIONS.md D-5).
-        Hub.capture.rejoinCandidates()
     }
 }
 

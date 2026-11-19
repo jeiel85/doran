@@ -9,7 +9,7 @@ import android.database.sqlite.SQLiteOpenHelper
  * 로컬 저장소. 장부 엔티티는 동기화 op와 같은 JSON으로 한 테이블에 둡니다 (DECISIONS.md D-2).
  * 앱 데이터 백업은 꺼져 있고(manifest), 복구는 암호 백업 파일로만 합니다 (D-11).
  */
-class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 2) {
+class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 3) {
 
     override fun onConfigure(db: SQLiteDatabase) {
         db.enableWriteAheadLogging()
@@ -40,9 +40,21 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 2) {
             db.execSQL("ALTER TABLE capture_log ADD COLUMN status TEXT NOT NULL DEFAULT 'done'")
             db.execSQL("ALTER TABLE capture_log ADD COLUMN label TEXT")
         }
+        // v3(0.1.14): 결제·출금 실패로 뺀 알림을 따로 표시해 "그래도 보내기"·건수 보기에 씁니다(#13). 0.1.11~0.1.13에 남은 행도 옮깁니다.
+        if (oldVersion < 3) {
+            db.execSQL("UPDATE capture_log SET status = '$FAILED' WHERE status = 'done' AND txn_id IS NULL AND result = ?",
+                arrayOf("결제·출금 실패 알림 · 기록 안 함"))
+        }
     }
 
     data class Row(val type: String, val id: String, val hlc: String, val deleted: Boolean, val json: String)
+
+    companion object {
+        /** capture_log.status: 형식을 몰라 기록하지 못한, 골라 보낼 수 있는 금액 알림. */
+        const val CANDIDATE = "candidate"
+        /** capture_log.status: 결제·출금 실패 알림이라 기록하지 않음(D-4, #13). */
+        const val FAILED = "failed"
+    }
 
     fun allEntities(): List<Row> = readableDatabase.rawQuery("SELECT type, id, hlc, deleted, json FROM entities", null).use { c ->
         buildList { while (c.moveToNext()) add(Row(c.getString(0), c.getString(1), c.getString(2), c.getInt(3) == 1, c.getString(4))) }
@@ -124,7 +136,9 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 2) {
         val id: Long, val at: Long, val source: String, val pkg: String?, val title: String?, val text: String,
         val result: String, val txnId: String?, val status: String = "done", val label: String? = null,
     ) {
-        val isCandidate get() = status == "candidate"
+        val isCandidate get() = status == CANDIDATE
+        /** 결제·출금 실패 알림이라 기록하지 않은 것(D-4). 오탐이면 "그래도 보내기"로 보낼 수 있습니다. */
+        val isFailed get() = status == FAILED
     }
 
     fun logCapture(at: Long, source: String, pkg: String?, title: String?, text: String, result: String, txnId: String?,
@@ -148,10 +162,10 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 2) {
         return true
     }
 
-    /** 같은 발신처의 같은 원문이 이미 후보로 남아 있는지(반복 안내가 쌓이지 않게). */
-    fun hasCandidate(source: String, pkg: String?, text: String): Boolean = readableDatabase.rawQuery(
-        "SELECT 1 FROM capture_log WHERE status = 'candidate' AND source = ? AND IFNULL(pkg, '') = ? AND text = ? LIMIT 1",
-        arrayOf(source, pkg ?: "", text),
+    /** 같은 발신처의 같은 원문이 이미 [status](후보·실패)로 남아 있는지(반복 안내·같은 알림 갱신이 쌓이지 않게). */
+    fun hasCapture(status: String, source: String, pkg: String?, text: String): Boolean = readableDatabase.rawQuery(
+        "SELECT 1 FROM capture_log WHERE status = ? AND source = ? AND IFNULL(pkg, '') = ? AND text = ? LIMIT 1",
+        arrayOf(status, source, pkg ?: "", text),
     ).use { it.moveToFirst() }
 
     /** 발신처마다 후보는 최근 [keep]건만 남깁니다. */
@@ -187,6 +201,35 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 2) {
 
     fun candidateCount(since: Long): Int = readableDatabase.rawQuery(
         "SELECT COUNT(*) FROM capture_log WHERE status = 'candidate' AND at >= ?", arrayOf(since.toString())).use { it.moveToFirst(); it.getInt(0) }
+
+    /** 거래와 이어진 수집 기록(기록함·용돈·이미 기록됨 등). 지금 기준으로 실패 알림인 것을 찾는 데 씁니다(#13). */
+    fun recordedCaptures(): List<CaptureRow> = readableDatabase.rawQuery(
+        "SELECT $captureCols FROM capture_log WHERE status = 'done' AND txn_id IS NOT NULL ORDER BY at DESC", null).use { c ->
+        buildList { while (c.moveToNext()) add(readCapture(c)) }
+    }
+
+    /** 거래 [txnId]를 만든·가리키는 수집 기록. */
+    fun capturesOf(txnId: String): List<CaptureRow> = readableDatabase.rawQuery(
+        "SELECT $captureCols FROM capture_log WHERE txn_id = ?", arrayOf(txnId)).use { c -> buildList { while (c.moveToNext()) add(readCapture(c)) } }
+
+    /** 지운 거래 [from]을 가리키던 수집 기록을 남긴 거래 [to]로 옮깁니다(같은 결제를 한 건으로 합칠 때, #18). */
+    fun relinkCaptures(from: String, to: String, result: String) {
+        writableDatabase.update("capture_log", ContentValues().apply { put("txn_id", to); put("result", result) },
+            "txn_id = ?", arrayOf(from))
+    }
+
+    /** "최근 받은 알림" 위의 건수(30일): 묶음·실패·후보가 실제 알림에서 얼마나 생기는지 보려고(#13·#19). */
+    data class CaptureCounts(val recorded: Int, val joined: Int, val failed: Int, val candidates: Int)
+
+    fun captureCounts(): CaptureCounts = readableDatabase.rawQuery(
+        "SELECT " +
+            "SUM(CASE WHEN status = 'done' AND txn_id IS NOT NULL AND result NOT LIKE '같은 결제%' THEN 1 ELSE 0 END), " +
+            "SUM(CASE WHEN result LIKE '같은 결제%' THEN 1 ELSE 0 END), " +
+            "SUM(CASE WHEN status = '$FAILED' THEN 1 ELSE 0 END), " +
+            "SUM(CASE WHEN status = '$CANDIDATE' THEN 1 ELSE 0 END) FROM capture_log", null).use { c ->
+        c.moveToFirst()
+        CaptureCounts(c.getInt(0), c.getInt(1), c.getInt(2), c.getInt(3))
+    }
 
     fun clearCaptures() = writableDatabase.delete("capture_log", null, null)
 

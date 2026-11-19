@@ -74,10 +74,14 @@ object Notifier {
             .setGroup("doran.family"))
     }
 
-    /** "용돈에서 9,900원 썼어요" / "구글플레이 · 토스뱅크 · 남은 용돈 240,100원" */
-    fun allowanceTxn(context: Context, txnId: String, title: String, text: String) {
-        post(context, txnId.hashCode(), builder(context, ALLOWANCE, title, text)
-            .setContentIntent(open(context, txnId, txnId.hashCode()))
+    /**
+     * "용돈에서 9,900원 썼어요" / "구글플레이 · 토스뱅크 · 남은 용돈 240,100원".
+     * 같은 [key](몇 분 안에 잇달아 온 결제 묶음)는 한 알림을 고쳐 쓰고, 고칠 때는 다시 울리지 않습니다(#15). 누르면 [txnId]를 엽니다.
+     */
+    fun allowanceTxn(context: Context, key: String, txnId: String, title: String, text: String) {
+        post(context, key.hashCode(), builder(context, ALLOWANCE, title, text)
+            .setContentIntent(open(context, txnId, key.hashCode()))
+            .setOnlyAlertOnce(true)
             .setGroup("doran.allowance"))
     }
 

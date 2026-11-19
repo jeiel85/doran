@@ -7,6 +7,8 @@ import com.jeiel85.doran.model.AccountType
 import com.jeiel85.doran.model.Kind
 import com.jeiel85.doran.model.Source
 import com.jeiel85.doran.model.Txn
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlin.math.abs
 
 /** 받침에 맞춘 조사 (남편이/아내가, 현대카드로/통장으로). */
@@ -85,17 +87,53 @@ object AllowanceAlert {
             t.amount == 0L && t.foreign != null -> "용돈에서 해외 ${t.foreign} 결제했어요"
             else -> "용돈에서 $won 썼어요"
         }
+        val body = listOfNotNull(t.merchant.takeIf { it.isNotBlank() }, t.issuer, status(s, t)).joinToString(" · ")
+        return FamilyAlert.Text(title, body)
+    }
+
+    /**
+     * 몇 분 안에 잇달아 기록된 여러 건(구독료 여러 개 등)은 알림 하나로(#15): "용돈에서 3건 · 24,300원 썼어요 / 넷플릭스 · 유튜브 · 멜론 · 남은 용돈 …".
+     * [txns]는 시각 순. 한 건이면 [of]와 같습니다.
+     */
+    fun ofMany(s: LedgerState, txns: List<Txn>): FamilyAlert.Text {
+        if (txns.size == 1) return of(s, txns.single())
+        val net = txns.sumOf { if (it.isCancel) -it.amount else it.amount }
+        val title = when {
+            txns.all { it.isCancel } -> "용돈 결제 ${txns.size}건이 취소됐어요"
+            net > 0 -> "용돈에서 ${txns.size}건 · ${Fmt.won(net)} 썼어요"
+            else -> "용돈 결제 ${txns.size}건"
+        }
+        val names = txns.map { it.merchant.ifBlank { it.issuer ?: "결제" } }.distinct()
+        val shown = names.take(3).joinToString(" · ") + if (names.size > 3) " 외 ${names.size - 3}곳" else ""
+        return FamilyAlert.Text(title, "$shown · ${status(s, txns.last())}")
+    }
+
+    private fun status(s: LedgerState, t: Txn): String {
         val p = Stats.periodOf(Fmt.date(t.at), s.household.monthStartDay)
         val spent = Stats.allowanceSpent(s, t.memberId, p)
         val allowance = s.member(t.memberId)?.allowance ?: 0
-        val status = when {
+        return when {
             allowance <= 0 -> "이번 달 용돈 ${Fmt.won(spent)} 썼어요"
             spent <= allowance -> "남은 용돈 ${Fmt.won(allowance - spent)}"
             else -> "용돈을 ${Fmt.won(spent - allowance)} 넘었어요"
         }
-        val body = listOfNotNull(t.merchant.takeIf { it.isNotBlank() }, t.issuer, status).joinToString(" · ")
-        return FamilyAlert.Text(title, body)
     }
+
+    /** 첫 건부터 [WINDOW] 안에 들어온 용돈 결제를 한 알림([key])으로 묶습니다. 이 폰에만 둡니다. */
+    data class Group(val key: String, val startedAt: Long, val ids: List<String>) {
+        fun json(): JSONObject = JSONObject().put("key", key).put("at", startedAt).put("ids", JSONArray(ids))
+
+        companion object {
+            fun from(o: JSONObject) = Group(o.getString("key"), o.getLong("at"),
+                o.getJSONArray("ids").let { a -> (0 until a.length()).map { a.getString(it) } })
+        }
+    }
+
+    const val WINDOW = 5 * 60_000L
+
+    fun group(prev: Group?, ids: List<String>, now: Long): Group =
+        if (prev != null && now - prev.startedAt in 0..WINDOW) prev.copy(ids = (prev.ids + ids).distinct().takeLast(30))
+        else Group(ids.first(), now, ids)
 }
 
 /**
@@ -116,11 +154,15 @@ object Twins {
         if (la != null && lb != null && la != lb) return false
         if (a.merchant.isNotBlank() && b.merchant.isNotBlank()) {
             // 한쪽이 간편결제 알림의 가맹점을 앞에 붙였을 수 있어("CU 네이버페이" ↔ "네이버페이") 앞부분 일치가 아니라 포함으로 봅니다.
-            val ma = Categorizer.normalize(a.merchant)
-            val mb = Categorizer.normalize(b.merchant)
-            if (!ma.contains(mb) && !mb.contains(ma)) return false
+            // 단 두 글자 이하의 짧은 이름("CU")은 다른 가맹점 이름 안에도 흔히 들어 있어 앞부분 일치만 봅니다(#19).
+            if (!merchantsAgree(Categorizer.normalize(a.merchant), Categorizer.normalize(b.merchant))) return false
         }
         return true
+    }
+
+    private fun merchantsAgree(x: String, y: String): Boolean {
+        val (short, long) = if (x.length <= y.length) x to y else y to x
+        return if (short.length <= 2) long.startsWith(short) else long.contains(short)
     }
 
     /** 둘 중 남길 것: 먼저 기록된 쪽(카드 주인 폰이 대개 먼저 받음), 같으면 id가 작은 쪽. */
