@@ -128,6 +128,9 @@ dependencies {
     // Play 빌드만: Play에 새 버전이 있는지 묻기(설치는 Play가, DECISIONS.md D-21).
     "playImplementation"("com.google.android.play:app-update-ktx:2.1.0")
 
+    // "AI로 한 번 더 보기"의 Claude 쪽(DECISIONS.md D-25). OpenAI는 의존성 없이 HTTP로 부릅니다.
+    implementation("com.anthropic:anthropic-java:3.3.0")
+
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("com.google.zxing:core:3.5.3")
 

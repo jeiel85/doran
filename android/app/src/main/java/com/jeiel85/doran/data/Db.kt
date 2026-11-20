@@ -9,7 +9,7 @@ import android.database.sqlite.SQLiteOpenHelper
  * 로컬 저장소. 장부 엔티티는 동기화 op와 같은 JSON으로 한 테이블에 둡니다 (DECISIONS.md D-2).
  * 앱 데이터 백업은 꺼져 있고(manifest), 복구는 암호 백업 파일로만 합니다 (D-11).
  */
-class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 3) {
+class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 4) {
 
     override fun onConfigure(db: SQLiteDatabase) {
         db.enableWriteAheadLogging()
@@ -30,7 +30,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 3) {
         db.execSQL(
             """CREATE TABLE capture_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, source TEXT NOT NULL,
                  pkg TEXT, title TEXT, text TEXT NOT NULL, result TEXT NOT NULL, txn_id TEXT,
-                 status TEXT NOT NULL DEFAULT 'done', label TEXT)""")
+                 status TEXT NOT NULL DEFAULT 'done', label TEXT, ai TEXT)""")
         db.execSQL("CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT NOT NULL)")
     }
 
@@ -44,6 +44,10 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 3) {
         if (oldVersion < 3) {
             db.execSQL("UPDATE capture_log SET status = '$FAILED' WHERE status = 'done' AND txn_id IS NULL AND result = ?",
                 arrayOf("결제·출금 실패 알림 · 기록 안 함"))
+        }
+        // v4(0.3.0): "AI로 한 번 더 보기"의 판정(JSON, DECISIONS.md D-25). 원문과 같이 이 폰에만, 30일.
+        if (oldVersion < 4) {
+            db.execSQL("ALTER TABLE capture_log ADD COLUMN ai TEXT")
         }
     }
 
@@ -135,6 +139,8 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 3) {
     data class CaptureRow(
         val id: Long, val at: Long, val source: String, val pkg: String?, val title: String?, val text: String,
         val result: String, val txnId: String?, val status: String = "done", val label: String? = null,
+        /** AI 판정(JSON, [com.jeiel85.doran.ai.AiVerdict]). 아직 묻지 않았으면 null. */
+        val ai: String? = null,
     ) {
         val isCandidate get() = status == CANDIDATE
         /** 결제·출금 실패·예정 알림이라 기록하지 않은 것(D-4). 오탐이면 "그래도 보내기"로 보낼 수 있습니다. */
@@ -182,9 +188,18 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 3) {
             "id = ?", arrayOf(id.toString()))
     }
 
-    private val captureCols = "id, at, source, pkg, title, text, result, txn_id, status, label"
+    private val captureCols = "id, at, source, pkg, title, text, result, txn_id, status, label, ai"
     private fun readCapture(c: android.database.Cursor) = CaptureRow(c.getLong(0), c.getLong(1), c.getString(2), c.getString(3),
-        c.getString(4), c.getString(5), c.getString(6), c.getString(7), c.getString(8), c.getString(9))
+        c.getString(4), c.getString(5), c.getString(6), c.getString(7), c.getString(8), c.getString(9), c.getString(10))
+
+    /** 아직 AI에게 묻지 않은 수집 기록(숨긴 것 빼고), 최근 것부터. */
+    fun capturesWithoutAi(since: Long, limit: Int): List<CaptureRow> = readableDatabase.rawQuery(
+        "SELECT $captureCols FROM capture_log WHERE ai IS NULL AND status != 'dismissed' AND at >= ? ORDER BY at DESC LIMIT $limit",
+        arrayOf(since.toString())).use { c -> buildList { while (c.moveToNext()) add(readCapture(c)) } }
+
+    fun setCaptureAi(id: Long, json: String?) {
+        writableDatabase.update("capture_log", ContentValues().apply { put("ai", json) }, "id = ?", arrayOf(id.toString()))
+    }
 
     fun captures(limit: Int = 200): List<CaptureRow> = readableDatabase.rawQuery(
         "SELECT $captureCols FROM capture_log ORDER BY at DESC LIMIT $limit", null).use { c ->
