@@ -298,15 +298,28 @@ object Moves {
      * 예전 기록은 앱이 몰래 바꾸지 않고 사용자에게 한 번 물어 정리합니다. 지금 기준으로도 쓴 돈인 것은 목록에 넣지 않습니다.
      * [isBankOut]: 알림 원문을 다시 읽어 은행 출금인지(카드 승인·카드값 출금이 아닌지) 보는 함수(DB를 읽어 밖에서 줌).
      * [rule]: 기억한 규칙(옮긴 돈 true, 쓴 돈 false, 없으면 null).
+     * 오래된 것부터 하나씩 판정하며 그 결과를 장부에 반영해 가므로, 같은 입금·가족 돈을 두 출금이 함께 가져가지 않습니다(#54 리뷰).
      */
-    fun staleCandidates(s: LedgerState, me: String, isBankOut: (Txn) -> Boolean, rule: (Txn) -> Boolean?): List<Pair<Txn, Txn>> =
-        s.txns.values.asSequence()
+    fun staleCandidates(s: LedgerState, me: String, isBankOut: (Txn) -> Boolean, rule: (Txn) -> Boolean?): List<Pair<Txn, Txn>> {
+        val olds = s.txns.values
             .filter { it.private && it.memberId == me && it.move == null && it.kind == Kind.EXPENSE && it.cancelOf == null && captured(it) }
             .filter(isBankOut)
-            .map { it to judge(s, it, s.member(it.memberId)?.allowance ?: 0, rule(it)) }
-            .filter { (_, next) -> isMoved(next) }
+            .sortedWith(compareBy<Txn>({ it.at }, { it.id }))
+        var st = s
+        val out = ArrayList<Pair<Txn, Txn>>()
+        for (cur in olds) {
             // 사용자가 목록을 보고 정리하므로 '확인 필요'는 붙이지 않습니다.
-            .map { (cur, next) -> cur to next.copy(needsReview = false) }
-            .sortedByDescending { it.first.at }
-            .toList()
+            val next = judge(st, cur, st.member(cur.memberId)?.allowance ?: 0, rule(cur)).copy(needsReview = false)
+            if (!isMoved(next)) continue
+            out += cur to next
+            st = st.copy(txns = st.txns + (next.id to next))
+        }
+        return out.sortedByDescending { it.first.at }
+    }
+
+    /**
+     * 이 폰이 판정한 은행 출금 표시가 있는지(출금 정정 카드를 띄울지). 가족 돈 입금(`fund:`)과 "가족 돈 아니에요"(`apart`)는
+     * 입금 표시라 아닙니다(#54 리뷰: 입금에 출금 카드가 떠서 누르면 이체로 바뀌던 것).
+     */
+    fun withdrawalMarked(t: Txn): Boolean = t.move != null && t.kind != Kind.INCOME && fundOf(t) == null && t.move != APART
 }

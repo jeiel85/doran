@@ -272,4 +272,34 @@ class FamilyMoneyTest {
         val after = s.with(got.map { it.second })
         assertEquals(20_000L + 9_000L + 500_000L + 400_000L, Stats.allowanceSpent(after, "h", p))
     }
+
+    @Test fun staleWithdrawalsDoNotShareOneDepositOrFund() {
+        // #54 리뷰: 같은 가족 돈에 맞는 예전 출금 두 건 → 먼저 나간 것만 가족 돈에서 나감, 뒤의 것은 쓴 돈(용돈보다 작아 목록에 없음)
+        val sent = wifeOut("w1", 200_000, ms(13, 13))
+        val fund = Moves.asFund(myIn("i1", 200_000, ms(13, 13)), sent)
+        val a = myOut("o1", 200_000, ms(9, 0, d = 21))
+        val b = myOut("o2", 200_000, ms(9, 0, d = 22))
+        val s1 = ledger(sent, fund, a, b)
+        assertEquals(listOf("o1"), Moves.staleCandidates(s1, "h", { true }) { null }.map { it.first.id })
+        // 같은 입금(아내 통장)에 맞는 큰 출금 두 건 → 하나만 그 입금과 짝, 다른 하나는 금액 기준(용돈보다 큼)
+        val deposit = Txn("d1", Kind.INCOME, 1_000_000, ms(13, 0), accountId = wifeBank.id, merchant = "남편", memberId = "w",
+            source = Source.SMS, issuer = "신한은행", createdBy = "install-w")
+        val c = myOut("o3", 1_000_000, ms(12, 58), merchant = "급여")
+        val d = myOut("o4", 1_000_000, ms(13, 2), merchant = "급여")
+        val got = Moves.staleCandidates(ledger(deposit, c, d), "h", { true }) { null }.associate { it.first.id to it.second }
+        assertEquals(setOf("o3", "o4"), got.keys)
+        assertEquals(listOf("d1"), got.values.mapNotNull { Moves.pairOf(it) })
+        assertEquals(1, got.values.count { it.move == Moves.LARGE })
+    }
+
+    @Test fun familyMoneyDepositIsNotAJudgedWithdrawal() {
+        // #54 리뷰: 가족 돈 입금·"가족 돈 아니에요" 입금에 출금 정정 카드가 뜨지 않게
+        val sent = wifeOut("w1", 200_000, ms(13, 13))
+        val fund = Moves.asFund(myIn("i1", 200_000, ms(13, 13)), sent)
+        assertEquals(false, Moves.withdrawalMarked(fund))
+        assertEquals(false, Moves.withdrawalMarked(fund.copy(move = Moves.APART)))
+        assertTrue(Moves.withdrawalMarked(myOut("o1", 20_000, ms(14, 0)).copy(move = Moves.AUTO)))
+        assertTrue(Moves.withdrawalMarked(Moves.moved(myOut("o2", 900_000, ms(14, 0)), Moves.LARGE)))
+        assertEquals(false, Moves.withdrawalMarked(myOut("o3", 20_000, ms(14, 0))))
+    }
 }

@@ -492,11 +492,19 @@ class CaptureProcessor(
         }
     }
 
-    /** "모두 정리": 지금 기준대로 옮긴 돈으로 바꿉니다. 그사이 사용자가 고친 것은 건드리지 않습니다. */
+    /**
+     * "모두 정리": 보여 준 것들을 지금 장부로 다시 판정해(그사이 다른 출금이 같은 입금·가족 돈을 가져갔을 수 있어서, #54 리뷰)
+     * 아직 옮긴 돈인 것만 바꿉니다. 그사이 사용자가 고친 것은 건드리지 않습니다.
+     */
     @Synchronized
     fun applyStaleMoves(items: List<Pair<Txn, Txn>>) {
-        for ((before, next) in items) {
-            if (ledger.value.txns[before.id] != before) continue
+        val shown = items.map { it.first }.filter { ledger.value.txns[it.id] == it }.mapTo(HashSet()) { it.id }
+        if (shown.isEmpty()) return
+        val me = identity.value.myMemberId ?: return
+        val fresh = com.jeiel85.doran.logic.Moves.staleCandidates(ledger.value, me, { it.id in shown }) { t ->
+            settings.movedBy(com.jeiel85.doran.logic.Moves.ruleKey(t.issuer, t.merchant))
+        }
+        for ((_, next) in fresh) {
             ledger.saveTxn(next)
             noteMove(next)
         }
@@ -543,8 +551,9 @@ class CaptureProcessor(
      */
     fun isBankWithdrawal(t: Txn): Boolean {
         if (!t.private || t.memberId != identity.value.myMemberId || t.cancelOf != null || !t.source.captured) return false
-        if (t.move != null) return true
-        if (t.kind != Kind.EXPENSE) return false
+        if (t.kind == Kind.INCOME) return false
+        if (com.jeiel85.doran.logic.Moves.withdrawalMarked(t)) return true
+        if (t.move != null || t.kind != Kind.EXPENSE) return false
         return db.capturesOf(t.id).any { row ->
             Parser.parse(listOfNotNull(row.title, row.text).joinToString("\n"), Fmt.dateTime(row.at), row.label)
                 ?.let { it.type == Parsed.Type.WITHDRAWAL && !it.isCard && it.cardPaymentTo == null } == true
