@@ -15,8 +15,10 @@ import androidx.work.WorkerParameters
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.install.model.UpdateAvailability
 import com.google.android.play.core.ktx.requestAppUpdateInfo
+import com.jeiel85.doran.BuildConfig
 import com.jeiel85.doran.core.Hub
 import com.jeiel85.doran.ui.Notifier
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,6 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.TimeUnit
 
 /**
@@ -63,21 +66,48 @@ object SelfUpdate {
 
     fun busy(on: Boolean) = Unit
 
-    /** Play에 이 사용자가 받을 수 있는 더 높은 버전이 있는지. Play에서 받은 앱이 아니면(직접 설치한 디버그 등) 조용히 넘어갑니다. */
+    /**
+     * Play에 이 사용자가 받을 수 있는 더 높은 버전이 있는지. Play가 답하지 않으면(시간 초과·Play 스토어가 바쁨·Play에서 받지 않은
+     * 직접 설치본) 알던 새 버전은 그대로 두고 다음에 다시 묻습니다 — 배너가 잠깐의 실패로 사라지거나 "최신 버전"으로 잘못 보이지 않게.
+     */
     suspend fun check(context: Context, userInitiated: Boolean = false): UpdateState {
         if (userInitiated) _state.value = UpdateState.Checking
-        val next = runCatching {
-            val info = AppUpdateManagerFactory.create(context.applicationContext).requestAppUpdateInfo()
-            if (info.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE) UpdateState.StoreUpdate(versionName(info.availableVersionCode()))
-            else UpdateState.UpToDate
-        }.getOrElse { e ->
-            Log.i(TAG, "update check unavailable: ${e.message}")
-            if (userInitiated) UpdateState.Failed("Play 스토어에서 받은 둥지에서만 확인할 수 있어요") else UpdateState.Idle
+        val answer: UpdateState? = withTimeoutOrNull(TIMEOUT_MS) {
+            try {
+                val info = AppUpdateManagerFactory.create(context.applicationContext).requestAppUpdateInfo()
+                if (offered(info.updateAvailability(), info.availableVersionCode(), BuildConfig.VERSION_CODE))
+                    UpdateState.StoreUpdate(versionName(info.availableVersionCode()))
+                else UpdateState.UpToDate
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.i(TAG, "update check unavailable: ${e.message}")
+                null
+            }
         }
-        lastCheckAt = System.currentTimeMillis()
+        if (answer != null) lastCheckAt = System.currentTimeMillis()
+        val next = next(known, answer, userInitiated)
+        if (answer != null) known = answer as? UpdateState.StoreUpdate
         _state.value = next
         return next
     }
+
+    /** Play가 이 설치본보다 높은 버전을 내놓았는지. 스토어보다 새로 빌드한 설치본에는 띄우지 않습니다. */
+    fun offered(availability: Int, availableCode: Int, installedCode: Int): Boolean =
+        availability == UpdateAvailability.UPDATE_AVAILABLE && availableCode > installedCode
+
+    /** Play의 답([answer], 못 받았으면 null)과 지금까지 알던 새 버전([known])으로 보여 줄 상태를 정합니다. */
+    fun next(known: UpdateState.StoreUpdate?, answer: UpdateState?, userInitiated: Boolean): UpdateState = when {
+        answer != null -> answer
+        known != null -> known
+        userInitiated -> UpdateState.Failed(NO_ANSWER)
+        else -> UpdateState.Idle
+    }
+
+    const val NO_ANSWER = "Play 스토어가 답하지 않았어요 · Play 스토어에서 받은 둥지에서만 확인할 수 있어요"
+    private const val TIMEOUT_MS = 15_000L
+    /** 마지막으로 Play가 알려 준 새 버전(없으면 null). */
+    @Volatile private var known: UpdateState.StoreUpdate? = null
 
     /** Play 스토어 앱의 둥지 페이지(없으면 웹). 테스트 참여자에게는 그 트랙의 새 버전이 보입니다. */
     fun openStore(context: Context) {

@@ -31,7 +31,9 @@ fun UpdateSection(autoUpdate: Boolean) {
         is UpdateState.StoreUpdate -> "새 버전 ${st.version}이 나왔어요" to "지금 ${BuildConfig.VERSION_NAME} · Play 스토어에서 업데이트해요"
         UpdateState.Checking -> "확인하는 중…" to "Play 스토어에 새 버전이 있는지 보고 있어요"
         is UpdateState.Failed -> st.reason to "지금 ${BuildConfig.VERSION_NAME}"
-        else -> "최신 버전이에요 · ${BuildConfig.VERSION_NAME}" to "업데이트는 Play 스토어가 해요"
+        UpdateState.UpToDate -> "최신 버전이에요 · ${BuildConfig.VERSION_NAME}" to "업데이트는 Play 스토어가 해요"
+        // 아직 Play의 답을 못 받았으면 최신이라고 하지 않습니다.
+        else -> "지금 ${BuildConfig.VERSION_NAME}" to "'확인'을 누르면 Play 스토어에 새 버전이 있는지 봐요"
     }
     ListRow(title, sub, Icons.Rounded.InstallMobile, if (state is UpdateState.StoreUpdate) P.c.income else P.c.pine) {
         if (state is UpdateState.StoreUpdate) SmallButton("업데이트") { SelfUpdate.openStore(context) }

@@ -126,6 +126,11 @@ object Parser {
     private val TIME_ONLY = Regex("""(?<![\d:/])(\d{1,2}):(\d{2})(?![\d:])""")
     private val CARD_NO = Regex("""\(?\s*(?:\d{4}[-*]?\*{2,}[-*]?\*{0,4}[-*]?(\d{3,4})|[*]{2,}(\d{3,4}))\s*\)?|\((\d{4})\)""")
     private val ACCOUNT_NO = Regex("""\d{2,6}[-*]+\*+[-*\d]*\d{2,4}|\d{3,6}\*{2,}\d{2,4}""")
+    /**
+     * 카드사 알림이 체크카드라고 밝힌 낱말("[신한체크승인]", "체크카드", "[KB국민체크]", "체크 취소"). 가맹점 이름의 "체크인"·"헬스체크"는
+     * 아닙니다 — 이것으로 자동 기록이 만든 카드를 체크카드로 정하므로 넓게 잡지 않습니다(DECISIONS.md D-29).
+     */
+    private val CHECK_CARD = Regex("""체크\s*(?:카드|승인|취소|결제|사용|\(|])""")
     private val HOLDER = Regex("""[가-힣A-Z][*＊][가-힣A-Z]{0,2}\s*님?|[가-힣]{1,2}\*\s*님?""")
     /** 간편결제 알림의 "(결제 수단: 카드 간편결제)" — 가맹점이 아닙니다. */
     private val PAY_METHOD = Regex("""\(\s*결제\s*수단[^)\n]*\)|결제\s*수단\s*:[^\n|·,()]*""")
@@ -297,7 +302,7 @@ object Parser {
         return Parsed(
             type = type, issuer = issuer.name, isCard = issuer.card, amount = amount, last4 = last4,
             installment = installment, merchant = merchant, at = at, cumulative = cumulative, balance = balance,
-            foreign = foreign, checkCard = check || !issuer.card && type == Parsed.Type.APPROVAL, payMethod = payMethod,
+            foreign = foreign, checkCard = CHECK_CARD.containsMatchIn(text) || !issuer.card && type == Parsed.Type.APPROVAL, payMethod = payMethod,
         )
     }
 

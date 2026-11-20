@@ -48,9 +48,12 @@ fun AssetsScreen(nav: Nav) {
     val worth = remember(s.version) { Stats.netWorth(s) }
     val groups = remember(s.version) {
         val visible = s.accounts.values.filter { !it.hidden }.sortedBy { it.order }
+        // 잔액을 세지 않는 체크카드는 카드 묶음에(이번 달 쓴 돈), 잔액을 적어 통장처럼 쓰는 체크카드는 입출금 묶음에(D-29).
         listOf(
-            "현금·입출금" to visible.filter { it.type in setOf(AccountType.CASH, AccountType.BANK, AccountType.POINT, AccountType.CHECK) },
-            "카드" to visible.filter { it.type == AccountType.CARD },
+            "현금·입출금" to visible.filter {
+                it.type in setOf(AccountType.CASH, AccountType.BANK, AccountType.POINT) || it.type == AccountType.CHECK && Stats.keepsBalance(it)
+            },
+            "카드" to visible.filter { it.type == AccountType.CARD || it.type == AccountType.CHECK && !Stats.keepsBalance(it) },
             "저축·투자" to visible.filter { it.type in setOf(AccountType.SAVINGS, AccountType.INVEST) },
             "대출" to visible.filter { it.type == AccountType.LOAN },
         ).filter { it.second.isNotEmpty() }
@@ -99,6 +102,7 @@ fun AssetsScreen(nav: Nav) {
                     list.forEach { a ->
                         val bal = Stats.balance(s, a)
                         val owner = s.member(a.ownerId)
+                        val checkOnly = a.type == AccountType.CHECK && !Stats.keepsBalance(a)
                         val sub = buildList {
                             if (a.family) add("가족 카드" + (owner?.name?.let { " · 명의 $it" } ?: "")) else owner?.name?.let(::add)
                             add(a.type.label)
@@ -107,6 +111,7 @@ fun AssetsScreen(nav: Nav) {
                                 add("이번 달 ${Fmt.compact(c.monthSpent)}")
                                 c.dueDate?.let { add("${it.monthValue}/${it.dayOfMonth} 결제 ${Fmt.compact(c.dueAmount)}") }
                             }
+                            if (checkOnly) add("통장에서 바로 나가요")
                             if (a.anchorAt != null) add("잔액 알림 ${Fmt.relative(a.anchorAt)}")
                         }.joinToString(" · ")
                         ListRow(a.name, sub, leading = {
@@ -116,7 +121,10 @@ fun AssetsScreen(nav: Nav) {
                                 AccountType.POINT -> "income_etc"; AccountType.BANK -> "bank"
                             }, 42.dp)
                         }, onClick = { nav.go(Route.AccountEdit(a.id)) }) {
-                            Text(Fmt.won(bal), style = MaterialTheme.typography.titleSmall.merge(Money),
+                            if (checkOnly) Column(horizontalAlignment = Alignment.End) {
+                                Text("이번 달", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                                Text(Fmt.won(Stats.card(s, a).monthSpent), style = MaterialTheme.typography.titleSmall.merge(Money), color = P.c.ink)
+                            } else Text(Fmt.won(bal), style = MaterialTheme.typography.titleSmall.merge(Money),
                                 color = if (bal < 0) P.c.expense else P.c.ink)
                         }
                     }

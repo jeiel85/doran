@@ -378,7 +378,8 @@ class CaptureProcessor(
             Parsed.Type.WITHDRAWAL -> {
                 val cardIssuer = p.cardPaymentTo
                 if (cardIssuer != null) {
-                    val card = cardAccount(ledger.value, cardIssuer, null, me)
+                    // 카드값을 내는 것은 신용카드입니다(체크카드는 통장에서 바로 나가 청구가 없음).
+                    val card = cardAccount(ledger.value, cardIssuer, null, me, check = false)
                     base(p, source, at, me, account, label).copy(kind = Kind.TRANSFER, toAccountId = card.id, categoryId = null,
                         merchant = "$cardIssuer 카드값")
                 } else base(p, source, at, me, account, label).copy(kind = Kind.EXPENSE)
@@ -583,24 +584,22 @@ class CaptureProcessor(
 
     /** 알림의 카드사·은행으로 계좌를 찾고, 없으면 만들어 둡니다(자산 화면에 바로 보이게). */
     private fun accountFor(s: LedgerState, p: Parsed, me: String?): Account =
-        if (p.isCard) cardAccount(s, p.issuer, p.last4, me)
+        if (p.isCard) cardAccount(s, p.issuer, p.last4, me, p.checkCard)
         else s.accounts.values.firstOrNull { it.institution == p.issuer && it.type == AccountType.BANK && (it.ownerId == me || it.ownerId == null) }
             // 알림으로 처음 만든 계좌는 기준 시각을 0으로 둡니다: 알림의 거래 시각이 계좌를 만든 순간보다 조금 이를 수 있어서.
             ?: Account(id = newId(), name = p.issuer, type = AccountType.BANK, ownerId = me, institution = p.issuer,
                 openingAt = 0, order = s.accounts.size).also { ledger.saveAccount(it) }
 
-    private fun cardAccount(s: LedgerState, issuer: String, last4: String?, me: String?): Account {
-        val mine = s.accounts.values.filter {
-            it.institution == issuer && (it.type == AccountType.CARD || it.type == AccountType.CHECK) && (it.ownerId == me || it.ownerId == null)
-        }
-        mine.firstOrNull { last4 != null && it.last4 == last4 }?.let { return it }
-        mine.firstOrNull { it.last4 == null || last4 == null }?.let { a ->
-            return if (a.last4 == null && last4 != null) a.copy(last4 = last4).also { ledger.saveAccount(it) } else a
+    private fun cardAccount(s: LedgerState, issuer: String, last4: String?, me: String?, check: Boolean): Account {
+        pickCard(s.accounts.values, issuer, last4, me, check)?.let { a ->
+            val fixed = refreshCard(a, last4, check)
+            if (fixed != a) ledger.saveAccount(fixed)
+            return fixed
         }
         // 정한 결제만 보내는 사람의 보내는 카드는 가족이 함께 쓰는 카드라 처음부터 가족 카드로(D-20).
         val family = s.member(me)?.let { it.sharesPicked && it.shares(issuer) } == true
-        return Account(id = newId(), name = issuer + (last4?.let { " $it" } ?: ""), type = AccountType.CARD, ownerId = me,
-            institution = issuer, last4 = last4, cycleStartDay = 1, openingAt = 0, order = s.accounts.size, family = family)
+        return Account(id = newId(), name = issuer + (last4?.let { " $it" } ?: ""), type = if (check) AccountType.CHECK else AccountType.CARD,
+            ownerId = me, institution = issuer, last4 = last4, cycleStartDay = 1, openingAt = 0, order = s.accounts.size, family = family)
             .also { ledger.saveAccount(it) }
     }
 
@@ -669,6 +668,32 @@ class CaptureProcessor(
 
         /** 이 링크로 보낼 카드사·은행인지. 비어 있으면 전부, 표기가 달라도 같은 곳이면 보냅니다(#10). */
         fun sendsTo(link: OutLink, issuer: String): Boolean = link.issuers.isEmpty() || link.issuers.any { Issuers.same(it, issuer) }
+
+        /**
+         * 카드사 알림이 갈 이 사람(또는 공동)의 카드 계좌. 끝자리가 같은 카드가 먼저이고, 어느 한쪽이 끝자리를 모르면
+         * 같은 종류(체크·신용)의 카드, 그다음 아무 카드입니다. 없으면 null(새로 만듦).
+         */
+        fun pickCard(accounts: Collection<Account>, issuer: String, last4: String?, me: String?, check: Boolean): Account? {
+            val mine = accounts.filter {
+                it.institution == issuer && (it.type == AccountType.CARD || it.type == AccountType.CHECK) && (it.ownerId == me || it.ownerId == null)
+            }
+            mine.firstOrNull { last4 != null && it.last4 == last4 }?.let { return it }
+            val loose = mine.filter { it.last4 == null || last4 == null }
+            return loose.firstOrNull { (it.type == AccountType.CHECK) == check } ?: loose.firstOrNull()
+        }
+
+        /**
+         * 고른 카드에 알림이 알려 준 것을 채웁니다: 모르던 끝자리, 그리고 체크카드 알림이 끝자리까지 같은 '신용카드'면 체크카드로.
+         * 결제일을 정한 카드는 사람이 신용카드로 맞춘 것이라 두고, 끝자리를 모르는 알림으로는 바꾸지 않습니다
+         * (같은 카드사의 신용카드를 체크카드로 바꿀 수 있어서 — DECISIONS.md D-29).
+         */
+        fun refreshCard(a: Account, last4: String?, check: Boolean): Account {
+            val sameCard = last4 != null && a.last4 == last4
+            return a.copy(
+                last4 = a.last4 ?: last4,
+                type = if (check && sameCard && a.type == AccountType.CARD && a.billingDay == null) AccountType.CHECK else a.type,
+            )
+        }
 
         /** 시험용: 지금 시각을 넣어 해석만 해 봅니다(설정 화면 "문구 시험"). */
         fun preview(text: String): Parsed? = Parser.parse(text, LocalDateTime.now())

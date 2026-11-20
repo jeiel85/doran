@@ -76,11 +76,25 @@ fun BudgetScreen(nav: Nav) {
     val spent = Stats.byCategory(entries, Kind.EXPENSE).toMap()
     var total by remember { mutableStateOf(s.household.budget.takeIf { it > 0 }?.toString() ?: "") }
     var edit by remember { mutableStateOf<Category?>(null) }
+    val me = s.member(id.myMemberId)
     SubScreen("예산", { nav.back() }) {
+        // 리뷰(2026-11-20): 남편이 자기 용돈을 여기 적었더니 아내 홈에도 같은 금액이 예산으로 보였어요. 예산은 가구 하나의 설정이라
+        // 가족 모두에게 같이 보입니다 — 용돈이 있는 사람에게는 용돈 화면을 먼저 가리킵니다.
+        if (me != null && me.allowance > 0) item {
+            SoftCard(color = P.c.apricotSoft, padding = PaddingValues(16.dp)) {
+                Text("내 용돈 ${Fmt.won(me.allowance)}은 여기가 아니라 '용돈'에서 정해요", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
+                Text("여기 예산은 가족 가계부 전체 예산이라, 바꾸면 가족 폰의 홈에도 같은 예산이 보여요.",
+                    style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                Spacer(Modifier.height(8.dp))
+                SmallButton("용돈으로 가기", color = P.c.apricot) { nav.go(Route.Allowance) }
+            }
+            Spacer(Modifier.height(14.dp))
+        }
         item {
             SoftCard {
-                Text("한 달 전체 예산", style = MaterialTheme.typography.titleMedium, color = P.c.ink)
-                Text("이번 달 지금까지 ${Fmt.won(Stats.expense(entries))} 썼어요", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                Text("가족 가계부 한 달 예산", style = MaterialTheme.typography.titleMedium, color = P.c.ink)
+                Text("가족 모두에게 같은 예산이 보여요 · 이번 달 지금까지 ${Fmt.won(Stats.expense(entries))} 썼어요",
+                    style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
                 Spacer(Modifier.height(12.dp))
                 AmountField("월 예산", total) { total = it }
                 Spacer(Modifier.height(12.dp))
@@ -373,7 +387,7 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
     var name by remember { mutableStateOf(o?.name ?: "") }
     var type by remember { mutableStateOf(o?.type ?: AccountType.BANK) }
     var ownerId by remember { mutableStateOf(o?.ownerId ?: id.myMemberId) }
-    var balance by remember { mutableStateOf(o?.let { Stats.balance(s, it) }?.let { kotlin.math.abs(it).toString() } ?: "") }
+    var balance by remember { mutableStateOf(o?.takeIf { Stats.keepsBalance(it) }?.let { kotlin.math.abs(Stats.balance(s, it)).toString() } ?: "") }
     var billingDay by remember { mutableStateOf(o?.billingDay?.toString() ?: "") }
     var cycleStart by remember { mutableStateOf((o?.cycleStartDay ?: 1).toString()) }
     var institution by remember { mutableStateOf(o?.institution ?: "") }
@@ -382,13 +396,15 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
     var hidden by remember { mutableStateOf(o?.hidden ?: false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val used = o != null && s.txns.values.any { it.accountId == o.id || it.toAccountId == o.id }
+    // 체크카드는 잔액을 정한 적이 있을 때만(통장처럼 쓰던 것) 잔액 칸을 보여 줍니다(D-29). 종류 칩을 바꾸면 바뀔 종류로 봅니다.
+    val noBalance = !Stats.keepsBalance((o ?: Account(id = "", name = "", type = type)).copy(type = type))
 
     SubScreen(if (o == null) "계좌·카드 추가" else o.name, { nav.back() }, actions = {
         if (o != null) IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.DeleteOutline, "지우기", tint = P.c.danger) }
     }, bottom = {
         PrimaryButton("저장", enabled = name.isNotBlank()) {
             val now = System.currentTimeMillis()
-            val bal = if (type == AccountType.CARD) null else balance.toLongOrNull()?.let { if (type.asset) it else -it }
+            val bal = if (noBalance) null else balance.toLongOrNull()?.let { if (type.asset) it else -it }
             val base = o ?: Account(id = newId(), name = "", type = type, openingAt = now, order = s.accounts.size)
             // 잔액을 고쳤으면 지금 시각 기준점으로 맞춥니다(이후 내역만 더함).
             val changed = bal != null && (o == null || bal != Stats.balance(s, o))
@@ -402,7 +418,10 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
         }
     }) {
         item {
-            Field("이름", name, { name = it }, "예: 현대카드 M, 생활비 통장")
+            Field("이름(별명)", name, { name = it }, "예: 가계부 카드, 생활비 통장")
+            // 알림으로 생긴 카드·통장은 "신한카드 1234"처럼 카드사와 끝자리로 이름이 붙어 무슨 카드인지 헷갈립니다(2026-11-20 리뷰).
+            Text("내역·홈 카드에 이 이름으로 보여요. 알아보기 쉬운 별명으로 바꿔 두세요.",
+                style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft, modifier = Modifier.padding(start = 8.dp, top = 4.dp))
             Spacer(Modifier.height(14.dp))
             Text("종류", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
             Spacer(Modifier.height(8.dp))
@@ -413,7 +432,15 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
             if (type == AccountType.CARD) {
                 Text("카드의 갚을 돈은 결제일이 오지 않은 이용액으로 저절로 계산해요(할부는 남은 회차만).",
                     style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft, modifier = Modifier.padding(start = 8.dp))
-            } else AmountField(if (type.asset) "지금 잔액" else "지금 갚을 금액", balance) { balance = it }
+            } else if (noBalance) {
+                Text("체크카드는 연결된 통장에서 바로 나가서 잔액을 따로 세지 않고 이번 달 쓴 돈만 보여요. 잔액은 그 통장에서 봐요.",
+                    style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft, modifier = Modifier.padding(start = 8.dp))
+            } else {
+                AmountField(if (type.asset) "지금 잔액" else "지금 갚을 금액", balance) { balance = it }
+                // 리뷰(2026-11-20) "전월 잔액을 매번 입력해야 하나": 한 번만 적으면 되고, 은행 알림에 잔액이 있으면 저절로 맞춰져요.
+                if (type == AccountType.BANK) Text("한 번만 적으면 돼요. 이 은행 알림에 '잔액'이 적혀 오면 그때마다 저절로 맞춰져요.",
+                    style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft, modifier = Modifier.padding(start = 8.dp, top = 4.dp))
+            }
             Spacer(Modifier.height(10.dp))
             Field("카드사·은행 (알림 연결용)", institution, { institution = it }, "예: 현대카드, KB국민은행")
             if (type == AccountType.CARD) {
