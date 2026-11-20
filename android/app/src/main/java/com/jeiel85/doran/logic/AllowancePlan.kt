@@ -2,6 +2,7 @@ package com.jeiel85.doran.logic
 
 import com.jeiel85.doran.core.Fmt
 import com.jeiel85.doran.data.Ledger
+import com.jeiel85.doran.data.LedgerState
 import com.jeiel85.doran.model.Defaults
 import com.jeiel85.doran.model.Kind
 import com.jeiel85.doran.model.Member
@@ -19,6 +20,15 @@ object AllowancePlan {
     fun idFor(memberId: String) = PREFIX + memberId
     /** 이 규칙이 월 용돈 규칙인지(고정지출 화면에서 지출·수입을 바꾸지 못하게). */
     fun isRule(recurringId: String) = recurringId.startsWith(PREFIX)
+
+    /**
+     * 예전 버전에서 고정지출 화면으로 수입으로 바뀐 월 용돈 규칙을 지출로 되돌린 것(D-20, 0.2.2). 하루 한 번 저장합니다(`Hooks.daily`).
+     * 수입으로 두면 홈에 "+35만"으로 보이고, 정한 날 아내의 용돈 이체 대신 내 '나만 보는 용돈' 입금에 이어집니다.
+     * 용돈을 다시 저장해야만 고쳐지던 것을, 이름·금액·멈춤은 건드리지 않고 종류와 카테고리만 바로잡습니다.
+     */
+    fun repaired(s: LedgerState): List<Recurring> =
+        s.recurrings.values.filter { isRule(it.id) && it.kind != Kind.EXPENSE }
+            .map { it.copy(kind = Kind.EXPENSE, categoryId = Defaults.ALLOWANCE) }
 
     /** 용돈 규칙이 바뀌었으면 true(그때 고정지출을 바로 기록해 이번 달 몫이 보이게). */
     fun sync(ledger: Ledger, m: Member, today: LocalDate = LocalDate.now(Fmt.zone)): Boolean {

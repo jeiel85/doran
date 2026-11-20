@@ -116,7 +116,9 @@ fun BudgetScreen(nav: Nav) {
 private fun describe(r: Recurring): String = when (r.period) {
     "w" -> "매주 ${listOf("", "월", "화", "수", "목", "금", "토", "일")[r.day.coerceIn(1, 7)]}요일"
     "y" -> "매년 ${r.month}월 ${r.day}일"
-    else -> if (r.day >= 31) "매달 말일" else "매달 ${r.day}일"
+    else -> (if (r.day >= 31) "매달 말일" else "매달 ${r.day}일") +
+        // 월 용돈은 그날이 주말이면 앞 금요일에 들어갑니다(Stats.dueDates, D-27).
+        (if (com.jeiel85.doran.logic.AllowancePlan.isRule(r.id)) " · 주말이면 앞 금요일" else "")
 }
 
 @Composable
@@ -196,7 +198,7 @@ fun RecurringEditScreen(rid: String?, nav: Nav) {
     }) {
         item {
             if (allowanceRule) {
-                Text("월 용돈은 가계부에서 나가는 돈이라 늘 지출로 한 번 들어가요.",
+                Text("월 용돈은 가계부에서 나가는 돈이라 늘 지출로 한 번 들어가요. 정한 날이 토·일이면 월급이 먼저 들어오는 앞 금요일에 들어가요.",
                     style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
             } else Segmented(listOf("지출", "수입"), if (kind == Kind.INCOME) 1 else 0) {
                 kind = if (it == 1) Kind.INCOME else Kind.EXPENSE
@@ -457,7 +459,9 @@ fun AllowanceScreen(nav: Nav) {
     val me = s.member(id.myMemberId)
     var amount by remember { mutableStateOf(me?.allowance?.takeIf { it > 0 }?.toString() ?: "") }
     val p = Stats.current(s)
-    val mine = s.txns.values.filter { it.private && it.memberId == me?.id && it.cancelOf == null && it.at in p }.sortedByDescending { it.at }
+    // 내 내역은 용돈이 들어온 날부터 센 용돈 기간(D-27), 가족 용돈 합계는 가계부 기간(D-7).
+    val ap = Stats.allowancePeriod(s, me?.id)
+    val mine = s.txns.values.filter { it.private && it.memberId == me?.id && it.cancelOf == null && it.at in ap }.sortedByDescending { it.at }
     val others = s.allowances.values.filter { it.month == p.key && it.memberId != me?.id }
     SubScreen("용돈", { nav.back() }) {
         item {
@@ -491,7 +495,10 @@ fun AllowanceScreen(nav: Nav) {
                 }
             }
         }
-        item { Spacer(Modifier.height(20.dp)); SectionTitle("이번 달 내 용돈 내역") }
+        item {
+            Spacer(Modifier.height(20.dp))
+            SectionTitle("이번 용돈 기간 내역 · ${ap.start.monthValue}.${ap.start.dayOfMonth} ~ ${ap.end.minusDays(1).monthValue}.${ap.end.minusDays(1).dayOfMonth}")
+        }
         if (mine.isEmpty()) item { Text("아직 없어요. 내역을 쓸 때 '내 용돈으로 쓰기'를 켜거나, 계좌 설정에서 용돈 카드를 지정하세요.",
             style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft) }
         items(mine, key = { it.id }) { t ->

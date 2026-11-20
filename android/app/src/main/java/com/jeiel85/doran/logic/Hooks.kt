@@ -191,6 +191,7 @@ object Hooks {
      * 일마다 따로 감싸, 하나가 예외를 내도 앱 범위 코루틴이 죽거나 나머지 일이 빠지지 않게 합니다(#19).
      */
     fun daily(context: Context) {
+        step("월 용돈 규칙") { AllowancePlan.repaired(Hub.ledger.value).forEach { Hub.ledger.saveRecurring(it) } }
         step("고정지출") {
             val made = Recurrer.run(Hub.ledger, Hub.db, Hub.identity.installId)
             if (made.isNotEmpty() && Hub.settings.value.notifyRecurring) {

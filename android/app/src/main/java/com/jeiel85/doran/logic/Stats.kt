@@ -102,6 +102,21 @@ object Stats {
     fun allowanceTxns(s: LedgerState, memberId: String?, p: Period): List<Txn> =
         s.txns.values.filter { it.private && it.memberId == memberId && it.cancelOf == null && it.kind == Kind.EXPENSE && it.at in p }
 
+    /**
+     * [memberId]의 용돈 기간: 월 용돈 규칙이 들어가는 날(주말이면 앞 금요일)부터 다음 그날 전날까지(DECISIONS.md D-27).
+     * 용돈은 그날 채워지므로, 가계부 한 달(한 달 시작일)과 날짜가 달라도 남은 용돈은 이 기간으로 셉니다.
+     * 규칙이 없거나 멈췄으면 가계부 기간. 가족에게 가는 용돈 월 합계(D-7)는 그대로 가계부 기간입니다.
+     */
+    fun allowancePeriod(s: LedgerState, memberId: String?, date: LocalDate = LocalDate.now(Fmt.zone)): Period {
+        val r = memberId?.let { s.recurrings[AllowancePlan.idFor(it)] }?.takeIf { it.period == "m" && !it.paused }
+            ?: return periodOf(date, s.household.monthStartDay)
+        fun due(ym: YearMonth) = beforeWeekend(ym.atDay(r.day.coerceIn(1, ym.lengthOfMonth())))
+        // 지난달 몫은 늘 [date] 전이고, 두 달 뒤 몫은 늘 뒤라 그 사이에서 찾습니다(1·2일이 앞 달로 당겨져도).
+        val months = (-1L..2L).map { YearMonth.from(date).plusMonths(it) }
+        val i = months.indexOfLast { !due(it).isAfter(date) }
+        return Period(months[i], due(months[i]), due(months[i + 1]))
+    }
+
     fun allowanceSpent(s: LedgerState, memberId: String?, p: Period): Long {
         val canceled = s.canceled
         return allowanceTxns(s, memberId, p).sumOf { (it.amount - (canceled[it.id] ?: 0)).coerceAtLeast(0) }
@@ -279,6 +294,17 @@ object Stats {
 
     // --- 고정지출 -------------------------------------------------------------------------------
 
+    /** [d]가 토·일이면 앞 금요일. 월급날이 주말이면 앞 평일에 들어오기 때문입니다(DECISIONS.md D-27). 공휴일은 보지 않습니다. */
+    fun beforeWeekend(d: LocalDate): LocalDate = when (d.dayOfWeek) {
+        DayOfWeek.SATURDAY -> d.minusDays(1)
+        DayOfWeek.SUNDAY -> d.minusDays(2)
+        else -> d
+    }
+
+    /**
+     * [from]~[to] 사이에 [r]이 장부에 들어갈 날. 월 용돈 규칙(D-20)은 월급날 받는 돈이라 그날이 토·일이면 앞 금요일에
+     * 들어갑니다(D-27). 다른 고정 규칙(자동이체·구독)은 은행이 대개 다음 영업일에 빼 가므로 그대로 둡니다.
+     */
     fun dueDates(r: Recurring, from: LocalDate, to: LocalDate): List<LocalDate> {
         if (r.paused) return emptyList()
         val start = maxOf(from, Fmt.date(r.startAt))
@@ -298,9 +324,13 @@ object Stats {
                 if (!d.isBefore(start) && !d.isAfter(end)) out += d
             }
             else -> {
+                val payday = AllowancePlan.isRule(r.id)
+                // 앞당긴 날은 앞 달 말일에 올 수 있어(1·2일이 토·일) 한 달 더 봅니다. 그 밖의 날은 범위 밖이라 걸러져요.
+                val last = YearMonth.from(end).plusMonths(1)
                 var ym = YearMonth.from(start)
-                while (!ym.atDay(1).isAfter(end)) {
-                    val d = ym.atDay(r.day.coerceIn(1, ym.lengthOfMonth()))
+                while (!ym.isAfter(last)) {
+                    val day = ym.atDay(r.day.coerceIn(1, ym.lengthOfMonth()))
+                    val d = if (payday) beforeWeekend(day) else day
                     if (!d.isBefore(start) && !d.isAfter(end)) out += d
                     ym = ym.plusMonths(1)
                 }
