@@ -34,6 +34,18 @@ class AiJudgeTest {
         listOf("3,200,000", "5,600,000", "12,300원", "2026-11-20", "11:25", "(****)").forEach { assertTrue(it, masked.contains(it)) }
     }
 
+    @Test fun outgoingMessageMasksTheSenderLabelToo() {
+        // 문자는 앱 이름 자리에 보낸 번호가 들어감("문자 0221234567") — 그 줄도 가림(#44 리뷰)
+        val msg = AiPrompt.user("문자 0221234567", "[신한] 110-123-456789 출금 30,000원")
+        assertFalse(msg, msg.contains("0221234567"))
+        assertFalse(msg, msg.contains("110-123-456789"))
+        assertTrue(msg, msg.contains("문자 ****"))
+        assertTrue(msg, msg.contains("30,000원"))
+        // 카드사 대표번호(8자리)·앱 이름은 그대로
+        assertTrue(AiPrompt.user("문자 15776000", "x").contains("문자 15776000"))
+        assertTrue(AiPrompt.user("토스", "x").contains("알림을 올린 앱: 토스"))
+    }
+
     @Test fun bareAmountsInBankTextsAreKept() {
         // 은행 문자는 "입금 3200000"처럼 쉼표 없이 금액을 쓰기도 함(9자리 이하는 금액으로 둠)
         assertEquals("[KB] 입금 3200000 잔액 120000000", AiPrompt.mask("[KB] 입금 3200000 잔액 120000000"))

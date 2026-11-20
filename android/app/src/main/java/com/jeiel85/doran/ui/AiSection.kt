@@ -33,7 +33,8 @@ fun AiCheckSection() {
     val settings by Hub.settings.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var picked by remember { mutableStateOf(AiProvider.of(settings.aiProvider)) }
-    var keyInput by remember { mutableStateOf("") }
+    // 회사를 바꾸면 입력하던 키를 비웁니다: 한 회사의 키가 다른 회사 이름으로 저장·전송되지 않게(#44 리뷰).
+    var keyInput by remember(picked) { mutableStateOf("") }
     var model by remember(picked) { mutableStateOf(if (picked?.code == settings.aiProvider) settings.aiModel else "") }
     var tick by remember { mutableIntStateOf(0) }
     val tail = remember(picked, tick) { picked?.let { Hub.local.aiKeyTail(it.code) } }

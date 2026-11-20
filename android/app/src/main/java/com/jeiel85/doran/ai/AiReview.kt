@@ -45,6 +45,8 @@ class AiReview(private val db: Db, private val local: LocalSettings) {
             val s = setup() ?: return@withContext 0 to "AI를 고르고 API 키를 저장해 주세요"
             var done = 0
             for (row in db.capturesWithoutAi(since, limit)) {
+                // 도는 사이에 끄거나 키·회사·모델을 바꿨으면 남은 알림을 보내지 않습니다(사용자가 거둔 동의, #44 리뷰).
+                if (setup() != s) return@withContext done to "AI 설정이 바뀌어 멈췄어요"
                 val (verdict, err) = judge(s, appOf(row), bodyOf(row))
                 if (err != null && !err.belongsToNotice) {
                     lastProblem = err.message
@@ -67,7 +69,7 @@ class AiReview(private val db: Db, private val local: LocalSettings) {
     private fun judge(s: Setup, app: String?, text: String): Pair<AiVerdict, AiError?> {
         val at = System.currentTimeMillis()
         return try {
-            val user = AiPrompt.user(app, AiPrompt.mask(text))
+            val user = AiPrompt.user(app, text)
             val out = when (s.provider) {
                 AiProvider.CLAUDE -> ClaudeClient.ask(s.key, s.model, AiPrompt.SYSTEM, user, AiPrompt.schema)
                 AiProvider.OPENAI -> OpenAiClient.ask(s.key, s.model, AiPrompt.SYSTEM, user, AiPrompt.schema)
