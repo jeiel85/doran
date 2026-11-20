@@ -89,6 +89,10 @@ class FixedTest {
         val transfer = Txn("t", Kind.TRANSFER, 350_000, ms(25, 11), source = Source.PUSH)
         assertNull(Fixed.planned(listOf(plannedExpense), cancel, null))
         assertNull(Fixed.planned(listOf(plannedExpense), transfer, null))
+        // 원래 승인을 못 찾은 취소는 cancelOf 없는 '확인 필요' 수입으로 기록돼요. 고정수입 자리를 채우면 안 됩니다(#34 리뷰).
+        val orphanRefund = Txn("o", Kind.INCOME, 350_000, ms(25, 11), categoryId = Defaults.INCOME_FALLBACK, needsReview = true, source = Source.PUSH)
+        assertNull(Fixed.planned(listOf(plannedIncome), orphanRefund, null, cancelNotice = true))
+        assertEquals(plannedIncome.id, Fixed.planned(listOf(plannedIncome), orphanRefund, null)?.id) // 입금 알림이었다면 채움
         // 이미 알림으로 채운 자리(출처가 고정이 아님)는 다시 채우지 않아요.
         val filled = plannedExpense.copy(source = Source.SMS)
         assertNull(Fixed.planned(listOf(filled), Txn("n", Kind.EXPENSE, 350_000, ms(25, 12), source = Source.PUSH), null))

@@ -50,9 +50,11 @@ object Fixed {
      * 알림으로 읽은 [txn]이 채울, 고정 규칙이 미리 넣어 둔 내역. 지출은 지출에, 수입은 수입에만 맞춥니다
      * (예전에는 종류를 보지 않아, 고정수입과 금액이 같은 카드 결제가 그 수입 내역을 지출로 덮어썼어요).
      * 같은 금액, 3일 안, 미리 넣은 내역에 계좌가 정해져 있으면 같은 계좌. 이체·취소는 맞추지 않습니다.
+     * [cancelNotice]: 승인 취소 알림. 원래 승인을 못 찾은 취소는 `cancelOf` 없는 '확인 필요' 수입으로 기록되므로,
+     * 그것이 고정수입 자리를 채우지 않게 알림 종류로도 막습니다(#34 리뷰).
      */
-    fun planned(txns: Collection<Txn>, txn: Txn, accountId: String?): Txn? {
-        if (txn.kind == Kind.TRANSFER || txn.cancelOf != null) return null
+    fun planned(txns: Collection<Txn>, txn: Txn, accountId: String?, cancelNotice: Boolean = false): Txn? {
+        if (cancelNotice || txn.kind == Kind.TRANSFER || txn.cancelOf != null) return null
         return txns.firstOrNull {
             it.source == Source.RECURRING && it.kind == txn.kind && it.amount == txn.amount && it.cancelOf == null &&
                 abs(it.at - txn.at) <= NEAR && (it.accountId == null || it.accountId == accountId)

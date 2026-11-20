@@ -384,7 +384,7 @@ class CaptureProcessor(
         }
 
         // 고정지출·고정수입으로 미리 잡아 둔 같은 종류·금액이 있으면 새로 만들지 않고 그 자리를 채웁니다.
-        val planned = com.jeiel85.doran.logic.Fixed.planned(ledger.value.txns.values, txn, account.id)
+        val planned = com.jeiel85.doran.logic.Fixed.planned(ledger.value.txns.values, txn, account.id, cancelNotice = isCancel)
         val saved = if (planned != null) txn.copy(id = planned.id, recurringId = planned.recurringId,
             categoryId = planned.categoryId ?: txn.categoryId, memo = planned.memo.ifBlank { txn.memo }) else txn
         ledger.saveTxn(saved)
