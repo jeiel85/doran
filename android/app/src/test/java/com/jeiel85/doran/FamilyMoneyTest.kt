@@ -126,6 +126,24 @@ class FamilyMoneyTest {
         assertEquals("k3", Moves.linkOf(again.with(Moves.linkUpdates(again, setOf("k3"))).txns.getValue("w1")))
     }
 
+    @Test fun editedPairNoLongerMatchingIsUnlinked() {
+        // #54 리뷰: 짝지은 뒤 금액·날짜·통장을 고치면(종류는 그대로라 move가 남음) 조건을 다시 보고 둘 다 풀어 합계에 다시 넣음
+        val linked = ledger(wifeOut("w1", 300_000, ms(13, 6)), sharedIn("k1", 300_000, ms(13, 6)))
+            .let { it.with(Moves.linkUpdates(it, setOf("k1"))) }
+        fun afterEdit(edit: (Txn) -> Txn): LedgerState {
+            val s = linked.with(listOf(edit(linked.txns.getValue("k1"))))
+            return s.with(Moves.linkUpdates(s, setOf("k1")))
+        }
+        for (s in listOf(afterEdit { it.copy(amount = 310_000) }, afterEdit { it.copy(at = ms(15, 0)) }, afterEdit { it.copy(accountId = wifeBank.id) })) {
+            assertNull(s.txns.getValue("w1").move)
+            assertNull(s.txns.getValue("k1").move)
+            assertTrue(Stats.counts(s, s.txns.getValue("w1")))
+        }
+        // 메모·카테고리만 고친 것은 그대로 짝
+        val memo = afterEdit { it.copy(memo = "10월 관리비", categoryId = "c.income_etc") }
+        assertEquals("w1", Moves.linkOf(memo.txns.getValue("k1")))
+    }
+
     @Test fun apartStaysApartUntilRelinked() {
         val out = wifeOut("w1", 300_000, ms(13, 6))
         val inn = sharedIn("k1", 300_000, ms(13, 6))

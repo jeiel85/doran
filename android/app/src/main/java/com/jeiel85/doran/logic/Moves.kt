@@ -246,6 +246,11 @@ object Moves {
 
     fun link(a: Txn, b: Txn): List<Txn> = listOf(a.copy(move = LINK + b.id), b.copy(move = LINK + a.id))
 
+    /** 두 공유 내역이 옮긴 돈 한 쌍의 조건에 맞는지(짝 표시는 보지 않음): 출금 하나·입금 하나, 같은 금액, 서로 다른 통장, 앞뒤 [WINDOW]. */
+    fun pairFits(s: LedgerState, a: Txn, b: Txn): Boolean =
+        setOf(a.kind, b.kind) == setOf(Kind.EXPENSE, Kind.INCOME) && a.amount == b.amount && a.accountId != b.accountId &&
+            abs(a.at - b.at) <= WINDOW && linkable(s, a) && linkable(s, b)
+
     /** 내역 화면 "따로 세기": 두 쪽을 풀고 다시 짝짓지 않게 합니다. 다른 쪽이 없으면 이쪽만. */
     fun apart(s: LedgerState, t: Txn): List<Txn> =
         listOfNotNull(t, linkOf(t)?.let { s.txns[it] }?.takeIf { linkOf(it) == t.id }).map { it.copy(move = APART) }
@@ -254,15 +259,16 @@ object Moves {
     fun relink(s: LedgerState, t: Txn): List<Txn> = linkPartner(s, t, again = true)?.let { link(t, it) } ?: emptyList()
 
     /**
-     * 장부가 바뀐 뒤 고칠 공유 내역들: 짝이 끊긴 것(다른 쪽이 지워졌거나 다른 쪽이 나를 가리키지 않음)은 비워 다시 찾게 하고,
+     * 장부가 바뀐 뒤 고칠 공유 내역들: 짝이 끊긴 것(다른 쪽이 지워졌거나 다른 쪽이 나를 가리키지 않음)과, 짝지은 뒤 금액·날짜·통장을
+     * 고쳐 더는 한 쌍의 조건([pairFits])에 맞지 않는 것은 비워 다시 찾게 하고(#54 리뷰),
      * 바뀐 내역 근처(같은 금액·앞뒤 [WINDOW]의 두 배)의 짝 없는 출금·입금을 묶습니다. 후보 짝을 시각 차이 → 출금 id → 입금 id 순으로
      * 정렬해 앞에서부터 묶으므로, 어느 내역부터 보든 어느 폰이 하든 같은 짝이 됩니다.
      */
     fun linkUpdates(s: LedgerState, changedIds: Set<String>): List<Txn> {
         val out = LinkedHashMap<String, Txn>()
         for (t in s.txns.values) {
-            val other = linkOf(t) ?: continue
-            if (t.private || s.txns[other]?.let(::linkOf) != t.id) out[t.id] = t.copy(move = null)
+            val other = linkOf(t)?.let { s.txns[it] }
+            if (linkOf(t) != null && (t.private || other == null || linkOf(other) != t.id || !pairFits(s, t, other))) out[t.id] = t.copy(move = null)
         }
         val st = if (out.isEmpty()) s else s.copy(txns = s.txns + out)
         val seeds = (changedIds + out.keys).mapNotNull { st.txns[it] }.filter { it.move == null && linkable(st, it) }
