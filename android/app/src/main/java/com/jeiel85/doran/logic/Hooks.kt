@@ -132,6 +132,10 @@ object Hooks {
         }
     }
 
+    /** 예산 알림 제목: "식비를 다 썼어요", "이번 달 예산의 80%를 썼어요" — 이름 받침에 맞춘 조사, 빈칸 없이. */
+    fun budgetTitle(name: String, level: Int): String =
+        if (level == 100) "${Josa.eulReul(name)} 다 썼어요" else "${Josa.ui(name)} $level%를 썼어요"
+
     private fun budgetCheck(context: Context) {
         if (!Hub.settings.value.notifyBudget) return
         val s = Hub.ledger.value
@@ -143,8 +147,7 @@ object Hooks {
             for ((level, ratio) in listOf(100 to 1.0f, 80 to 0.8f)) {
                 if (line.ratio < ratio) continue
                 if (!Hub.local.once("budget.${line.categoryId ?: "total"}.${p.key}.$level")) break
-                val title = if (level == 100) "$name 을(를) 다 썼어요" else "$name 의 80%를 썼어요"
-                Notifier.budget(context, "budget.${line.categoryId}.$level", title,
+                Notifier.budget(context, "budget.${line.categoryId}.$level", budgetTitle(name, level),
                     "${Fmt.won(line.spent)} / ${Fmt.won(line.budget)} · ${Fmt.month(p.label)}")
                 break
             }

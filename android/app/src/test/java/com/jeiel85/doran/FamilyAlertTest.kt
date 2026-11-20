@@ -3,6 +3,7 @@ package com.jeiel85.doran
 import com.jeiel85.doran.capture.SmsReceiver
 import com.jeiel85.doran.data.LedgerState
 import com.jeiel85.doran.logic.FamilyAlert
+import com.jeiel85.doran.logic.Hooks
 import com.jeiel85.doran.logic.Josa
 import com.jeiel85.doran.logic.Twins
 import com.jeiel85.doran.model.Account
@@ -40,6 +41,20 @@ class FamilyAlertTest {
         assertEquals("통장으로", Josa.ro("통장"))
         assertEquals("서울로", Josa.ro("서울"))
         assertEquals("Jun이", Josa.iGa("Jun"))
+    }
+
+    @Test fun budgetTitlesHaveNoGapOrBracketParticles() {
+        assertEquals("이번 달 예산의 80%를 썼어요", Hooks.budgetTitle("이번 달 예산", 80))
+        assertEquals("이번 달 예산을 다 썼어요", Hooks.budgetTitle("이번 달 예산", 100))
+        assertEquals("식비의 80%를 썼어요", Hooks.budgetTitle("식비", 80))
+        assertEquals("식비를 다 썼어요", Hooks.budgetTitle("식비", 100))
+        assertEquals("카페·간식을 다 썼어요", Hooks.budgetTitle("카페·간식", 100))
+    }
+
+    @Test fun shareLabelsTakeRoParticle() {
+        assertEquals("함께 관리로", Josa.ro("함께 관리"))
+        assertEquals("현대카드만 보내기로", Josa.ro("현대카드만 보내기"))
+        assertEquals("보내는 카드 없음으로", Josa.ro("보내는 카드 없음"))
     }
 
     @Test fun cardSpendReadsLikeASentence() {

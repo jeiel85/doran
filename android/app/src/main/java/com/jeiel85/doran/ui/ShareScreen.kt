@@ -20,6 +20,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jeiel85.doran.capture.Issuers
 import com.jeiel85.doran.core.Fmt
 import com.jeiel85.doran.core.Hub
+import com.jeiel85.doran.logic.Josa
 import com.jeiel85.doran.logic.ShareScope
 import com.jeiel85.doran.model.Member
 
@@ -77,7 +78,7 @@ fun ShareScreen(memberId: String, nav: Nav) {
     }) {
         if (changedElsewhere) item {
             SoftCard(color = P.c.apricotSoft, padding = PaddingValues(14.dp)) {
-                Text("방금 ${by ?: "가족"}이(가) 공유 범위를 ${ShareScope.label(m)}(으)로 바꿨어요. 지금 저장하면 이 화면의 선택으로 덮어써요.",
+                Text("방금 ${Josa.iGa(by ?: "가족")} 공유 범위를 ${Josa.ro(ShareScope.label(m))} 바꿨어요. 지금 저장하면 이 화면의 선택으로 덮어써요.",
                     style = MaterialTheme.typography.bodySmall, color = P.c.ink)
                 Spacer(Modifier.height(8.dp))
                 SmallButton("바뀐 내용 불러오기", color = P.c.apricot) {
