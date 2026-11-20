@@ -191,6 +191,7 @@ object Hooks {
      * 일마다 따로 감싸, 하나가 예외를 내도 앱 범위 코루틴이 죽거나 나머지 일이 빠지지 않게 합니다(#19).
      */
     fun daily(context: Context) {
+        step("월 용돈 규칙") { AllowancePlan.repaired(Hub.ledger.value).forEach { Hub.ledger.saveRecurring(it) } }
         step("고정지출") {
             val made = Recurrer.run(Hub.ledger, Hub.db, Hub.identity.installId)
             if (made.isNotEmpty() && Hub.settings.value.notifyRecurring) {
@@ -235,8 +236,10 @@ object Recurrer {
         val made = ArrayList<Txn>()
         for (r in s.recurrings.values) {
             // 처음 만든 규칙이 몇 년 전부터 쏟아지지 않게 최대 60일 전까지만.
-            for (d in Stats.dueDates(r, today.minusDays(60), today)) {
-                val id = idFor(r.id, d)
+            for ((nominal, d) in Stats.occurrences(r, today.minusDays(60), today, s.household.monthStartDay)) {
+                // id는 정한 날로, 장부 날짜는 들어가는 날(주말이면 앞 금요일, D-27)로 둡니다. 옛 버전 폰과 이 폰이 동기화 전에 각자 만들어도
+                // 같은 id라 한 건으로 합쳐지고, 옛 버전이 만들었다가 지운 것(묘비)도 그대로 막힙니다(#53 리뷰).
+                val id = idFor(r.id, nominal)
                 if (db.entity(T.TXN, id) != null) continue // 지운 것(묘비)도 다시 만들지 않음
                 val at = Fmt.millis(d.atTime(9, 0))
                 val near = 3L * 86_400_000

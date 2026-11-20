@@ -258,14 +258,17 @@ fun HomeScreen(nav: Nav) {
 
         if (me != null && me.allowance > 0) item {
             Spacer(Modifier.height(20.dp))
-            val mine = remember(s.version, p) { Stats.allowanceSpent(s, me.id, p) }
+            // 남은 용돈은 용돈이 들어온 날부터(주말이면 앞 금요일, D-27). 가계부 한 달과 날짜가 다를 수 있어요.
+            val ap = remember(s.version, today, me.id) { Stats.allowancePeriod(s, me.id, today) }
+            val mine = remember(s.version, ap) { Stats.allowanceSpent(s, me.id, ap) }
             SoftCard(onClick = { nav.go(Route.Allowance) }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CatTile("allowance", 44.dp, P.c.apricotSoft)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text("내 용돈", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
-                        Text("가족에게는 월 합계만 보여요", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                        Text("${ap.start.monthValue}.${ap.start.dayOfMonth} ~ ${ap.end.minusDays(1).monthValue}.${ap.end.minusDays(1).dayOfMonth} · 가족에게는 월 합계만 보여요",
+                            style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
                     }
                     Column(horizontalAlignment = Alignment.End) {
                         Text(Fmt.won(me.allowance - mine), style = MaterialTheme.typography.titleMedium.merge(Money), color = P.c.ink)

@@ -123,9 +123,10 @@ object AllowanceAlert {
     }
 
     private fun status(s: LedgerState, t: Txn): String {
-        val p = Stats.periodOf(Fmt.date(t.at), s.household.monthStartDay)
-        val spent = Stats.allowanceSpent(s, t.memberId, p)
         val allowance = s.member(t.memberId)?.allowance ?: 0
+        // 월 용돈이 있으면 용돈이 들어온 날부터 센 용돈 기간(D-27), 없으면 가계부 기간.
+        val p = if (allowance > 0) Stats.allowancePeriod(s, t.memberId, Fmt.date(t.at)) else Stats.periodOf(Fmt.date(t.at), s.household.monthStartDay)
+        val spent = Stats.allowanceSpent(s, t.memberId, p)
         return when {
             allowance <= 0 -> "이번 달 용돈 ${Fmt.won(spent)} 썼어요"
             spent <= allowance -> "남은 용돈 ${Fmt.won(allowance - spent)}"
