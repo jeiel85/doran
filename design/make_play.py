@@ -4,6 +4,7 @@
 
 - icon-512.png: 앱 아이콘 512x512 (32비트 PNG, 런처와 같은 그림)
 - feature-1024x500.png: 그래픽 이미지 1024x500 (24비트, 투명 없음)
+- github-social-1280x640.png: GitHub 저장소 Social preview(링크 미리보기) 1280x640 — 저장소 Settings에서 손으로 올림
 - screenshots/0N-*.png: 휴대전화 스크린샷 1080x1920(9:16). Play는 긴 변이 짧은 변의 2배 이하여야 해서
   1080x2400 캡처를 그대로 쓰지 못하고, 설명 문구와 함께 틀에 담습니다.
 원본 캡처: design/play/source (예시 장부 — scripts/fake-peer.mjs demo, 로컬 중계에서 만든 가상의 가족 데이터).
@@ -110,10 +111,29 @@ def feature_graphic():
     img.convert("RGB").save(OUT / "feature-1024x500.png", optimize=True)
 
 
+def social_preview():
+    """GitHub 저장소 링크 미리보기(Social preview). 그래픽 이미지와 같은 구성을 2:1로, 가장자리 여백을 넉넉히."""
+    W, H = 1280, 640
+    img = gradient(W, H, (46, 122, 98), (24, 70, 57)).convert("RGBA")
+    hero = Image.open(ROOT / "design/art/source/ill-hero.png").convert("RGBA")
+    hero = hero.crop(hero.getchannel("A").getbbox())
+    hero.thumbnail((580, 520), Image.LANCZOS)
+    img.alpha_composite(hero, (W - hero.width - 60, (H - hero.height) // 2 + 12))
+    icon = rounded(Image.open(ROOT / "design/art/icon-full.png").convert("RGB").resize((136, 136), Image.LANCZOS), 32)
+    img.alpha_composite(icon, (84, 116))
+    d = ImageDraw.Draw(img)
+    d.text((248, 184), "둥지", font=font(FONT_B, 80), fill=(255, 255, 255), anchor="lm")
+    d.text((84, 330), "카드 알림이 오면", font=font(FONT_B, 56), fill=(255, 255, 255))
+    d.text((84, 404), "바로 장부에, 가족 폰에", font=font(FONT_B, 56), fill=(255, 211, 107))
+    d.text((84, 500), "부부가 함께 쓰는 가족 가계부 · Android", font=font(FONT_R, 32), fill=(220, 236, 228))
+    img.convert("RGB").save(OUT / "github-social-1280x640.png", optimize=True)
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     Image.open(ROOT / "docs/assets/icon-512.png").convert("RGBA").resize((512, 512), Image.LANCZOS).save(OUT / "icon-512.png", optimize=True)
     feature_graphic()
+    social_preview()
     screenshot("01-notify", "카드 쓰면 가족 폰에 바로", "\"남편이 현대카드로 12,300원 썼어요\" · 누적까지", "p_home", notification_card(), dark_bg=True)
     screenshot("02-family", "부부가 한 장부를 함께", "가족별 지출 · 카드 결제 예정 · 예산", "p_home2")
     screenshot("03-calendar", "달력으로 한눈에", "날짜별 지출과 수입, 사람별로 골라 보기", "p_cal")

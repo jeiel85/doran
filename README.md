@@ -131,7 +131,7 @@ scripts/deploy-relay.sh
 scripts/finish-firebase.sh
 ```
 
-릴리스마다: CHANGELOG에 버전 항목을 쓰고 커밋·푸시한 뒤
+릴리스마다: CHANGELOG에 버전 항목을 쓰고 커밋·푸시한 뒤, GitHub와 Play 두 채널에 같은 버전을 냅니다(한쪽만 내면 GitHub APK가 옛 버전에 멈춥니다 — 0.1.5~0.3.2가 그랬어요).
 
 ```bash
 scripts/release.sh 0.1.2
