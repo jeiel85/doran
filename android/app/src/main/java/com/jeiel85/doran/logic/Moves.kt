@@ -95,7 +95,9 @@ object Moves {
         // 자동 판정 출금 자체의 금액·시각을 손으로 고치면 짝·금액 기준이 달라지므로 다시 봅니다(#49 리뷰). 판정만 바꾼 저장
         // (종류·이유·카테고리)은 여기 걸리지 않아 다시 판정이 되풀이되지 않고, 새로 기록된 것은 기록할 때 이미 판정했습니다.
         val edited = changed.mapNotNullTo(HashSet()) { (b, a) -> a?.id?.takeIf { b != null && (b.amount != a.amount || b.at != a.at) } }
-        val deposits = changed.mapNotNull { it.second }.filter(::isDeposit)
+        // 짝이던 출금이 지워지거나 다른 판정이 되면 그 입금이 풀립니다. 같은 입금을 두고 밀렸던 출금이 다시 짝을 찾게 풀린 입금도 봅니다(#49 리뷰).
+        val released = changed.mapNotNull { (b, a) -> b?.let(::pairOf)?.takeIf { it != a?.let(::pairOf) } }.mapNotNull { s.txns[it] }
+        val deposits = (changed.mapNotNull { it.second } + released).filter(::isDeposit)
         return s.txns.values.filter { w ->
             if (!mine(w, me, installId) || !automatic(w.move)) return@filter false
             if (w.id in ids) return@filter w.id in edited

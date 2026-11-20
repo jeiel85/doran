@@ -222,4 +222,22 @@ class MovesTest {
         val userEdited = user.copy(amount = 1_000)
         assertTrue(Moves.affected(ledger(userEdited), listOf(user to userEdited), "h", install).isEmpty())
     }
+
+    @Test fun releasedDepositGoesToTheWithdrawalThatWasLeftOut() {
+        // 같은 입금을 두고 두 출금이 겨뤄 하나는 짝, 하나는 쓴 돈 → 짝이던 출금을 지우거나 쓴 돈으로 바꾸면 남은 출금이 그 입금과 짝(#49 리뷰)
+        val d = wifeIn("d", 100_000, ms(12, 0))
+        val first = judge(ledger(d), out("o1", 100_000, ms(12, 0)))
+        val second = judge(ledger(d, first), out("o2", 100_000, ms(12, 2)))
+        assertEquals("d", Moves.pairOf(first))
+        assertEquals(Moves.AUTO, second.move)
+        // 지움
+        val afterDelete = ledger(d, second)
+        assertEquals(listOf("o2"), Moves.affected(afterDelete, listOf(first to null), "h", install).map { it.id })
+        assertEquals("d", Moves.pairOf(judge(afterDelete, second)))
+        // 사용자가 쓴 돈으로 바꿈
+        val kept = Moves.spent(ledger(), first, Moves.KEPT)
+        val afterKeep = ledger(d, kept, second)
+        assertEquals(listOf("o2"), Moves.affected(afterKeep, listOf(first to kept), "h", install).map { it.id })
+        assertEquals("d", Moves.pairOf(judge(afterKeep, second)))
+    }
 }
