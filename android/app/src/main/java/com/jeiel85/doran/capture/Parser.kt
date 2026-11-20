@@ -118,7 +118,8 @@ object Parser {
     private val BALANCE = Regex("""잔액\s*:?\s*(-?\d{1,3}(?:,\d{3})*|-?\d+)\s*원?""")
     private val INSTALLMENT = Regex("""(?:할부\s*\(?\s*(\d{1,2})\s*개월\)?|(\d{1,2})\s*개월(?:\s*할부)?)""")
     private val LUMP = Regex("""일시불""")
-    private val FOREIGN = Regex("""(USD|US\$|EUR|JPY|CNY|GBP|HKD|SGD|AUD|CAD|VND|THB|PHP|TWD)\s*([\d,]+(?:\.\d{1,2})?)""")
+    // 뒤에 ".숫자"가 더 오면 금액이 아니라 버전입니다: 사내 메신저의 보안 공지 "PHP 8.2.0 ~ 8.2.35"를 필리핀 페소로 읽었어요(2026-11-20).
+    private val FOREIGN = Regex("""(USD|US\$|EUR|JPY|CNY|GBP|HKD|SGD|AUD|CAD|VND|THB|PHP|TWD)\s*([\d,]+(?:\.\d{1,2})?)(?!\.?\d)""")
     private val FULL_DATE = Regex("""(20\d{2})[./-](\d{1,2})[./-](\d{1,2})\s*(\d{1,2}):(\d{2})(?::\d{2})?""")
     private val MD_TIME = Regex("""(?<!\d)(\d{1,2})[/.](\d{1,2})\s*(\d{1,2}):(\d{2})(?::\d{2})?""")
     private val KO_DATE_TIME = Regex("""(\d{1,2})월\s*(\d{1,2})일\s*(\d{1,2}):(\d{2})""")
@@ -146,13 +147,34 @@ object Parser {
      * 거래로 읽지는 못했지만 금액이 적힌 알림인지. "최근 받은 알림"에서 골라 보낼 수 있게 남겨 둘 후보를 고릅니다.
      * 광고·이벤트는 빼고, 금액과 함께 결제·카드·계좌 같은 낱말이 있어야 합니다.
      */
-    fun looksFinancial(raw: String): Boolean = !isFailure(raw) && moneyLike(raw, loose = false)
+    fun looksFinancial(raw: String): Boolean = !isFailure(raw) && !isScheduled(raw) && moneyLike(raw, loose = false)
+
+    /** 돈이 나가지 않은 알림의 종류(DECISIONS.md D-4): 결제·출금 실패, 결제·출금 예정·청구 안내. */
+    enum class Unspent { FAILED, SCHEDULED }
 
     /**
-     * 금액이 적힌 결제·출금 실패 알림인지. 기록하지 않되, 왜 빠졌는지 "최근 받은 알림"에 남깁니다.
+     * 금액이 적힌, 돈이 나가지 않은 알림인지와 그 종류. 기록하지 않되, 왜 빠졌는지 "최근 받은 알림"에 남깁니다.
      * 은행 실패 문자는 "출금불능 50,000"처럼 '원'도 거래 낱말도 금액 앞에 없을 수 있어 쉼표로 묶인 숫자도 금액으로 봅니다.
+     * 실패와 예정이 함께 적혔으면("출금 예정이던 30,000원이 출금되지 않았어요") 실패로 봅니다.
      */
-    fun isFailedPayment(raw: String): Boolean = isFailure(raw) && moneyLike(raw, loose = true)
+    fun unspent(raw: String): Unspent? = when {
+        !moneyLike(raw, loose = true) -> null
+        isFailure(raw) -> Unspent.FAILED
+        isScheduled(raw) -> Unspent.SCHEDULED
+        else -> null
+    }
+
+    /** 금액이 적힌 결제·출금 실패 알림인지([unspent]가 [Unspent.FAILED]). */
+    fun isFailedPayment(raw: String): Boolean = unspent(raw) == Unspent.FAILED
+
+    /**
+     * 결제·출금 예정, 청구 안내인지(D-4 "돈이 나가지 않은 알림" 2). 돈은 아직 나가지 않았고, 실제로 나가면 그때 알림이 따로 옵니다.
+     * 토스 "납부 예정 / 오늘 ○○에서 30,000원 출금할 예정이에요"처럼 띄어쓰기·어미가 제각각이라 공백을 지운 본문으로 봅니다.
+     */
+    fun isScheduled(raw: String): Boolean {
+        val compact = WHITESPACE.replace(raw, "")
+        return SCHEDULED.any { it.containsMatchIn(compact) } || compact.contains("청구") && !compact.contains("승인")
+    }
 
     /**
      * 결제·출금이 실제로 일어나지 않았다는 알림인지(DECISIONS.md D-4 "돈이 나가지 않은 알림").
@@ -188,10 +210,19 @@ object Parser {
         Regex("""DECLINED|FAILED""", RegexOption.IGNORE_CASE),
     )
     private val SHORTAGE = Regex("""(?:잔액|잔고|한도|예수금)(?:이|가)?부족""")
+    // 나가는 돈의 낱말만 넣습니다. '처리·입금·지급·적립'은 이미 일어난 거래의 덧말("환불은 3일 안에 입금 예정",
+    // "캐시백 500원 지급 예정")에도 쓰여, 넣으면 실제 취소·결제 알림을 놓칩니다.
+    private const val DUE_VERB = "결제|출금|이체|납부|인출|송금|청구"
+    private val SCHEDULED = listOf(
+        // "결제예정금액", "출금 예정", "출금할 예정이에요", "결제될 예정", "납부 예정일", "자동이체 예정"
+        Regex("""(?:$DUE_VERB)(?:이|가)?(?:할|될|하실|되실)?예정"""),
+        // "이번 달 납부할 금액", "결제하실 금액": 아직 내지 않은 돈
+        Regex("""(?:$DUE_VERB)(?:할|될|하실|되실)금액"""),
+    )
 
     /**
      * [custom]: "앞으로도 자동으로 보내기"로 사용자가 정한 발신처의 카드사·은행(목록에 없는 곳도 됨).
-     * [ignoreFailure]: 실패 알림으로 빠진 것을 사용자가 "그래도 보내기"로 고를 때 초기값을 채우려고만 씁니다(#13).
+     * [ignoreFailure]: 돈이 나가지 않은 알림(실패·예정)으로 빠진 것을 사용자가 "그래도 보내기"로 고를 때 초기값을 채우려고만 씁니다(#13).
      */
     fun parse(raw: String, now: LocalDateTime = LocalDateTime.now(), hint: String? = null, custom: Issuer? = null,
               ignoreFailure: Boolean = false): Parsed? {
@@ -199,9 +230,8 @@ object Parser {
         if (AD.containsMatchIn(raw.trim())) return null
         if (PROMO.containsMatchIn(raw) && !TXN_WORD.containsMatchIn(raw)) return null
         val text = NOISE.replace(raw, " ").replace('\u00a0', ' ')
-        // 돈이 나가지 않은 알림: 결제·출금 실패(거절·잔액 부족·미납 등)와 결제 예정·청구 안내 (DECISIONS.md D-4)
-        if (!ignoreFailure && isFailure(text)) return null
-        if (text.contains("결제예정") || text.contains("청구") && !text.contains("승인")) return null
+        // 돈이 나가지 않은 알림: 결제·출금 실패(거절·잔액 부족·미납 등)와 결제·출금 예정·청구 안내 (DECISIONS.md D-4)
+        if (!ignoreFailure && (isFailure(text) || isScheduled(text))) return null
 
         val cancel = Regex("""취소""").containsMatchIn(text) && (text.contains("승인") || text.contains("카드") || text.contains("결제"))
         val deposit = Regex("""입금""").containsMatchIn(text) && !text.contains("입금예정")

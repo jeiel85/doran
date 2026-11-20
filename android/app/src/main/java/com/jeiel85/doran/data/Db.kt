@@ -52,7 +52,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 3) {
     companion object {
         /** capture_log.status: 형식을 몰라 기록하지 못한, 골라 보낼 수 있는 금액 알림. */
         const val CANDIDATE = "candidate"
-        /** capture_log.status: 결제·출금 실패 알림이라 기록하지 않음(D-4, #13). */
+        /** capture_log.status: 돈이 나가지 않은 알림(결제·출금 실패, 0.2.3부터 결제·출금 예정 안내도)이라 기록하지 않음(D-4, #13). 값은 그대로 둡니다. */
         const val FAILED = "failed"
     }
 
@@ -137,7 +137,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 3) {
         val result: String, val txnId: String?, val status: String = "done", val label: String? = null,
     ) {
         val isCandidate get() = status == CANDIDATE
-        /** 결제·출금 실패 알림이라 기록하지 않은 것(D-4). 오탐이면 "그래도 보내기"로 보낼 수 있습니다. */
+        /** 결제·출금 실패·예정 알림이라 기록하지 않은 것(D-4). 오탐이면 "그래도 보내기"로 보낼 수 있습니다. */
         val isFailed get() = status == FAILED
     }
 
@@ -202,7 +202,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 3) {
     fun candidateCount(since: Long): Int = readableDatabase.rawQuery(
         "SELECT COUNT(*) FROM capture_log WHERE status = 'candidate' AND at >= ?", arrayOf(since.toString())).use { it.moveToFirst(); it.getInt(0) }
 
-    /** 거래와 이어진 수집 기록(기록함·용돈·이미 기록됨 등). 지금 기준으로 실패 알림인 것을 찾는 데 씁니다(#13). */
+    /** 거래와 이어진 수집 기록(기록함·용돈·이미 기록됨 등). 지금 기준으로 실패·예정 알림인 것을 찾는 데 씁니다(#13). */
     fun recordedCaptures(): List<CaptureRow> = readableDatabase.rawQuery(
         "SELECT $captureCols FROM capture_log WHERE status = 'done' AND txn_id IS NOT NULL ORDER BY at DESC", null).use { c ->
         buildList { while (c.moveToNext()) add(readCapture(c)) }
