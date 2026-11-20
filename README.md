@@ -10,7 +10,7 @@
 ![Android 10+](https://img.shields.io/badge/Android-10%2B-2E7A62)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-1F2235)
 ![E2E](https://img.shields.io/badge/종단%20암호화-AES--256--GCM-FF9F5A)
-[![Release](https://img.shields.io/github/v/release/jeiel85/doran?label=최신&color=2E7A62)](https://github.com/jeiel85/doran/releases/latest)
+[![GitHub APK](https://img.shields.io/github/v/release/jeiel85/doran?label=GitHub%20APK&color=2E7A62)](https://github.com/jeiel85/doran/releases/latest)
 
 [소개 페이지](https://jeiel85.github.io/doran/) · [Google Play(가족 테스트)](https://play.google.com/apps/internaltest/4700525127651558535) · [개인정보 처리 안내](https://jeiel85.github.io/doran/privacy/) · [변경 기록](CHANGELOG.md)
 
@@ -39,7 +39,7 @@
 | 💳 **카드 총액** | 카드 알림의 **카드사 누적 이용액**을 그대로 보여 주고, 이번 달 사용액과 결제일 기준 결제 예정액(할부 나눔)도 계산해요. |
 | 👨‍👩‍👧 **가족 연결** | 배우자는 QR 한 번으로 같은 장부를 함께 써요. 부모님은 "보내기 전용"으로 연결해 카드 알림만 보내고, 우리 장부는 볼 수 없어요. 보낸 내역은 사람별로 보이고 합계에 더해져요. |
 | 📅 **한눈에** | 홈(이번 달·예산·가족별·카드·고정지출·목표), 달력, 통계(카테고리 도넛·6개월 추이·사람별·많이 쓴 곳), 자산(순자산·계좌·카드·대출). |
-| 🎯 **예산·고정지출·목표** | 월·카테고리 예산과 80%·100% 알림, 월세·구독 같은 고정지출 자동 기록(카드 알림과 겹치면 한 건), 저축 목표 진행률. |
+| 🎯 **예산·고정지출·목표** | 월·카테고리 예산과 80%·100% 알림, 월세·구독 같은 고정지출과 월급 같은 고정수입 자동 기록(카드·은행 알림과 겹치면 한 건), 저축 목표 진행률. |
 | 🎚️ **공유 범위** | 사람마다 "함께 관리" 또는 "정한 결제만 보내기"(예: 남편은 현대카드만 가계부에, 나머지는 본인 용돈으로). 본인도 가족도 바꿀 수 있고, 바꾸면 서로에게 알림이 가요. |
 | 💳 **가족 카드** | 명의가 남편이어도 가족 구독료가 나가는 카드는 "가족 카드" — 사람별 지출에서 가족 공용으로 묶여요. 그 카드로 산 개인 물건은 한 번에 내 용돈으로 옮겨요. |
 | 🔒 **개인 용돈** | 용돈으로 표시한 내역은 내 폰에서만 열리고, 가족에게는 월 합계만(참고로) 보여요. 월 용돈을 정하면 가계부에는 매달 용돈이 한 번만 들어가요. |
@@ -96,6 +96,8 @@ docs/      소개·연결·개인정보 페이지 (GitHub Pages)
 design/    프로토콜, 결정 근거 문서, Codex 그림 원본, 리소스·스토어 그림 생성 스크립트
 scripts/   릴리스·Play 번들·중계 배포, 가짜 가족 폰(fake-peer)
 ```
+
+저장소·소개 페이지 주소(`jeiel85/doran`, `jeiel85.github.io/doran`), 앱 패키지 `com.jeiel85.doran`, 중계 `doran-relay`의 'doran'은 옛 이름 **도란**에서 왔어요. 이미 깔린 앱이 만드는 초대 링크와 Play 등록이 이 주소에 묶여 있어 그대로 둡니다([DECISIONS.md](DECISIONS.md) D-24).
 
 ## 개발
 

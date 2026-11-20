@@ -162,8 +162,8 @@ object Hooks {
         step("고정지출") {
             val made = Recurrer.run(Hub.ledger, Hub.db, Hub.identity.installId)
             if (made.isNotEmpty() && Hub.settings.value.notifyRecurring) {
-                val names = made.joinToString(", ") { it.merchant.ifBlank { "고정지출" } }
-                Notifier.recurring(context, "고정지출 ${made.size}건을 기록했어요", names)
+                val names = made.joinToString(", ") { it.merchant.ifBlank { Fixed.label(it.kind) } }
+                Notifier.recurring(context, "${Fixed.label(made.map { it.kind })} ${made.size}건을 기록했어요", names)
             }
         }
         step("백업 알림") { backupReminder(context) }

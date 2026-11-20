@@ -40,7 +40,7 @@ object Xlsx {
                 s.member(t.memberId)?.name ?: "",
                 if (t.installment > 1) "${t.installment}개월" else "",
                 t.memo,
-                t.source.label,
+                com.jeiel85.doran.logic.Fixed.source(t),
                 if (e.counted) "" else "제외",
             )
         }

@@ -15,7 +15,10 @@ import java.time.LocalDate
  * 규칙 id가 사람마다 고정이라 두 폰이 각각 저장해도 한 규칙입니다.
  */
 object AllowancePlan {
-    fun idFor(memberId: String) = "rec.allowance.$memberId"
+    private const val PREFIX = "rec.allowance."
+    fun idFor(memberId: String) = PREFIX + memberId
+    /** 이 규칙이 월 용돈 규칙인지(고정지출 화면에서 지출·수입을 바꾸지 못하게). */
+    fun isRule(recurringId: String) = recurringId.startsWith(PREFIX)
 
     /** 용돈 규칙이 바뀌었으면 true(그때 고정지출을 바로 기록해 이번 달 몫이 보이게). */
     fun sync(ledger: Ledger, m: Member, today: LocalDate = LocalDate.now(Fmt.zone)): Boolean {
@@ -30,7 +33,8 @@ object AllowancePlan {
         val next = (cur ?: Recurring(
             id = id, name = "", kind = Kind.EXPENSE, amount = 0, categoryId = Defaults.ALLOWANCE, accountId = null,
             memberId = m.id, period = "m", day = s.household.monthStartDay.coerceIn(1, 28), startAt = Fmt.millis(start),
-        )).copy(name = "${m.name} 용돈", amount = m.allowance, memberId = m.id, paused = false)
+        // 예전 버전에서 고정지출 화면으로 수입으로 바뀐 규칙도 지출로 되돌립니다(가계부에서 나가는 돈).
+        )).copy(name = "${m.name} 용돈", kind = Kind.EXPENSE, amount = m.allowance, memberId = m.id, paused = false)
         if (next == cur) return false
         ledger.saveRecurring(next)
         if (cur == null) {

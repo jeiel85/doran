@@ -110,7 +110,7 @@ fun SettingsScreen(nav: Nav) {
                     ListRow("가계부 이름", s.household.name, Icons.Rounded.Home, onClick = { dialog = "name" })
                     ListRow("한 달 시작일", "매달 ${s.household.monthStartDay}일부터 · 월급날에 맞추면 편해요", Icons.Rounded.CalendarMonth, onClick = { dialog = "startDay" })
                     ListRow("예산", if (s.household.budget > 0) "월 ${Fmt.won(s.household.budget)}" else "정하지 않음", Icons.Rounded.Wallet, onClick = { nav.go(Route.Budget) })
-                    ListRow("고정지출·구독", "${s.recurrings.size}개", Icons.Rounded.EventRepeat, onClick = { nav.go(Route.Recurring) })
+                    ListRow(com.jeiel85.doran.logic.Fixed.title(s.recurrings.values), "${s.recurrings.size}개", Icons.Rounded.EventRepeat, onClick = { nav.go(Route.Recurring) })
                     ListRow("저축 목표", "${s.goals.values.count { !it.done }}개 진행 중", Icons.Rounded.Flag, onClick = { nav.go(Route.Goals) })
                     ListRow("내 용돈", s.member(id.myMemberId)?.allowance?.takeIf { it > 0 }?.let { "월 ${Fmt.won(it)}" } ?: "쓰지 않음",
                         Icons.Rounded.Savings, P.c.apricot, onClick = { nav.go(Route.Allowance) })
@@ -130,14 +130,15 @@ fun SettingsScreen(nav: Nav) {
         item { Spacer(Modifier.height(16.dp)); SectionTitle("알림") }
         item {
             SoftCard(padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
-                ToggleRow("가족이 쓴 내역", "다른 가족 카드 알림이 들어오면", Icons.Rounded.NotificationsActive, P.c.pine, settings.notifyFamily) { on ->
+                ToggleRow("가족 내역", "다른 가족의 카드·계좌 내역이 들어오면", Icons.Rounded.NotificationsActive, P.c.pine, settings.notifyFamily) { on ->
                     Hub.local.update { it.copy(notifyFamily = on) }
                 }
                 ToggleRow("내 용돈 결제", "나만 보는 용돈으로 기록되면 남은 용돈과 함께", Icons.Rounded.Savings, P.c.apricot, settings.notifyAllowance) { on ->
                     Hub.local.update { it.copy(notifyAllowance = on) }
                 }
                 ToggleRow("예산 80%·100%", "한 달에 한 번씩만", Icons.Rounded.Wallet, P.c.pine, settings.notifyBudget) { on -> Hub.local.update { it.copy(notifyBudget = on) } }
-                ToggleRow("고정지출 기록", "정해진 날 장부에 넣을 때", Icons.Rounded.EventRepeat, P.c.pine, settings.notifyRecurring) { on ->
+                ToggleRow("${com.jeiel85.doran.logic.Fixed.label(s.recurrings.values.map { it.kind })} 기록", "정해진 날 장부에 넣을 때",
+                    Icons.Rounded.EventRepeat, P.c.pine, settings.notifyRecurring) { on ->
                     Hub.local.update { it.copy(notifyRecurring = on) }
                 }
             }

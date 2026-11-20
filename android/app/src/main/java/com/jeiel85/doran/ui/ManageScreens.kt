@@ -123,17 +123,22 @@ private fun describe(r: Recurring): String = when (r.period) {
 fun RecurringScreen(nav: Nav) {
     val s by Hub.ledger.state.collectAsStateWithLifecycle()
     val list = s.recurrings.values.sortedBy { it.day }
-    val monthly = list.filter { !it.paused && it.kind == Kind.EXPENSE }.sumOf {
+    fun monthlyOf(kind: Kind) = list.filter { !it.paused && it.kind == kind }.sumOf {
         when (it.period) { "w" -> it.amount * 52 / 12; "y" -> it.amount / 12; else -> it.amount }
     }
-    SubScreen("고정지출·구독", { nav.back() }, actions = {
+    val monthly = monthlyOf(Kind.EXPENSE)
+    val monthlyIncome = monthlyOf(Kind.INCOME)
+    SubScreen(com.jeiel85.doran.logic.Fixed.title(list), { nav.back() }, actions = {
         IconButton(onClick = { nav.go(Route.RecurringEdit(null)) }) { Icon(Icons.Rounded.Add, "추가", tint = P.c.ink) }
     }) {
         item {
             SoftCard {
                 Text("한 달 고정지출", style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft)
                 Text(Fmt.won(monthly), style = MaterialTheme.typography.headlineSmall.merge(Money), color = P.c.ink)
-                Text("정해진 날 아침에 장부에 들어가요. 같은 금액이 카드 알림으로 먼저 오면 새로 만들지 않고 그 내역에 이어 붙여요.",
+                if (monthlyIncome > 0) {
+                    Text("한 달 고정수입 +${Fmt.won(monthlyIncome)}", style = MaterialTheme.typography.titleSmall.merge(Money), color = P.c.income)
+                }
+                Text("정해진 날 아침에 장부에 들어가요. 같은 금액이 카드·은행 알림으로도 오면 새로 만들지 않고 그 내역에 이어 붙여요.",
                     style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
             }
         }
@@ -159,7 +164,10 @@ fun RecurringEditScreen(rid: String?, nav: Nav) {
     val id by Hub.identity.state.collectAsStateWithLifecycle()
     val o = remember(rid) { rid?.let { s.recurrings[it] } }
     var name by remember { mutableStateOf(o?.name ?: "") }
-    var kind by remember { mutableStateOf(o?.kind ?: Kind.EXPENSE) }
+    // 월 용돈 규칙(DECISIONS.md D-20)은 가계부에서 나가는 돈이라 늘 지출입니다. 수입으로 두면 합계가 용돈의 두 배만큼 틀어져요.
+    // 예전 버전에서 수입으로 바뀐 규칙도 열면 지출로 잡혀, 저장하면 바로잡힙니다.
+    val allowanceRule = o != null && com.jeiel85.doran.logic.AllowancePlan.isRule(o.id)
+    var kind by remember { mutableStateOf(if (allowanceRule) Kind.EXPENSE else o?.kind ?: Kind.EXPENSE) }
     var amount by remember { mutableStateOf(o?.amount?.toString() ?: "") }
     var period by remember { mutableStateOf(o?.period ?: "m") }
     var day by remember { mutableStateOf((o?.day ?: LocalDate.now(Fmt.zone).dayOfMonth).toString()) }
@@ -171,12 +179,14 @@ fun RecurringEditScreen(rid: String?, nav: Nav) {
     var confirmDelete by remember { mutableStateOf(false) }
     val valid = name.isNotBlank() && (amount.toLongOrNull() ?: 0) > 0 && (day.toIntOrNull() ?: 0) in 1..31
 
-    SubScreen(if (o == null) "고정지출 추가" else "고정지출", { nav.back() }, actions = {
+    val label = com.jeiel85.doran.logic.Fixed.label(kind)
+    SubScreen(if (o == null) "$label 추가" else label, { nav.back() }, actions = {
         if (o != null) IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.DeleteOutline, "지우기", tint = P.c.danger) }
     }, bottom = {
         PrimaryButton("저장", enabled = valid) {
             Hub.ledger.saveRecurring(Recurring(
-                id = o?.id ?: newId(), name = name.trim(), kind = kind, amount = amount.toLong(), categoryId = categoryId,
+                id = o?.id ?: newId(), name = name.trim(), kind = kind, amount = amount.toLong(),
+                categoryId = com.jeiel85.doran.logic.Fixed.categoryFor(s, name.trim(), kind, categoryId),
                 accountId = accountId, memberId = memberId, period = period, day = day.toInt().coerceIn(1, if (period == "w") 7 else 31),
                 month = (month.toIntOrNull() ?: 1).coerceIn(1, 12), startAt = o?.startAt ?: Fmt.millis(LocalDate.now(Fmt.zone)), paused = paused,
             ))
@@ -185,7 +195,14 @@ fun RecurringEditScreen(rid: String?, nav: Nav) {
         }
     }) {
         item {
-            Segmented(listOf("지출", "수입"), if (kind == Kind.INCOME) 1 else 0) { kind = if (it == 1) Kind.INCOME else Kind.EXPENSE }
+            if (allowanceRule) {
+                Text("월 용돈은 가계부에서 나가는 돈이라 늘 지출로 한 번 들어가요.",
+                    style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+            } else Segmented(listOf("지출", "수입"), if (kind == Kind.INCOME) 1 else 0) {
+                kind = if (it == 1) Kind.INCOME else Kind.EXPENSE
+                // 지출 카테고리(구독 등)가 수입 규칙에 남지 않게, 종류가 바뀌면 그 종류의 카테고리로.
+                categoryId = com.jeiel85.doran.logic.Fixed.categoryFor(s, name.trim(), kind, categoryId)
+            }
             Spacer(Modifier.height(14.dp))
             Field("이름", name, { name = it }, "예: 넷플릭스, 관리비, 월급")
             Spacer(Modifier.height(10.dp))
@@ -208,7 +225,7 @@ fun RecurringEditScreen(rid: String?, nav: Nav) {
                 }
             }
             Spacer(Modifier.height(16.dp))
-            Text("결제 수단", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
+            Text(if (kind == Kind.INCOME) "들어오는 곳" else "결제 수단", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
             Spacer(Modifier.height(8.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Chip("없음", accountId == null, { accountId = null })
@@ -228,7 +245,8 @@ fun RecurringEditScreen(rid: String?, nav: Nav) {
         }
     }
     if (confirmDelete && o != null) AlertDialog(onDismissRequest = { confirmDelete = false }, containerColor = P.c.bg,
-        title = { Text("이 고정지출을 지울까요?") }, text = { Text("이미 장부에 들어간 내역은 그대로 남아요.") },
+        title = { Text("이 ${com.jeiel85.doran.logic.Josa.eulReul(com.jeiel85.doran.logic.Fixed.label(o.kind))} 지울까요?") },
+        text = { Text("이미 장부에 들어간 내역은 그대로 남아요.") },
         confirmButton = { TextButton({ Hub.ledger.delete(T.RECURRING, o.id); confirmDelete = false; nav.back() }) { Text("지우기", color = P.c.danger) } },
         dismissButton = { TextButton({ confirmDelete = false }) { Text("두기") } })
 }
