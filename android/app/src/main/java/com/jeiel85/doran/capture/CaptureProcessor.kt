@@ -383,16 +383,13 @@ class CaptureProcessor(
             } else t
         }
 
-        // 고정지출로 미리 잡아 둔 같은 금액이 있으면 새로 만들지 않고 그 자리를 채웁니다.
-        val planned = if (txn.kind == Kind.EXPENSE && txn.cancelOf == null) ledger.value.txns.values.firstOrNull {
-            it.source == Source.RECURRING && it.amount == txn.amount && abs(it.at - at) <= 3L * 86_400_000 &&
-                (it.accountId == null || it.accountId == account.id)
-        } else null
+        // 고정지출·고정수입으로 미리 잡아 둔 같은 종류·금액이 있으면 새로 만들지 않고 그 자리를 채웁니다.
+        val planned = com.jeiel85.doran.logic.Fixed.planned(ledger.value.txns.values, txn, account.id, cancelNotice = isCancel)
         val saved = if (planned != null) txn.copy(id = planned.id, recurringId = planned.recurringId,
             categoryId = planned.categoryId ?: txn.categoryId, memo = planned.memo.ifBlank { txn.memo }) else txn
         ledger.saveTxn(saved)
         settings.markUnseen(listOf(saved.id))
-        return Outcome(if (planned != null) "고정지출과 맞춤" else "기록함", saved.id)
+        return Outcome(if (planned != null) "${com.jeiel85.doran.logic.Fixed.label(planned.kind)}과 맞춤" else "기록함", saved.id)
     }
 
     // --- 공유 범위 밖: 나만 보는 용돈으로 (DECISIONS.md D-19) ------------------------------------------

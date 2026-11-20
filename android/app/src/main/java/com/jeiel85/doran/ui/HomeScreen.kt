@@ -278,10 +278,13 @@ fun HomeScreen(nav: Nav) {
         }
 
         if (upcoming.isNotEmpty()) {
-            item { Spacer(Modifier.height(20.dp)); SectionTitle("다가오는 고정지출", action = "관리", onAction = { nav.go(Route.Recurring) }) }
+            val shown = upcoming.take(4)
+            // 고정 규칙은 수입(월급 등)일 수도 있어, 제목을 보이는 내역의 종류에 맞춥니다.
+            val title = "다가오는 ${com.jeiel85.doran.logic.Fixed.label(shown.map { it.first.kind })}"
+            item { Spacer(Modifier.height(20.dp)); SectionTitle(title, action = "관리", onAction = { nav.go(Route.Recurring) }) }
             item {
                 SoftCard(padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
-                    upcoming.take(4).forEach { (r, d) ->
+                    shown.forEach { (r, d) ->
                         val days = ChronoUnit.DAYS.between(today, d)
                         ListRow(r.name, "${d.monthValue}월 ${d.dayOfMonth}일 · ${if (days == 1L) "내일" else "${days}일 뒤"}",
                             leading = { CatTile(s.category(r.categoryId)?.icon, 40.dp) }) {

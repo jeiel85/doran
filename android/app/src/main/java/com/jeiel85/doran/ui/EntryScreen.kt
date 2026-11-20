@@ -197,7 +197,7 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                                 Source.PUSH -> "${who?.let { "$it 폰이 " } ?: ""}카드·은행 앱 알림으로 자동 기록"
                                 Source.SMS -> "${who?.let { "$it 폰이 " } ?: ""}문자로 자동 기록"
                                 Source.FAMILY -> "${who ?: "가족"} 폰이 보내 줌"
-                                else -> o.source.label
+                                else -> com.jeiel85.doran.logic.Fixed.source(o)
                             },
                             o.cardLabel?.let { "카드" to it },
                             o.cumulative?.let { "카드사 누적" to Fmt.won(it) },

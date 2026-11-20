@@ -34,8 +34,8 @@ object Notifier {
             NotificationChannel(BUDGET, "예산", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "예산의 80%와 100%를 넘으면 알려 줘요"
             },
-            NotificationChannel(RECURRING, "고정지출", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "고정지출이 장부에 들어가면 알려 줘요"
+            NotificationChannel(RECURRING, "고정 수입·지출", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "고정지출·고정수입이 장부에 들어가면 알려 줘요"
             },
             NotificationChannel(UPDATE, "업데이트", NotificationManager.IMPORTANCE_DEFAULT),
             NotificationChannel(SYSTEM, "연결·백업", NotificationManager.IMPORTANCE_DEFAULT).apply {
