@@ -4,6 +4,7 @@ import com.jeiel85.doran.core.Fmt
 import com.jeiel85.doran.data.LedgerState
 import com.jeiel85.doran.logic.AllowanceAlert
 import com.jeiel85.doran.logic.AllowancePlan
+import com.jeiel85.doran.logic.Recurrer
 import com.jeiel85.doran.logic.Stats
 import com.jeiel85.doran.model.Defaults
 import com.jeiel85.doran.model.Household
@@ -47,6 +48,9 @@ class PaydayTest {
             Stats.dueDates(allowanceRule, d(2026, 10, 1), d(2026, 12, 31), ledgerStart))
         // 옛 버전이 만든 기록을 찾을 수 있게 정한 날도 함께
         assertEquals(listOf(d(2026, 11, 21) to d(2026, 11, 20)), Stats.occurrences(allowanceRule, d(2026, 11, 15), d(2026, 11, 25), ledgerStart))
+        // 고정 내역 id는 정한 날(옛 버전과 같은 id)이라, 버전이 다른 두 폰이 각자 만들어도 한 건으로 합쳐짐(#53 리뷰)
+        assertEquals(listOf("rc.${allowanceRule.id}.20261121"),
+            Stats.occurrences(allowanceRule, d(2026, 11, 15), d(2026, 11, 25), ledgerStart).map { Recurrer.idFor(allowanceRule.id, it.first) })
         // 가구 시작일을 모르면 앞당기지 않음
         assertEquals(listOf(d(2026, 11, 21)), Stats.dueDates(allowanceRule, d(2026, 11, 15), d(2026, 11, 25)))
     }
