@@ -198,4 +198,28 @@ class MovesTest {
         val other = judge(ledger(), out("o5", 200_000, ms(12, 59))).copy(createdBy = "install-old")
         assertTrue(Moves.affected(ledger(legacy, other, d), listOf(null to d), "h", install).isEmpty())
     }
+
+    @Test fun editingAmountOrTimeOfAutomaticWithdrawalRejudgesIt() {
+        // 짝지어진 출금의 날짜를 손으로 고치면(종류는 그대로라 판정 이유가 남음) 입금이 10분 밖이 되니 다시 판정(#49 리뷰)
+        val d = wifeIn("i1", 200_000, ms(13, 0))
+        val paired = judge(ledger(d), out("o1", 200_000, ms(12, 59)))
+        assertEquals("i1", Moves.pairOf(paired))
+        val moved = paired.copy(at = ms(15, 0))
+        val s = ledger(d, moved)
+        assertEquals(listOf("o1"), Moves.affected(s, listOf(paired to moved), "h", install).map { it.id })
+        assertEquals(Moves.AUTO, judge(s, moved).move)
+        // 금액을 용돈 아래로 고친 큰 출금도 다시 판정
+        val large = judge(ledger(), out("o2", 400_000, ms(10, 0)))
+        assertEquals(Moves.LARGE, large.move)
+        val smaller = large.copy(amount = 40_000)
+        assertEquals(listOf("o2"), Moves.affected(ledger(smaller), listOf(large to smaller), "h", install).map { it.id })
+        assertEquals(Moves.AUTO, judge(ledger(smaller), smaller).move)
+        // 판정만 바뀐 저장(종류·이유·확인 표시)은 다시 보지 않음: 되풀이 없음
+        val rejudged = judge(s, moved)
+        assertTrue(Moves.affected(ledger(d, rejudged), listOf(moved to rejudged), "h", install).isEmpty())
+        // 사용자가 정한 것은 금액을 고쳐도 그대로
+        val user = Moves.moved(out("o3", 200_000, ms(9, 0)), Moves.USER)
+        val userEdited = user.copy(amount = 1_000)
+        assertTrue(Moves.affected(ledger(userEdited), listOf(user to userEdited), "h", install).isEmpty())
+    }
 }
