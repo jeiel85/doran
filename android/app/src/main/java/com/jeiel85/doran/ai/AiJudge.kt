@@ -122,6 +122,8 @@ object AiPrompt {
     // 날짜(2026-11-20, 8자리)와 쉼표 든 금액(30,000)은 남깁니다.
     private val NUMBERISH = Regex("""[\d*][\d*\-]{6,}[\d*]""")
     private val LAST4 = Regex("""\(\s*\d{4}\s*\)""")
+    // 짧게 가려진 카드번호("1*2*승인", "**1234")는 NUMBERISH 길이에 못 미쳐 따로 봅니다(#44 리뷰). 숫자 없는 "홍*동"은 그대로.
+    private val SHORT_MASKED = Regex("""[\d*]{2,}""")
 
     /** 밖으로 보내기 전에 계좌·카드·전화번호를 가립니다. 이름은 가리지 못합니다(화면에 그렇게 안내). */
     fun mask(text: String): String {
@@ -129,7 +131,11 @@ object AiPrompt {
             val v = m.value
             if ('*' in v || v.count(Char::isDigit) >= 10) "****" else v
         }
-        return LAST4.replace(masked, "(****)")
+        val short = SHORT_MASKED.replace(masked) { m ->
+            val v = m.value
+            if ('*' in v && v.any(Char::isDigit)) "****" else v
+        }
+        return LAST4.replace(short, "(****)")
     }
 
     /** 응답 JSON을 판정으로. 모양이 틀리면 [AiError]. */

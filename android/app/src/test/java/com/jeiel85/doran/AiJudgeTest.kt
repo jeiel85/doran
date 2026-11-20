@@ -34,6 +34,13 @@ class AiJudgeTest {
         listOf("3,200,000", "5,600,000", "12,300원", "2026-11-20", "11:25", "(****)").forEach { assertTrue(it, masked.contains(it)) }
     }
 
+    @Test fun masksShortPartiallyRedactedCardNumbers() {
+        // ParserTest의 KB국민카드 문구처럼 짧게 가려진 카드번호도 가림(#44 리뷰). 가려진 이름·금액·시각은 그대로
+        val masked = AiPrompt.mask("[KB]국민카드 1*2*승인 홍*동 30,000원 일시불 11/17 12:30 · 카드 **1234 · 9*8")
+        listOf("1*2*", "**1234", "9*8").forEach { assertFalse(it, masked.contains(it)) }
+        listOf("홍*동", "30,000원", "11/17 12:30").forEach { assertTrue(it, masked.contains(it)) }
+    }
+
     @Test fun outgoingMessageMasksTheSenderLabelToo() {
         // 문자는 앱 이름 자리에 보낸 번호가 들어감("문자 0221234567") — 그 줄도 가림(#44 리뷰)
         val msg = AiPrompt.user("문자 0221234567", "[신한] 110-123-456789 출금 30,000원")
