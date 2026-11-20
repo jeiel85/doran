@@ -80,6 +80,20 @@ object AllowanceAlert {
         t.private && t.memberId == me && t.createdBy == installId && (t.source == Source.PUSH || t.source == Source.SMS) &&
             t.kind == Kind.EXPENSE && now - t.at <= RECENT
 
+    /**
+     * 월 용돈보다 커서 옮긴 돈으로 본 은행 출금([Moves.LARGE])을 알립니다: 용돈에서 빼지 않았으니, 실제로 쓴 돈이면 눌러서 바꾸라고(D-25).
+     * "KB국민은행에서 4,044,525원이 나갔어요 / 급여 · 월 용돈보다 커서 옮긴 돈으로 봤어요. 용돈에서 쓴 돈이면 눌러서 바꿔 주세요"
+     */
+    fun appliesMoved(t: Txn, me: String, installId: String, now: Long): Boolean =
+        t.private && t.memberId == me && t.createdBy == installId && (t.source == Source.PUSH || t.source == Source.SMS) &&
+            t.kind == Kind.TRANSFER && t.move == Moves.LARGE && now - t.at <= RECENT
+
+    fun moved(t: Txn): FamilyAlert.Text = FamilyAlert.Text(
+        "${t.issuer ?: "통장"}에서 ${Josa.iGa(Fmt.won(t.amount))} 나갔어요",
+        listOfNotNull(t.merchant.takeIf { it.isNotBlank() }, "월 용돈보다 커서 옮긴 돈으로 봤어요. 용돈에서 쓴 돈이면 눌러서 바꿔 주세요")
+            .joinToString(" · "),
+    )
+
     fun of(s: LedgerState, t: Txn): FamilyAlert.Text {
         val won = Fmt.won(t.amount)
         val title = when {

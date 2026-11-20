@@ -64,6 +64,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -87,11 +88,14 @@ import com.jeiel85.doran.core.Fmt
 import com.jeiel85.doran.core.Hub
 import com.jeiel85.doran.core.newId
 import com.jeiel85.doran.feature.Receipts
+import com.jeiel85.doran.logic.Moves
 import com.jeiel85.doran.model.AccountType
 import com.jeiel85.doran.model.Kind
 import com.jeiel85.doran.model.Source
 import com.jeiel85.doran.model.Txn
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -137,8 +141,18 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
 
     val cancels = original?.let { o -> s.txns.values.filter { it.cancelOf == o.id } } ?: emptyList()
     val canEditPrivate = memberId == id.myMemberId && id.myMemberId != null && kind == Kind.EXPENSE
+    // 나만 보는 용돈 내역은 저장해도 개인으로 남습니다(#43). 가족과 나누려면 지출에서 "내 용돈으로 쓰기"를 끄는 것뿐이고,
+    // 그동안은 다른 사람 내역으로 바꾸지 못하게 사람 고르기를 감춥니다(남의 내역을 내 개인 키로 봉하지 않게).
+    val lockedPrivate = original?.private == true && private
+    // 옮긴 돈으로 본 은행 출금(D-25)은 계좌 없는 이체라, 계좌를 고르지 않아도 저장됩니다.
+    val accountlessMove = lockedPrivate && kind == Kind.TRANSFER && accountId == null && toAccountId == null
     val value = amount.toLongOrNull() ?: 0L
-    val valid = value > 0 && (kind != Kind.TRANSFER || (accountId != null && toAccountId != null && accountId != toAccountId))
+    val valid = value > 0 && (kind != Kind.TRANSFER || accountlessMove || (accountId != null && toAccountId != null && accountId != toAccountId))
+    // 은행 출금이면 "옮긴 돈 ↔ 용돈에서 쓴 돈"을 바꿀 수 있게 합니다(D-25). 판정 전 기록은 알림 원문을 읽어 가리므로 DB를 봅니다.
+    val bankOut by produceState(false, original?.id) {
+        this.value = original?.let { o -> withContext(Dispatchers.IO) { Hub.capture.isBankWithdrawal(o) } } == true
+    }
+    var rememberMove by remember { mutableStateOf(false) }
 
     fun save() {
         val t = (original ?: Txn(id = newId(), kind = kind, amount = 0, at = at, source = Source.MANUAL,
@@ -146,8 +160,11 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
             kind = kind, amount = value, at = at, merchant = merchant.trim(), memo = memo.trim(),
             categoryId = if (kind == Kind.TRANSFER) null else categoryId ?: Categorizer.categorize(s, merchant, kind),
             accountId = accountId, toAccountId = if (kind == Kind.TRANSFER) toAccountId else null, memberId = memberId,
-            installment = if (kind == Kind.EXPENSE) installment else 0, private = private && canEditPrivate,
+            installment = if (kind == Kind.EXPENSE) installment else 0,
+            private = if (original?.private == true) private else private && canEditPrivate,
             receiptIds = receipts.toList(), needsReview = false,
+            // 종류를 손으로 바꾼 은행 출금은 사용자가 정한 것이라 다시 자동 판정하지 않습니다(D-25).
+            move = original?.move?.let { m -> if (kind == original.kind) m else if (kind == Kind.TRANSFER) Moves.USER else Moves.KEPT },
         )
         Hub.ledger.saveTxn(t)
         // 가족 카드에서 용돈으로 옮겼던 결제를 다시 공유로 돌리면, 대신 남겨 둔 금액 자리를 지웁니다(D-20).
@@ -235,7 +252,35 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                             }
                         }
                     }
-                    if (o.needsReview) Text(if (o.amount == 0L) "원화 금액이 확정되면 넣어 주세요" else "확인이 필요한 내역이에요",
+                    if (bankOut) {
+                        // 은행 출금: 용돈에서 쓴 돈인지, 다른 통장으로 옮긴 돈인지(D-25). 누르면 바로 바꾸고 닫습니다.
+                        val moved = o.kind == Kind.TRANSFER
+                        Spacer(Modifier.height(10.dp))
+                        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (moved) P.c.pineSoft else P.c.apricotSoft)
+                            .padding(horizontal = 14.dp, vertical = 12.dp)) {
+                            Text(if (moved) "옮긴 돈이에요 · 용돈에서 빼지 않았어요" else "용돈에서 쓴 돈으로 셌어요",
+                                style = MaterialTheme.typography.titleSmall, color = P.c.ink)
+                            Moves.reason(s, o, id.myMemberId)?.takeIf { moved || o.move != Moves.AUTO }?.let {
+                                Text(it, style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                            }
+                            Text(if (moved) "실제로 쓴 돈이면 바꿔 주세요. 남은 용돈과 가족에게 가는 용돈 합계에 들어가요."
+                                else "급여를 다른 통장으로 보냈거나 적금처럼 옮긴 돈이면 바꿔 주세요. 남은 용돈과 가족에게 가는 용돈 합계에서 빠져요.",
+                                style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                            if (Moves.ruleKey(o.issuer, o.merchant) != null) {
+                                Spacer(Modifier.height(8.dp))
+                                Chip("${listOfNotNull(o.issuer, o.merchant.ifBlank { null }).joinToString(" · ")} 출금은 앞으로도 이렇게", rememberMove,
+                                    { rememberMove = !rememberMove })
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Spacer(Modifier.weight(1f))
+                                SmallButton(if (moved) "용돈으로 쓴 돈이에요" else "옮긴 돈이에요", color = if (moved) P.c.apricot else P.c.pine) {
+                                    Hub.capture.setMoved(o, moved = !moved, remember = rememberMove)
+                                    nav.back()
+                                }
+                            }
+                        }
+                    } else if (o.needsReview) Text(if (o.amount == 0L) "원화 금액이 확정되면 넣어 주세요" else "확인이 필요한 내역이에요",
                         style = MaterialTheme.typography.bodySmall, color = P.c.apricot)
                 }
             }
@@ -269,11 +314,14 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
             Spacer(Modifier.height(18.dp))
             SoftCard(padding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
                 ListRow("날짜", Fmt.full(at), Icons.Rounded.CalendarToday, P.c.pine, onClick = { picker = "date" })
-                ListRow(if (kind == Kind.TRANSFER) "보내는 계좌" else if (kind == Kind.INCOME) "들어온 곳" else "결제 수단",
-                    s.account(accountId)?.name ?: "선택 안 함", leading = { CatTile(if (s.account(accountId)?.type == AccountType.CARD) "card" else "bank", 40.dp) },
-                    onClick = { picker = "account" })
-                if (kind == Kind.TRANSFER) ListRow("받는 계좌", s.account(toAccountId)?.name ?: "선택해 주세요", leading = { CatTile("transfer", 40.dp) },
-                    onClick = { picker = "to" })
+                // 옮긴 돈으로 본 범위 밖 은행 출금은 가계부에 계좌를 두지 않는 개인 내역이라(D-19·D-25) 계좌를 고르지 않습니다.
+                if (!(accountlessMove && original?.move != null)) {
+                    ListRow(if (kind == Kind.TRANSFER) "보내는 계좌" else if (kind == Kind.INCOME) "들어온 곳" else "결제 수단",
+                        s.account(accountId)?.name ?: "선택 안 함", leading = { CatTile(if (s.account(accountId)?.type == AccountType.CARD) "card" else "bank", 40.dp) },
+                        onClick = { picker = "account" })
+                    if (kind == Kind.TRANSFER) ListRow("받는 계좌", s.account(toAccountId)?.name ?: "선택해 주세요", leading = { CatTile("transfer", 40.dp) },
+                        onClick = { picker = "to" })
+                }
                 if (kind == Kind.EXPENSE && s.account(accountId)?.type == AccountType.CARD) {
                     Text("할부", style = MaterialTheme.typography.titleSmall, color = P.c.ink, modifier = Modifier.padding(start = 8.dp, top = 8.dp, bottom = 8.dp))
                     ChipRow(Modifier.padding(start = 8.dp, bottom = 10.dp)) {
@@ -287,7 +335,10 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
             Spacer(Modifier.height(18.dp))
             Text("누구의 내역인가요?", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
             Spacer(Modifier.height(10.dp))
-            ChipRow {
+            if (lockedPrivate) {
+                Text("나만 보는 용돈 내역이라 가족에게는 보이지 않아요" + if (canEditPrivate) ". 가족과 나누려면 아래 '내 용돈으로 쓰기'를 꺼 주세요" else "",
+                    style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+            } else ChipRow {
                 Chip("공동", memberId == null, { memberId = null })
                 s.activeMembers.forEach { m ->
                     Chip(m.name, memberId == m.id, { memberId = m.id }, leading = { MemberAvatar(m, 18.dp) }, color = memberColor(m.color))

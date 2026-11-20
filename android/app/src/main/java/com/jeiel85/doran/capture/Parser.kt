@@ -134,6 +134,9 @@ object Parser {
     private val EMPTY_PARENS = Regex("""\(\s*\)""")
     private val SPACES = Regex("""\s+""")
     private val KEYWORDS = Regex(
+        // 은행 거래 방식 낱말("스마트폰출금", "인터넷이체", "타행입금"): 받는 분·메모 칸(적요)이 아니라 이체한 길입니다(2026-11-20 KB 알림).
+        // 낱말 하나로는 가게 이름에도 쓰여("스마트폰케이스몰") 입출금 낱말이 바로 붙을 때만 뗍니다. ATM·CD는 현금이라는 뜻이 있어 남깁니다.
+        """(?:스마트폰|인터넷|모바일|폰뱅킹|오픈뱅킹|타행|당행|FB)(?=\s*(?:출금|입금|이체|지급|송금))|""" +
         """승인취소|취소승인|해외승인|승인|취소|체크카드|체크|신용|일시불|사용|결제|입금|출금|이체|지급|자동이체|전자금융|님""" +
             """|본인|해외|누적|잔액|국내|금액|이용안내|안내|일반|가맹점""" +
             // 문장형 알림("…결제되었습니다")의 끝말이 가맹점으로 뽑히지 않게
@@ -261,10 +264,14 @@ object Parser {
         val foreignMatch = FOREIGN.find(text)
         val foreign = take(foreignMatch)?.let { "${it.groupValues[1].replace("US$", "USD")} ${it.groupValues[2]}" }
 
-        val amountMatch = WON.findAll(text).firstOrNull { m -> consumed.none { r -> m.range.first in r } }
-            ?: BARE_AMOUNT.findAll(text).firstOrNull { m -> consumed.none { r -> m.range.first in r } }
-        val amount = amountMatch?.let { take(it); toLong(it.groupValues[1]) } ?: 0L
+        val wonMatch = WON.findAll(text).firstOrNull { m -> consumed.none { r -> m.range.first in r } }
+        val amountMatch = wonMatch ?: BARE_AMOUNT.findAll(text).firstOrNull { m -> consumed.none { r -> m.range.first in r } }
+        // '원' 없는 금액은 숫자만 지웁니다. 앞의 "출금"까지 지우면 "인터넷출금"의 "인터넷"이 거래 방식 낱말로 안 보여 가맹점에 남습니다.
+        val amount = amountMatch?.let { m -> if (m === wonMatch) take(m) else m.groups[1]?.let { g -> consumed += g.range }; toLong(m.groupValues[1]) } ?: 0L
         if (amount <= 0 && foreign == null) return null
+        // 은행 알림은 제목("출금 4,044,525원")과 본문("… 스마트폰출금 4,044,525")에 금액을 두 번 적습니다. 되풀이된 금액이 남으면
+        // 쉼표로 갈려 "급여 스마트폰 4" 같은 가맹점이 됩니다.
+        if (amount > 0) echoes(amount).forEach { r -> r.findAll(text).forEach { m -> if (consumed.none { m.range.first in it }) take(m) } }
         // "CU에서 3,610원": '에서' 바로 앞이 가맹점입니다. 알림 제목(앱 이름)이 더 길어도 그쪽을 고르지 않게 위치를 기억합니다.
         val place = amountMatch?.let { m ->
             val from = maxOf(0, m.range.first - 6)
@@ -295,6 +302,14 @@ object Parser {
     }
 
     private fun toLong(s: String): Long = s.replace(",", "").toLongOrNull() ?: 0
+
+    /**
+     * 본문에 되풀이된 같은 금액("4,044,525", "4044525", 뒤의 '원' 포함). 더 긴 숫자의 일부나, "1000원샵"처럼 '원'에 글자가 바로 붙은
+     * 가게 이름은 아닙니다.
+     */
+    private fun echoes(amount: Long): List<Regex> =
+        listOf(String.format(java.util.Locale.US, "%,d", amount), amount.toString()).distinct()
+            .map { Regex("""(?<![\d,.])${Regex.escape(it)}(?![\d,.]|\s*원[가-힣A-Za-z])\s*원?""") }
 
     private fun parseDate(text: String, now: LocalDateTime, consumed: MutableList<IntRange>): LocalDateTime? {
         FULL_DATE.find(text)?.let { m ->

@@ -18,6 +18,17 @@ data class ForwardRule(val key: String, val label: String, val issuer: String, v
     }
 }
 
+/**
+ * 나만 보는 용돈의 은행 출금을 옮긴 돈([moved]) 또는 쓴 돈으로 늘 보라는 기억(DECISIONS.md D-25). key = `Moves.ruleKey`(은행|메모).
+ * 용돈 내역은 이 폰에서만 열리므로 규칙도 이 폰에만 둡니다.
+ */
+data class MoveRule(val key: String, val label: String, val moved: Boolean, val createdAt: Long = System.currentTimeMillis()) {
+    fun json(): org.json.JSONObject = org.json.JSONObject().put("key", key).put("label", label).put("moved", moved).put("createdAt", createdAt)
+    companion object {
+        fun from(o: org.json.JSONObject) = MoveRule(o.getString("key"), o.optString("label"), o.optBoolean("moved", true), o.optLong("createdAt"))
+    }
+}
+
 /** 이 폰에만 있는 설정(동기화하지 않음). */
 data class Settings(
     val theme: String = "system",
@@ -119,6 +130,32 @@ class LocalSettings(context: Context) {
     fun importRules(list: List<ForwardRule>) = setRules((list + _rules.value).associateBy { it.key }.values.toList())
 
     fun ruleFor(source: String, from: String?): ForwardRule? = from?.let { f -> _rules.value.firstOrNull { it.key == ForwardRule.key(source, f) } }
+
+    // --- 옮긴 돈·쓴 돈 기억 (D-25, 이 폰에만) ------------------------------------------------------
+    private val _moveRules = MutableStateFlow(readMoveRules())
+    val moveRules: StateFlow<List<MoveRule>> = _moveRules.asStateFlow()
+
+    private fun readMoveRules(): List<MoveRule> = prefs.getString("moveRules", null)?.let { s ->
+        runCatching { JSONArray(s) }.getOrNull()?.let { a -> (0 until a.length()).mapNotNull { runCatching { MoveRule.from(a.getJSONObject(it)) }.getOrNull() } }
+    } ?: emptyList()
+
+    @Synchronized
+    fun saveMoveRule(r: MoveRule) = setMoveRules(_moveRules.value.filter { it.key != r.key } + r)
+
+    @Synchronized
+    fun removeMoveRule(key: String) = setMoveRules(_moveRules.value.filter { it.key != key })
+
+    private fun setMoveRules(list: List<MoveRule>) {
+        prefs.edit().putString("moveRules", JSONArray(list.map { it.json() }).toString()).apply()
+        _moveRules.value = list
+    }
+
+    /** 백업에서 되살린 기억을 더합니다(같은 은행·메모는 이 폰의 것이 이김). */
+    @Synchronized
+    fun importMoveRules(list: List<MoveRule>) = setMoveRules((list + _moveRules.value).associateBy { it.key }.values.toList())
+
+    /** 기억한 판정: 옮긴 돈 true, 쓴 돈 false, 없으면 null. */
+    fun movedBy(key: String?): Boolean? = key?.let { k -> _moveRules.value.firstOrNull { it.key == k }?.moved }
 
     // --- 한 달에 한 번만 보내는 알림 표시(예산 80%·100%) -------------------------------------
     fun once(key: String): Boolean {

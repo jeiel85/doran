@@ -411,9 +411,13 @@ class CaptureProcessor(
         if (p.cardPaymentTo != null) return Outcome("공유 범위 밖 카드값 출금 · 기록 안 함", null)
         val isCancel = p.type == Parsed.Type.CANCEL
         val kind = if (p.type == Parsed.Type.DEPOSIT) Kind.INCOME else Kind.EXPENSE
+        // 은행 출금은 쓴 돈인지 옮긴 돈인지 따로 가립니다(D-25). 카드 승인·체크카드 승인은 쓴 돈입니다.
+        val bankOut = p.type == Parsed.Type.WITHDRAWAL && !p.isCard
         val mine = ledger.value.txns.values.filter { it.private && it.memberId == me && it.issuer == p.issuer }
         mine.firstOrNull {
-            it.amount == p.amount && it.kind == kind && (it.cancelOf != null) == isCancel && abs(it.at - at) <= sameMinutes && it.source.captured
+            // 먼저 온 같은 출금 알림이 옮긴 돈(이체)으로 기록됐어도 같은 출금입니다(앱 푸시와 문자가 함께 오는 경우).
+            val sameKind = it.kind == kind || bankOut && com.jeiel85.doran.logic.Moves.isMoved(it)
+            it.amount == p.amount && sameKind && (it.cancelOf != null) == isCancel && abs(it.at - at) <= sameMinutes && it.source.captured
         }?.let { return Outcome("이미 기록됨(중복 알림)", it.id) }
         if (isCancel) {
             SamePayment.unpairedAppCancel(ledger.value, mine, p.amount, at, p.merchant, ::cardPaired)?.let { return Outcome("이미 기록됨(간편결제 알림의 같은 취소)", it.id) }
@@ -430,9 +434,74 @@ class CaptureProcessor(
             if (original != null) first.copy(cancelOf = original.id, categoryId = original.categoryId, merchant = p.merchant ?: original.merchant)
             else first.copy(kind = Kind.INCOME, categoryId = "c.income_etc", memo = "원래 승인을 찾지 못한 취소 — 확인해 주세요", needsReview = true)
         } else first.copy(categoryId = Categorizer.categorize(ledger.value, first.merchant, kind))
-        ledger.saveTxn(txn)
-        settings.markUnseen(listOf(txn.id))
-        return Outcome("$PRIVATE_RESULT(공유 범위 밖)", txn.id)
+        val saved = if (bankOut) judgeMove(txn) else txn
+        ledger.saveTxn(saved)
+        settings.markUnseen(listOf(saved.id))
+        return Outcome("$PRIVATE_RESULT(공유 범위 밖)" + if (com.jeiel85.doran.logic.Moves.isMoved(saved)) " · $MOVED_NOTE" else "", saved.id)
+    }
+
+    /** 나만 보는 용돈의 은행 출금 [w]를 쓴 돈·옮긴 돈으로 가립니다(D-25, [com.jeiel85.doran.logic.Moves]). */
+    private fun judgeMove(w: Txn): Txn {
+        val s = ledger.value
+        val rule = settings.movedBy(com.jeiel85.doran.logic.Moves.ruleKey(w.issuer, w.merchant))
+        return com.jeiel85.doran.logic.Moves.judge(s, w, s.member(w.memberId)?.allowance ?: 0, rule)
+    }
+
+    /**
+     * 장부가 바뀐 뒤(동기화로 받은 아내 폰의 입금 포함) 내 은행 출금의 자동 판정을 다시 봅니다.
+     * 사용자가 고른 것과 규칙으로 정한 것은 건드리지 않습니다. 개인 키로 봉한 용돈 내역이라 이 폰에서만 고칠 수 있습니다.
+     */
+    @Synchronized
+    fun rejudgeMoves(changed: List<Pair<Txn?, Txn?>>) {
+        val me = identity.value.myMemberId ?: return
+        for (w in com.jeiel85.doran.logic.Moves.affected(ledger.value, changed, me, identity.installId)) {
+            val cur = ledger.value.txns[w.id] ?: continue
+            val next = com.jeiel85.doran.logic.Moves.judge(ledger.value, cur, ledger.value.member(cur.memberId)?.allowance ?: 0, rule = null)
+            if (next != cur) {
+                ledger.saveTxn(next, auto = true)
+                noteMove(next)
+            }
+        }
+    }
+
+    /** "최근 받은 알림"의 기록 결과에 옮긴 돈 표시를 붙이거나 뗍니다. */
+    private fun noteMove(t: Txn) {
+        val moved = com.jeiel85.doran.logic.Moves.isMoved(t)
+        for (row in db.capturesOf(t.id)) {
+            val base = row.result.removeSuffix(" · $MOVED_NOTE")
+            val result = if (moved) "$base · $MOVED_NOTE" else base
+            if (result != row.result) db.updateCapture(row.id, row.status, result, row.txnId)
+        }
+    }
+
+    /**
+     * 사용자가 내역 화면에서 은행 출금을 옮긴 돈([moved]) 또는 용돈에서 쓴 돈으로 정합니다. [remember]면 같은 은행·메모의 다음 출금도
+     * 그렇게 봅니다(이 폰에만). 판정 전에 기록된 출금(move 없음)도 같은 방식으로 고칩니다.
+     */
+    @Synchronized
+    fun setMoved(t: Txn, moved: Boolean, remember: Boolean) {
+        val cur = ledger.value.txns[t.id]?.takeIf { it.private && it.memberId == identity.value.myMemberId } ?: return
+        val next = if (moved) com.jeiel85.doran.logic.Moves.moved(cur, com.jeiel85.doran.logic.Moves.USER)
+            else com.jeiel85.doran.logic.Moves.spent(ledger.value, cur, com.jeiel85.doran.logic.Moves.KEPT)
+        ledger.saveTxn(next)
+        noteMove(next)
+        if (remember) com.jeiel85.doran.logic.Moves.ruleKey(cur.issuer, cur.merchant)?.let { key ->
+            settings.saveMoveRule(com.jeiel85.doran.data.MoveRule(key, listOfNotNull(cur.issuer, cur.merchant.ifBlank { null }).joinToString(" · "), moved))
+        }
+    }
+
+    /**
+     * 내역 화면에서 "옮긴 돈 ↔ 쓴 돈"을 바꿀 수 있는 내 은행 출금인지. 판정이 생기기 전(move 없음)에 기록된 것은 그 알림 원문(30일)을
+     * 다시 읽어 은행 출금인지 봅니다.
+     */
+    fun isBankWithdrawal(t: Txn): Boolean {
+        if (!t.private || t.memberId != identity.value.myMemberId || t.cancelOf != null || !t.source.captured) return false
+        if (t.move != null) return true
+        if (t.kind != Kind.EXPENSE) return false
+        return db.capturesOf(t.id).any { row ->
+            Parser.parse(listOfNotNull(row.title, row.text).joinToString("\n"), Fmt.dateTime(row.at), row.label)
+                ?.let { it.type == Parsed.Type.WITHDRAWAL && !it.isCard && it.cardPaymentTo == null } == true
+        }
     }
 
     private fun base(p: Parsed, source: Source, at: Long, me: String?, account: Account, label: String) = Txn(
@@ -533,6 +602,8 @@ class CaptureProcessor(
         const val FAILED_RESULT = "결제·출금 실패 알림 · 기록 안 함"
         const val SCHEDULED_RESULT = "결제·출금 예정 안내 · 기록 안 함"
         private const val PRIVATE_RESULT = "나만 보는 용돈으로 기록"
+        /** 옮긴 돈으로 본 은행 출금의 수집 기록 표시(D-25). */
+        const val MOVED_NOTE = "옮긴 돈 · 용돈에서 안 뺌"
         /** 직접 골라 보낸 기록의 표시. 실패·예정 알림을 "그래도 보내기"로 보낸 것을 다시 지우자고 묻지 않는 데 씁니다. */
         const val PICKED_NOTE = "직접 골라 보냄"
         /** "그대로 두기"의 표시. 이 낱말로 다시 묻지 않으니 바꾸면 예전에 그대로 둔 것을 또 묻게 됩니다. */

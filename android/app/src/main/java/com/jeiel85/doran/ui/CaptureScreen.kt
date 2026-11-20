@@ -133,6 +133,7 @@ fun CaptureScreen(nav: Nav) {
             }
         }
         item { ForwardRulesSection() }
+        item { MoveRulesSection() }
         item { Spacer(Modifier.height(20.dp)); SectionTitle("문구 시험") }
         item {
             SoftCard {
