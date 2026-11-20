@@ -31,6 +31,8 @@ object Hub {
     lateinit var local: LocalSettings; private set
     lateinit var sync: SyncEngine; private set
     lateinit var capture: CaptureProcessor; private set
+    /** "AI로 한 번 더 보기"(D-25). 켜지 않았으면 아무것도 보내지 않습니다. */
+    lateinit var ai: com.jeiel85.doran.ai.AiReview; private set
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val settings: StateFlow<Settings> get() = local.state
@@ -51,6 +53,7 @@ object Hub {
                 "그 가계부에서 이 폰 연결을 끊었어요. 다시 보내려면 가족에게 새 QR을 받아 찍어 주세요")
         }) { changes -> Hooks.onRemote(app, changes) }
         capture = CaptureProcessor(db, ledger, identity, local, sync, ::requestSync)
+        ai = com.jeiel85.doran.ai.AiReview(db, local)
         ready = true
 
         scope.launch { ledger.changes.collect { Hooks.onChanges(app, it) } }

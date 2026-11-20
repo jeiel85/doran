@@ -59,6 +59,19 @@ fun CaptureLogScreen(nav: Nav) {
     }
     val resumed = rememberResumeTick()
     androidx.compose.runtime.LaunchedEffect(resumed) { if (resumed > 0) tick++ }
+    // "AI로 한 번 더 보기"(D-25): 규칙 결과와 AI 판정을 견준 값. 기록마다 지금 규칙으로 다시 읽습니다.
+    val aiOn = remember(tick) { Hub.ai.enabled }
+    val compared = remember(tick) {
+        rows.associate { r ->
+            r.id to com.jeiel85.doran.ai.AiVerdict.from(r.ai)?.let { v ->
+                val (rule, amount) = Hub.ai.ruleView(r)
+                v to com.jeiel85.doran.ai.AiPrompt.agrees(rule, amount, v)
+            }
+        }
+    }
+    val scope = rememberCoroutineScope()
+    var aiBusy by remember { mutableStateOf(false) }
+    var aiMessage by remember { mutableStateOf<String?>(null) }
 
     SubScreen("최근 받은 알림", { nav.back() }, actions = {
         IconButton(onClick = { Hub.db.clearCaptures(); tick++ }) { Icon(Icons.Rounded.DeleteSweep, "모두 지우기", tint = P.c.ink) }
@@ -71,6 +84,24 @@ fun CaptureLogScreen(nav: Nav) {
             // 묶기·실패 기준이 실제 알림에서 어떻게 도는지 보이게(#13·#19)
             if (tab == 1) Text("최근 30일 · 기록 ${counts.recorded} · 같은 결제로 묶음 ${counts.joined} · 실패·예정이라 뺀 것 ${counts.failed} · 기록 안 된 것 ${counts.candidates}",
                 style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint, modifier = Modifier.padding(top = 4.dp))
+            if (aiOn || compared.values.any { it != null }) {
+                val judged = compared.values.count { it?.first?.kind != null }
+                val differ = compared.values.count { it?.second == false }
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Text("AI 판정 ${judged}건 · 규칙과 다름 ${differ}건", style = MaterialTheme.typography.bodySmall,
+                        color = if (differ > 0) P.c.apricot else P.c.inkSoft, modifier = Modifier.weight(1f))
+                    if (aiOn) SmallButton(if (aiBusy) "묻는 중…" else "AI로 보기", enabled = !aiBusy, color = P.c.apricot) {
+                        aiBusy = true; aiMessage = null
+                        scope.launch {
+                            val (n, stopped) = Hub.ai.reviewRecent()
+                            aiMessage = stopped?.let { "멈췄어요: $it" } ?: if (n == 0) "새로 물을 알림이 없어요" else "${n}건 물었어요"
+                            aiBusy = false; tick++
+                        }
+                    }
+                }
+                aiMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft) }
+            }
         }
         if (failures.isNotEmpty()) item { RecordedFailuresCard(failures) { tick++ } }
         if (shown.isEmpty()) item {
@@ -99,9 +130,25 @@ fun CaptureLogScreen(nav: Nav) {
                         SmallButton("그래도 보내기", color = P.c.inkSoft) { nav.go(Route.SendPicked(r.id)) }
                     }
                 }
+                compared[r.id]?.let { (v, agree) -> AiVerdictLine(v, agree) }
             }
         }
     }
+}
+
+/** 기록 한 건 아래의 AI 판정 줄: 판정·금액·가맹점, 규칙과 같은지, 이유. 판정하지 못했으면 그 이유. */
+@Composable
+private fun AiVerdictLine(v: com.jeiel85.doran.ai.AiVerdict, agree: Boolean?) {
+    Spacer(Modifier.height(8.dp))
+    val kind = v.kind
+    if (kind == null) {
+        Text("AI(${v.providerLabel}) 판정 못 함 · ${v.error.orEmpty()}", style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint)
+        return
+    }
+    val what = kind.label + (if (v.amount > 0) " ${Fmt.won(v.amount)}" else "") + (if (v.merchant.isNotBlank()) " · ${v.merchant}" else "")
+    Text("AI(${v.providerLabel}): $what" + when (agree) { false -> " · 규칙과 다름"; true -> " · 같음"; null -> "" },
+        style = MaterialTheme.typography.labelMedium, color = if (agree == false) P.c.apricot else P.c.inkSoft)
+    if (v.reason.isNotBlank()) Text(v.reason, style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint)
 }
 
 /**
@@ -244,7 +291,7 @@ fun ForwardRulesSection() {
     }
 }
 
-/** 알림 자동 기록 화면 안: 내역 화면에서 "앞으로도"로 기억한 은행 출금 판정(옮긴 돈·쓴 돈, D-25). */
+/** 알림 자동 기록 화면 안: 내역 화면에서 "앞으로도"로 기억한 은행 출금 판정(옮긴 돈·쓴 돈, D-26). */
 @Composable
 fun MoveRulesSection() {
     val rules by Hub.local.moveRules.collectAsStateWithLifecycle()

@@ -19,7 +19,7 @@ import java.time.LocalDateTime
 import java.time.YearMonth
 
 /**
- * 범위 밖 통장의 은행 출금: 쓴 돈인가, 옮긴 돈인가(DECISIONS.md D-25).
+ * 범위 밖 통장의 은행 출금: 쓴 돈인가, 옮긴 돈인가(DECISIONS.md D-26).
  * 2026-11-20 사용자 폰: 남편 KB국민은행(공유 범위 밖)에 급여가 들어온 뒤 통째로 다른 통장으로 보냈더니 "용돈에서 404만원 썼어요"가 됨.
  * 금액·은행은 바꿨습니다.
  */

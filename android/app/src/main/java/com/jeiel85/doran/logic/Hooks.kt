@@ -95,7 +95,7 @@ object Hooks {
         }
     }
 
-    /** 동기화로 받은 아내 폰의 입금 등으로 내 은행 출금의 '옮긴 돈' 판정이 바뀌면 고칩니다(D-25). 고친 것은 다시 이 훅을 거칩니다. */
+    /** 동기화로 받은 아내 폰의 입금 등으로 내 은행 출금의 '옮긴 돈' 판정이 바뀌면 고칩니다(D-26). 고친 것은 다시 이 훅을 거칩니다. */
     private fun rejudgeMoves(changes: List<Change>) {
         val txns = changes.filter { it.type == T.TXN }
         if (txns.isEmpty()) return
@@ -131,7 +131,7 @@ object Hooks {
         val now = System.currentTimeMillis()
         val inserted = changes.filter { it.local && it.type == T.TXN && it.before == null && it.after != null }
             .map { Txn.from(it.id, it.after!!) }
-        // 월 용돈보다 커서 옮긴 돈으로 본 은행 출금: 용돈에서 빼지 않았다고 따로 알려 바로 고칠 수 있게(D-25).
+        // 월 용돈보다 커서 옮긴 돈으로 본 은행 출금: 용돈에서 빼지 않았다고 따로 알려 바로 고칠 수 있게(D-26).
         for (t in inserted.filter { AllowanceAlert.appliesMoved(it, me, install, now) }) {
             val text = AllowanceAlert.moved(t)
             Notifier.allowanceTxn(context, "move.${t.id}", t.id, text.title, text.body)

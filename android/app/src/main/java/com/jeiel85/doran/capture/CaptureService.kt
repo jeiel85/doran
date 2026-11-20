@@ -58,6 +58,8 @@ class CaptureService : NotificationListenerService() {
                     runCatching { Hub.capture.process(Source.SMS, from, null, body, at, appLabel = "문자 $from") }
                         .onFailure { Log.w("Capture", "sms notification failed", it) }
                 }
+                // 기록은 규칙이 이미 끝냈고, AI 판정은 비교용으로 뒤에 붙입니다(D-25, 켠 경우만).
+                Hub.ai.afterCapture()
             }
             return
         }
@@ -69,6 +71,7 @@ class CaptureService : NotificationListenerService() {
             val label = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrNull()
             runCatching { Hub.capture.process(Source.PUSH, pkg, title, text, sbn.postTime, label) }
                 .onFailure { Log.w("Capture", "process failed", it) }
+            Hub.ai.afterCapture()
         }
     }
 
@@ -102,7 +105,11 @@ class SmsReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.Default).launch {
             try {
                 Hub.init(context.applicationContext)
-                if (Hub.settings.value.captureSms) Hub.capture.process(Source.SMS, from, null, body, at, appLabel = "문자 $from")
+                if (Hub.settings.value.captureSms) {
+                    Hub.capture.process(Source.SMS, from, null, body, at, appLabel = "문자 $from")
+                    // 방송 수신은 몇 초 안에 끝내야 해서, AI 판정(D-25)은 앱 범위에서 따로 돕니다.
+                    Hub.scope.launch { Hub.ai.afterCapture() }
+                }
             } catch (e: Exception) {
                 Log.w("Capture", "sms failed", e)
             } finally {

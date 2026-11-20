@@ -9,7 +9,7 @@
 //        demo (host 뒤 에뮬레이터가 아내로 합류하면, 스토어 화면용 예시 장부를 채움 — 로컬 중계에서만)
 //        host-wife (가짜 아내가 가구를 만들고 초대 링크 출력 — 에뮬레이터가 남편으로 합류)
 //        share <구성원 이름> <카드사,은행|all> (가짜 아내가 그 구성원의 공유 범위를 바꿈 — DECISIONS.md D-19)
-//        allowance <구성원 이름> <금액> (가짜 아내가 월 용돈을 정함) | push-deposit <금액> [몇 분 전] (가짜 아내 폰의 은행 입금, D-25)
+//        allowance <구성원 이름> <금액> (가짜 아내가 월 용돈을 정함) | push-deposit <금액> [몇 분 전] (가짜 아내 폰의 은행 입금, D-26)
 // 환경 변수: RELAY(기본 로컬 8787), PEER_STATE(상태 파일)
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -213,14 +213,14 @@ if (cmd === "join") {
   await push(st, unb64(st.hk), [["member", m.id, v]]);
   console.log("share set", arg, v.share, v.shareIssuers.join("|"));
 } else if (cmd === "allowance") {
-  // 가짜 아내가 구성원(예: 남편)의 월 용돈을 정함: allowance 남편 350000 (D-20, 옮긴 돈 금액 기준 D-25 시험용)
+  // 가짜 아내가 구성원(예: 남편)의 월 용돈을 정함: allowance 남편 350000 (D-20, 옮긴 돈 금액 기준 D-26 시험용)
   const { ents } = await latest(st);
   const m = ents.find((o) => o.t === "member" && !o.d && o.v.name === arg);
   if (!m) throw new Error(`no member named ${arg}`);
   await push(st, unb64(st.hk), [["member", m.id, { ...m.v, allowance: Number(arg2) }]]);
   console.log("allowance set", arg, Number(arg2));
 } else if (cmd === "push-deposit") {
-  // 가짜 아내 폰이 은행 입금 알림을 가계부에 올림: push-deposit <금액> [몇 분 전] — 남편이 보낸 급여 등(D-25 받는 쪽 기록)
+  // 가짜 아내 폰이 은행 입금 알림을 가계부에 올림: push-deposit <금액> [몇 분 전] — 남편이 보낸 급여 등(D-26 받는 쪽 기록)
   const key = unb64(st.hk);
   const id = "wifeDeposit" + Date.now().toString().slice(-11).padStart(11, "0");
   const at = Date.now() - Number(arg2 ?? 0) * 60000;

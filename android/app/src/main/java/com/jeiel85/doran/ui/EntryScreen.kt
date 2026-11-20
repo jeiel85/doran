@@ -144,11 +144,11 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
     // 나만 보는 용돈 내역은 저장해도 개인으로 남습니다(#43). 가족과 나누려면 지출에서 "내 용돈으로 쓰기"를 끄는 것뿐이고,
     // 그동안은 다른 사람 내역으로 바꾸지 못하게 사람 고르기를 감춥니다(남의 내역을 내 개인 키로 봉하지 않게).
     val lockedPrivate = original?.private == true && private
-    // 옮긴 돈으로 본 은행 출금(D-25)은 계좌 없는 이체라, 계좌를 고르지 않아도 저장됩니다.
+    // 옮긴 돈으로 본 은행 출금(D-26)은 계좌 없는 이체라, 계좌를 고르지 않아도 저장됩니다.
     val accountlessMove = lockedPrivate && kind == Kind.TRANSFER && accountId == null && toAccountId == null
     val value = amount.toLongOrNull() ?: 0L
     val valid = value > 0 && (kind != Kind.TRANSFER || accountlessMove || (accountId != null && toAccountId != null && accountId != toAccountId))
-    // 은행 출금이면 "옮긴 돈 ↔ 용돈에서 쓴 돈"을 바꿀 수 있게 합니다(D-25). 판정 전 기록은 알림 원문을 읽어 가리므로 DB를 봅니다.
+    // 은행 출금이면 "옮긴 돈 ↔ 용돈에서 쓴 돈"을 바꿀 수 있게 합니다(D-26). 판정 전 기록은 알림 원문을 읽어 가리므로 DB를 봅니다.
     val bankOut by produceState(false, original?.id) {
         this.value = original?.let { o -> withContext(Dispatchers.IO) { Hub.capture.isBankWithdrawal(o) } } == true
     }
@@ -163,7 +163,7 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
             installment = if (kind == Kind.EXPENSE) installment else 0,
             private = if (original?.private == true) private else private && canEditPrivate,
             receiptIds = receipts.toList(), needsReview = false,
-            // 종류를 손으로 바꾼 은행 출금은 사용자가 정한 것이라 다시 자동 판정하지 않습니다(D-25).
+            // 종류를 손으로 바꾼 은행 출금은 사용자가 정한 것이라 다시 자동 판정하지 않습니다(D-26).
             move = original?.move?.let { m -> if (kind == original.kind) m else if (kind == Kind.TRANSFER) Moves.USER else Moves.KEPT },
         )
         Hub.ledger.saveTxn(t)
@@ -253,7 +253,7 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                         }
                     }
                     if (bankOut) {
-                        // 은행 출금: 용돈에서 쓴 돈인지, 다른 통장으로 옮긴 돈인지(D-25). 누르면 바로 바꾸고 닫습니다.
+                        // 은행 출금: 용돈에서 쓴 돈인지, 다른 통장으로 옮긴 돈인지(D-26). 누르면 바로 바꾸고 닫습니다.
                         val moved = o.kind == Kind.TRANSFER
                         Spacer(Modifier.height(10.dp))
                         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (moved) P.c.pineSoft else P.c.apricotSoft)
@@ -314,7 +314,7 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
             Spacer(Modifier.height(18.dp))
             SoftCard(padding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
                 ListRow("날짜", Fmt.full(at), Icons.Rounded.CalendarToday, P.c.pine, onClick = { picker = "date" })
-                // 옮긴 돈으로 본 범위 밖 은행 출금은 가계부에 계좌를 두지 않는 개인 내역이라(D-19·D-25) 계좌를 고르지 않습니다.
+                // 옮긴 돈으로 본 범위 밖 은행 출금은 가계부에 계좌를 두지 않는 개인 내역이라(D-19·D-26) 계좌를 고르지 않습니다.
                 if (!(accountlessMove && original?.move != null)) {
                     ListRow(if (kind == Kind.TRANSFER) "보내는 계좌" else if (kind == Kind.INCOME) "들어온 곳" else "결제 수단",
                         s.account(accountId)?.name ?: "선택 안 함", leading = { CatTile(if (s.account(accountId)?.type == AccountType.CARD) "card" else "bank", 40.dp) },
@@ -467,11 +467,19 @@ private fun PhotoButton(icon: androidx.compose.ui.graphics.vector.ImageVector, l
 }
 
 @Composable
-fun Field(label: String, value: String, onChange: (String) -> Unit, placeholder: String = "", singleLine: Boolean = true, number: Boolean = false) {
+fun Field(label: String, value: String, onChange: (String) -> Unit, placeholder: String = "", singleLine: Boolean = true, number: Boolean = false,
+          /** 비밀값(API 키 등): 가려 보이고 자판이 기억·추천하지 않게. */
+          secret: Boolean = false) {
     OutlinedTextField(
         value = value, onValueChange = onChange, label = { Text(label) }, placeholder = { Text(placeholder, color = P.c.inkFaint) },
         singleLine = singleLine, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
-        keyboardOptions = if (number) KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default,
+        keyboardOptions = when {
+            secret -> KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false)
+            number -> KeyboardOptions(keyboardType = KeyboardType.Number)
+            else -> KeyboardOptions.Default
+        },
+        visualTransformation = if (secret) androidx.compose.ui.text.input.PasswordVisualTransformation()
+            else androidx.compose.ui.text.input.VisualTransformation.None,
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = P.c.pine, unfocusedBorderColor = P.c.line, focusedContainerColor = P.c.surface,
             unfocusedContainerColor = P.c.surface, focusedLabelColor = P.c.pine, cursorColor = P.c.pine,

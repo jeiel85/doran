@@ -210,7 +210,7 @@ data class Txn(
     val createdBy: String? = null,
     val createdAt: Long = 0,
     /**
-     * 나만 보는 용돈의 은행 출금을 '쓴 돈'과 '옮긴 돈' 중 어느 쪽으로 왜 셌는지(DECISIONS.md D-25, `Moves`).
+     * 나만 보는 용돈의 은행 출금을 '쓴 돈'과 '옮긴 돈' 중 어느 쪽으로 왜 셌는지(DECISIONS.md D-26, `Moves`).
      * null이면 은행 출금이 아니거나 이 판정이 생기기 전에 기록된 것입니다.
      */
     val move: String? = null,

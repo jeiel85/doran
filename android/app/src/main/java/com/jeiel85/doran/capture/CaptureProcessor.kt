@@ -411,7 +411,7 @@ class CaptureProcessor(
         if (p.cardPaymentTo != null) return Outcome("공유 범위 밖 카드값 출금 · 기록 안 함", null)
         val isCancel = p.type == Parsed.Type.CANCEL
         val kind = if (p.type == Parsed.Type.DEPOSIT) Kind.INCOME else Kind.EXPENSE
-        // 은행 출금은 쓴 돈인지 옮긴 돈인지 따로 가립니다(D-25). 카드 승인·체크카드 승인은 쓴 돈입니다.
+        // 은행 출금은 쓴 돈인지 옮긴 돈인지 따로 가립니다(D-26). 카드 승인·체크카드 승인은 쓴 돈입니다.
         val bankOut = p.type == Parsed.Type.WITHDRAWAL && !p.isCard
         val mine = ledger.value.txns.values.filter { it.private && it.memberId == me && it.issuer == p.issuer }
         mine.firstOrNull {
@@ -440,7 +440,7 @@ class CaptureProcessor(
         return Outcome("$PRIVATE_RESULT(공유 범위 밖)" + if (com.jeiel85.doran.logic.Moves.isMoved(saved)) " · $MOVED_NOTE" else "", saved.id)
     }
 
-    /** 나만 보는 용돈의 은행 출금 [w]를 쓴 돈·옮긴 돈으로 가립니다(D-25, [com.jeiel85.doran.logic.Moves]). */
+    /** 나만 보는 용돈의 은행 출금 [w]를 쓴 돈·옮긴 돈으로 가립니다(D-26, [com.jeiel85.doran.logic.Moves]). */
     private fun judgeMove(w: Txn): Txn {
         val s = ledger.value
         val rule = settings.movedBy(com.jeiel85.doran.logic.Moves.ruleKey(w.issuer, w.merchant))
@@ -602,7 +602,7 @@ class CaptureProcessor(
         const val FAILED_RESULT = "결제·출금 실패 알림 · 기록 안 함"
         const val SCHEDULED_RESULT = "결제·출금 예정 안내 · 기록 안 함"
         private const val PRIVATE_RESULT = "나만 보는 용돈으로 기록"
-        /** 옮긴 돈으로 본 은행 출금의 수집 기록 표시(D-25). */
+        /** 옮긴 돈으로 본 은행 출금의 수집 기록 표시(D-26). */
         const val MOVED_NOTE = "옮긴 돈 · 용돈에서 안 뺌"
         /** 직접 골라 보낸 기록의 표시. 실패·예정 알림을 "그래도 보내기"로 보낸 것을 다시 지우자고 묻지 않는 데 씁니다. */
         const val PICKED_NOTE = "직접 골라 보냄"
