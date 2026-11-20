@@ -237,11 +237,10 @@ object Recurrer {
         for (r in s.recurrings.values) {
             // 처음 만든 규칙이 몇 년 전부터 쏟아지지 않게 최대 60일 전까지만.
             for ((nominal, d) in Stats.occurrences(r, today.minusDays(60), today, s.household.monthStartDay)) {
-                val id = idFor(r.id, d)
+                // id는 정한 날로, 장부 날짜는 들어가는 날(주말이면 앞 금요일, D-27)로 둡니다. 옛 버전 폰과 이 폰이 동기화 전에 각자 만들어도
+                // 같은 id라 한 건으로 합쳐지고, 옛 버전이 만들었다가 지운 것(묘비)도 그대로 막힙니다(#53 리뷰).
+                val id = idFor(r.id, nominal)
                 if (db.entity(T.TXN, id) != null) continue // 지운 것(묘비)도 다시 만들지 않음
-                // 주말이라 앞당긴 용돈(D-27)은 옛 버전이 정한 날 id로 만들었다가 지운 것도 봅니다. 묘비는 장부 상태에 없어
-                // 아래 '가까운 내역' 검사로는 못 찾아, 금요일 id로 되살아나기 때문입니다(#53 리뷰).
-                if (nominal != d && db.entity(T.TXN, idFor(r.id, nominal)) != null) continue
                 val at = Fmt.millis(d.atTime(9, 0))
                 val near = 3L * 86_400_000
                 // 매달 규칙은 같은 가계부 기간에 이미 이어진 내역이 있으면(날짜가 며칠 달라도) 다시 만들지 않습니다.
