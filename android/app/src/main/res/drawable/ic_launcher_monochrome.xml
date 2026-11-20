@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 테마 아이콘(Android 13+ 단색) 레이어: 알림 아이콘(ic_stat_doran)과 같은 둥지·알 실루엣을 108dp 캔버스의 66dp 안전 원 안에 둡니다. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="2.6"
+        android:scaleY="2.6"
+        android:translateX="22.8"
+        android:translateY="22.8">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M12,2.0C15.1,2.0 17.1,5.9 17.1,9.0C17.1,9.9 16.9,10.6 16.6,11.07Q12,11.73 7.4,11.07C7.1,10.6 6.9,9.9 6.9,9.0C6.9,5.9 8.9,2.0 12,2.0Z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M2.9,11.3Q12,13.9 21.1,11.3C21.8,11.3 22.2,11.8 22.2,12.6C22.2,17.6 17.8,21.6 12,21.6C6.2,21.6 1.8,17.6 1.8,12.6C1.8,11.8 2.2,11.3 2.9,11.3ZM2.9,14.0Q12,16.8 21.1,14.0L21.0,15.1Q12,17.9 3.0,15.1ZM4.2,17.6Q12,20.2 19.8,17.6L19.3,18.6Q12,21.2 4.7,18.6Z" />
+    </group>
+</vector>

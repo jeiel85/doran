@@ -1,12 +1,15 @@
 """Codex가 만든 원본(design/art/source)에서 앱 리소스를 만듭니다.
 
-    python design/make_art.py
+    python design/make_art.py          # 전부
+    python design/make_art.py icon     # 런처 아이콘만 (이름·아이콘을 바꿀 때)
 
-- 런처 아이콘: 적응형 아이콘 전경(108dp, 66dp 안전 원 안), 단색(테마 아이콘) 레이어, README용 전체 아이콘
+- 런처 아이콘: 적응형 아이콘 전경(108dp, 66dp 안전 원 안), README·웹용 전체 아이콘
+  (단색 테마 아이콘·알림 아이콘은 손으로 그린 벡터: res/drawable/ic_launcher_monochrome.xml, ic_stat_doran.xml)
 - 카테고리·자산 아이콘 32종: 4x4 시트 두 장을 칸마다 잘라 투명 여백을 맞춘 192px WebP
 - 일러스트 4장: 가로 960px WebP
 원본 출처와 프롬프트는 design/art/SOURCES.md.
 """
+import sys
 from pathlib import Path
 from PIL import Image
 
@@ -61,13 +64,8 @@ def gradient(size: int) -> Image.Image:
     return bg
 
 
-def monochrome(img: Image.Image) -> Image.Image:
-    white = Image.new("RGBA", img.size, (255, 255, 255, 0))
-    white.putalpha(img.getchannel("A").point(lambda a: 255 if a > 40 else 0))
-    return white
-
-
-def main() -> None:
+def build_art() -> None:
+    """카테고리·자산 아이콘과 일러스트(이름과 상관없는 그림)."""
     nodpi = RES / "drawable-nodpi"
     nodpi.mkdir(parents=True, exist_ok=True)
     icons = {**sheet_cells(SRC / "categories-a.png", SHEET_A), **sheet_cells(SRC / "categories-b.png", SHEET_B)}
@@ -83,14 +81,17 @@ def main() -> None:
         img.save(web_art / f"{dst.removeprefix('art_')}.webp", "WEBP", quality=84, method=6)  # 소개 페이지용
     for name in ("card", "savings", "bank"):
         icons[name].resize((128, 128), Image.LANCZOS).save(web_art / f"cat-{name}.webp", "WEBP", quality=88, method=6)
+    print(f"categories {len(icons)}, illustrations {len(ILLUSTRATIONS)}")
 
-    icon = Image.open(SRC / "icon-bubble.png").convert("RGBA")
+
+def build_icon() -> None:
+    """런처 아이콘 전경(밀도별)과 README·웹용 전체 아이콘."""
+    icon = Image.open(SRC / "icon-nest.png").convert("RGBA")  # 둥지 A안 (DECISIONS.md D-24)
     for density, px in DENSITIES.items():
         d = RES / f"mipmap-{density}"
         d.mkdir(parents=True, exist_ok=True)
         fg = fit(icon, px, 0.58)  # 0.58 x 108dp = 63dp, 66dp 안전 원 안
         fg.save(d / "ic_launcher_foreground.png", optimize=True)
-        monochrome(fg).save(d / "ic_launcher_monochrome.png", optimize=True)
 
     full = gradient(1024)
     full.alpha_composite(fit(icon, 1024, 0.66))
@@ -98,8 +99,12 @@ def main() -> None:
     full.save(ROOT / "design/art/icon-full.png", optimize=True)
     for px in (192, 512):
         full.resize((px, px), Image.LANCZOS).save(DOCS / f"icon-{px}.png", optimize=True)
-    print(f"categories {len(icons)}, illustrations {len(ILLUSTRATIONS)}, launcher {len(DENSITIES)} densities")
+    print(f"launcher {len(DENSITIES)} densities")
 
 
 if __name__ == "__main__":
-    main()
+    what = sys.argv[1] if len(sys.argv) > 1 else "all"
+    if what in ("all", "art"):
+        build_art()
+    if what in ("all", "icon"):
+        build_icon()

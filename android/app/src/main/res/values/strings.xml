@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">도란</string>
-    <string name="capture_service_label">도란 · 카드·은행 알림 기록</string>
-    <string name="widget_label">도란 이번 달</string>
+    <string name="app_name">둥지</string>
+    <string name="capture_service_label">둥지 · 카드·은행 알림 기록</string>
+    <string name="widget_label">둥지 이번 달</string>
     <string name="widget_desc">이번 달 지출과 남은 예산</string>
 </resources>

@@ -48,7 +48,7 @@ object Backup {
     suspend fun restore(context: Context, uri: Uri, password: CharArray): Summary = withContext(Dispatchers.IO) {
         val text = context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: error("파일을 열 수 없어요")
         val file = runCatching { JSONObject(text) }.getOrNull()?.takeIf { it.optString("doran") == "backup" }
-            ?: error("도란 백업 파일이 아니에요")
+            ?: error("둥지 백업 파일이 아니에요")
         val kdf = file.getJSONObject("kdf")
         val key = Crypto.passwordKey(password, Crypto.unb64(kdf.getString("salt")), kdf.getInt("iter"))
         val plain = Crypto.open(key, file.getString("data"), AAD) ?: throw WrongPassword()

@@ -199,7 +199,7 @@ fun SettingsScreen(nav: Nav) {
             }
         }
         item {
-            Text("도란 ${BuildConfig.VERSION_NAME} · 우리 가족 가계부", style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint,
+            Text("둥지 ${BuildConfig.VERSION_NAME} · 우리 가족 가계부", style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint,
                 modifier = Modifier.padding(16.dp))
         }
         message?.let { m -> item { Text(m, color = P.c.pine, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp)) } }
@@ -209,7 +209,7 @@ fun SettingsScreen(nav: Nav) {
         "myName" -> s.member(id.myMemberId)?.let { me ->
             NameDialog("내 이름", SELF_NAMES, me.name, { dialog = null }) { n -> Hub.ledger.saveMember(me.copy(name = n.trim())); dialog = null }
         }
-        "name" -> NameDialog("가계부 이름", listOf("우리집", "도란이네"), s.household.name, { dialog = null }) { n ->
+        "name" -> NameDialog("가계부 이름", listOf("우리집", "둥지네"), s.household.name, { dialog = null }) { n ->
             Hub.ledger.saveHousehold(s.household.copy(name = n.trim())); dialog = null
         }
         "startDay" -> {
@@ -238,7 +238,7 @@ fun SettingsScreen(nav: Nav) {
             } },
             confirmButton = { TextButton({
                 dialog = null
-                exportTo.launch("도란-${YearMonth.now(Fmt.zone)}.xlsx")
+                exportTo.launch("둥지-${YearMonth.now(Fmt.zone)}.xlsx")
             }) { Text("저장 위치 고르기") } },
             dismissButton = { TextButton({ dialog = null }) { Text("취소") } })
         "backupPw", "restorePw" -> {

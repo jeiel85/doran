@@ -17,7 +17,7 @@
         inviter = new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))).slice(0, 12);
       }
     } catch { /* 이름이 깨졌으면 일반 문구 */ }
-    document.getElementById("title").textContent = inviter ? `${inviter}님이 초대했어요` : "도란 가족 연결";
+    document.getElementById("title").textContent = inviter ? `${inviter}님이 초대했어요` : "둥지 가족 연결";
     document.getElementById("lede").textContent = role === "sender"
       ? "이 폰의 카드·은행 알림을 가족 가계부로 보내 주세요. 가족 폰에는 \"○○님이 현대카드로 … 썼어요\"처럼 알림이 가요."
       : "같은 가계부를 함께 써요. 결제 알림이 오면 서로의 폰에 바로 기록돼요.";

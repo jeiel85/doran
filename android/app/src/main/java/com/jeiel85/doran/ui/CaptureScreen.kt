@@ -102,7 +102,7 @@ fun CaptureScreen(nav: Nav) {
                 if (com.jeiel85.doran.BuildConfig.SMS_RECEIVER) PermRow("문자 받기", if (sms) "켜짐 · 카드·은행 문자를 읽어요" else "카드사 문자로만 알림이 오면 켜 주세요", Icons.Rounded.Sms, sms) {
                     askSms.launch(Manifest.permission.RECEIVE_SMS)
                 }
-                PermRow("도란 알림 표시", if (notify) "켜짐 · 가족 내역·예산 알림을 보여요" else "가족이 쓴 내역 알림을 받으려면 켜 주세요",
+                PermRow("둥지 알림 표시", if (notify) "켜짐 · 가족 내역·예산 알림을 보여요" else "가족이 쓴 내역 알림을 받으려면 켜 주세요",
                     Icons.Rounded.NotificationsActive, notify) {
                     if (Build.VERSION.SDK_INT >= 33) askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }

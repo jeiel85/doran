@@ -37,7 +37,7 @@ fun UpdateSection(autoUpdate: Boolean) {
         if (state is UpdateState.StoreUpdate) SmallButton("업데이트") { SelfUpdate.openStore(context) }
         else SmallButton("확인", enabled = state != UpdateState.Checking) { scope.launch { SelfUpdate.check(context, userInitiated = true) } }
     }
-    ListRow("Google Play에서 받은 도란",
-        "GitHub APK로 받은 도란과는 서명이 달라 덮어 설치할 수 없어요 — 바꾸려면 백업 → 지우기 → 설치 → 되살리기",
+    ListRow("Google Play에서 받은 둥지",
+        "GitHub APK로 받은 둥지와는 서명이 달라 덮어 설치할 수 없어요 — 바꾸려면 백업 → 지우기 → 설치 → 되살리기",
         Icons.Rounded.Shop, P.c.inkSoft, onClick = { SelfUpdate.openStore(context) })
 }

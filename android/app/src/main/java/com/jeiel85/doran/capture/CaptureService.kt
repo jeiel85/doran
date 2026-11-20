@@ -27,7 +27,7 @@ class CaptureService : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val pkg = sbn.packageName ?: return
-        if (pkg == packageName) return // 도란 자기 알림은 제외
+        if (pkg == packageName) return // 둥지 자기 알림은 제외
         // GitHub 빌드는 문자를 SmsReceiver로 받으므로 문자 앱 알림은 건너뜁니다. Play 빌드는 SMS 권한이 없어 문자 앱 알림으로 읽습니다.
         val smsApp = pkg in SMS_APPS
         if (smsApp && com.jeiel85.doran.BuildConfig.SMS_RECEIVER) return

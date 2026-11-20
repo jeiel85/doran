@@ -1,4 +1,4 @@
-// 도란 중계 서버 (Cloudflare Worker + D1).
+// 둥지 중계 서버 (Cloudflare Worker + D1).
 //
 // 가구마다 암호화된 op 로그 하나를 보관하고, 새 op가 오면 다른 구성원 폰을 FCM으로 깨웁니다.
 // 서버가 아는 것: 기기 id·토큰 해시·FCM 토큰, 어떤 기기가 어떤 가구의 member/sender인지,

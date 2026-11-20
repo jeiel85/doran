@@ -51,8 +51,8 @@ fun Onboarding(pendingInvite: String? = null) {
         Spacer(Modifier.height(12.dp))
         when (step) {
             "welcome" -> {
-                Text("도란", style = MaterialTheme.typography.displaySmall, color = P.c.pine)
-                Text("우리 가족 돈 이야기, 한 장부에서 도란도란", style = MaterialTheme.typography.titleMedium, color = P.c.ink)
+                Text("둥지", style = MaterialTheme.typography.displaySmall, color = P.c.pine)
+                Text("우리 가족 살림이 모이는 한 장부", style = MaterialTheme.typography.titleMedium, color = P.c.ink)
                 Spacer(Modifier.height(16.dp))
                 Feature("art_capture", "카드·은행 알림이 오면 바로 장부에", "앱 알림과 문자를 읽어 같은 결제는 한 번만 기록해요")
                 Feature("art_family", "부부가 같은 장부를 실시간으로", "부모님 카드 알림도 사람별로 받아 합계에 더해요")
@@ -76,7 +76,7 @@ fun Onboarding(pendingInvite: String? = null) {
                 Spacer(Modifier.height(10.dp))
                 NamePicker(myName, { myName = it }, SELF_NAMES, "내 이름")
                 Spacer(Modifier.height(16.dp))
-                Field("가계부 이름", homeName, { homeName = it.take(16) }, "예: 우리집, 도란이네")
+                Field("가계부 이름", homeName, { homeName = it.take(16) }, "예: 우리집, 둥지네")
                 Spacer(Modifier.height(24.dp))
                 PrimaryButton("시작하기", enabled = myName.isNotBlank()) { Pairing.startHousehold(myName, homeName) }
                 Spacer(Modifier.height(10.dp))

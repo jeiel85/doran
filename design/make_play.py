@@ -7,6 +7,8 @@
 - screenshots/0N-*.png: 휴대전화 스크린샷 1080x1920(9:16). Play는 긴 변이 짧은 변의 2배 이하여야 해서
   1080x2400 캡처를 그대로 쓰지 못하고, 설명 문구와 함께 틀에 담습니다.
 원본 캡처: design/play/source (예시 장부 — scripts/fake-peer.mjs demo, 로컬 중계에서 만든 가상의 가족 데이터).
+첫 장의 알림(fcm1.png, 2026-11-17)은 옛 이름 '도란' 때 찍은 실제 알림이라, 아이콘 원만 2026-11-20 '둥지' 앱이 실제로 띄운 알림에서
+잘라 둔 notify-icon.png로 바꿔 붙입니다(같은 기기 설정·같은 자리·같은 크기). 가족 알림을 다시 찍으면 이 단계를 지우세요.
 """
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -75,6 +77,10 @@ def screenshot(name: str, title: str, sub: str, src: str, overlay: Image.Image |
 def notification_card() -> Image.Image:
     """실제 알림(아내 폰, 앱은 꺼진 상태)을 잘라 크게 띄웁니다."""
     shade = Image.open(SRC / "fcm1.png").convert("RGB")
+    icon = Image.open(SRC / "notify-icon.png").convert("RGB")  # 67x67, 원(63px) 둘레 2px 포함
+    ring = Image.new("L", (icon.width * 4, icon.height * 4), 0)
+    ImageDraw.Draw(ring).ellipse((4, 4, icon.width * 4 - 5, icon.height * 4 - 5), fill=255)
+    shade.paste(icon, (82, 1101), ring.resize(icon.size, Image.LANCZOS))
     card = shade.crop((42, 1025, 1038, 1243))
     card = card.resize((round(card.width * 0.98), round(card.height * 0.98)), Image.LANCZOS)
     c = rounded(card, 46)
@@ -97,7 +103,7 @@ def feature_graphic():
     icon = rounded(Image.open(ROOT / "design/art/icon-full.png").convert("RGB").resize((112, 112), Image.LANCZOS), 26)
     img.alpha_composite(icon, (60, 92))
     d = ImageDraw.Draw(img)
-    d.text((190, 148), "도란", font=font(FONT_B, 64), fill=(255, 255, 255), anchor="lm")
+    d.text((190, 148), "둥지", font=font(FONT_B, 64), fill=(255, 255, 255), anchor="lm")
     d.text((60, 270), "카드 알림이 오면", font=font(FONT_B, 46), fill=(255, 255, 255))
     d.text((60, 330), "바로 장부에, 가족 폰에", font=font(FONT_B, 46), fill=(255, 211, 107))
     d.text((60, 410), "부부가 함께 쓰는 가족 가계부", font=font(FONT_R, 28), fill=(220, 236, 228))
