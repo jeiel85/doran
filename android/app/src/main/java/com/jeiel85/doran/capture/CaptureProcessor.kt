@@ -434,7 +434,13 @@ class CaptureProcessor(
             if (original != null) first.copy(cancelOf = original.id, categoryId = original.categoryId, merchant = p.merchant ?: original.merchant)
             else first.copy(kind = Kind.INCOME, categoryId = "c.income_etc", memo = "원래 승인을 찾지 못한 취소 — 확인해 주세요", needsReview = true)
         } else first.copy(categoryId = Categorizer.categorize(ledger.value, first.merchant, kind))
-        val saved = if (bankOut) judgeMove(txn) else txn
+        // 은행 입금은 가족이 가계부 통장에서 보낸 돈(가족 돈)인지 봅니다(D-28). 그 돈으로 나가는 출금은 용돈에서 뺍니다.
+        val bankIn = p.type == Parsed.Type.DEPOSIT && !p.isCard && !isCancel
+        val saved = when {
+            bankOut -> judgeMove(txn)
+            bankIn -> com.jeiel85.doran.logic.Moves.fundSource(ledger.value, txn)?.let { com.jeiel85.doran.logic.Moves.asFund(txn, it) } ?: txn
+            else -> txn
+        }
         ledger.saveTxn(saved)
         settings.markUnseen(listOf(saved.id))
         return Outcome("$PRIVATE_RESULT(공유 범위 밖)" + if (com.jeiel85.doran.logic.Moves.isMoved(saved)) " · $MOVED_NOTE" else "", saved.id)
@@ -462,6 +468,20 @@ class CaptureProcessor(
                 noteMove(next)
             }
         }
+    }
+
+    /** 장부가 바뀐 뒤(가족 폰의 출금이 늦게 동기화된 경우 포함) 내 나만 보는 입금의 가족 돈 표시를 고칩니다(D-28). */
+    @Synchronized
+    fun markFunds(changed: List<Pair<Txn?, Txn?>>) {
+        val me = identity.value.myMemberId ?: return
+        com.jeiel85.doran.logic.Moves.fundUpdates(ledger.value, changed, me, identity.installId).forEach { ledger.saveTxn(it, auto = true) }
+    }
+
+    /** 사용자가 내역 화면에서 "가족 돈 아니에요"를 누름: 다시 표시하지 않고, 이 돈으로 본 출금은 다음 훅에서 다시 판정됩니다. */
+    @Synchronized
+    fun setNotFund(t: Txn) {
+        val cur = ledger.value.txns[t.id]?.takeIf { it.private && it.memberId == identity.value.myMemberId && it.kind == Kind.INCOME } ?: return
+        ledger.saveTxn(cur.copy(move = com.jeiel85.doran.logic.Moves.APART))
     }
 
     /** "최근 받은 알림"의 기록 결과에 옮긴 돈 표시를 붙이거나 뗍니다. */

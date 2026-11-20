@@ -23,6 +23,8 @@ object Hooks {
 
     fun onChanges(context: Context, changes: List<Change>) {
         if (changes.any { it.local }) Hub.requestSync()
+        linkTransfers(changes)
+        markFunds(changes)
         rejudgeMoves(changes)
         refreshAllowanceAlert(context, changes)
         updateAllowance(changes)
@@ -93,6 +95,23 @@ object Hooks {
                 Hub.ledger.saveAllowance(AllowanceSummary(id, me, p.key, spent, list.size))
             }
         }
+    }
+
+    /**
+     * 가계부 통장끼리 옮긴 돈(아내 통장 출금 ↔ 남편 가계부 통장 입금 등)을 짝지어 합계에서 빼고, 짝이 끊긴 것은 풉니다(D-28).
+     * 두 폰 어느 쪽이 해도 같은 결과라 동기화로 받은 내역에도 합니다. 고친 것은 다시 이 훅을 거치지만 이미 짝이라 더 바뀌지 않습니다.
+     */
+    private fun linkTransfers(changes: List<Change>) {
+        val ids = changes.filter { it.type == T.TXN }.mapTo(HashSet()) { it.id }
+        if (ids.isEmpty()) return
+        Moves.linkUpdates(Hub.ledger.value, ids).forEach { Hub.ledger.saveTxn(it, auto = true) }
+    }
+
+    /** 가족이 가계부 통장에서 내 범위 밖 통장으로 보낸 돈(가족 돈)을 표시합니다(D-28). 표시가 바뀌면 다음 훅에서 출금을 다시 판정합니다. */
+    private fun markFunds(changes: List<Change>) {
+        val txns = changes.filter { it.type == T.TXN }
+        if (txns.isEmpty()) return
+        Hub.capture.markFunds(txns.map { c -> c.before?.let { Txn.from(c.id, it) } to c.after?.let { Txn.from(c.id, it) } })
     }
 
     /** 동기화로 받은 아내 폰의 입금 등으로 내 은행 출금의 '옮긴 돈' 판정이 바뀌면 고칩니다(D-26). 고친 것은 다시 이 훅을 거칩니다. */
@@ -192,6 +211,13 @@ object Hooks {
      */
     fun daily(context: Context) {
         step("월 용돈 규칙") { AllowancePlan.repaired(Hub.ledger.value).forEach { Hub.ledger.saveRecurring(it) } }
+        // 이 판정이 생기기 전에 기록된 최근 내역(업데이트한 날의 관리비·대출 돈 등)도 짝짓고 가족 돈을 표시합니다(D-28).
+        step("옮긴 돈·가족 돈") {
+            val since = System.currentTimeMillis() - 60L * 86_400_000
+            val recent = Hub.ledger.value.txns.values.filter { it.at >= since }
+            Moves.linkUpdates(Hub.ledger.value, recent.mapTo(HashSet()) { it.id }).forEach { Hub.ledger.saveTxn(it, auto = true) }
+            Hub.capture.markFunds(recent.filter { it.private && it.kind == Kind.INCOME }.map { null to it })
+        }
         step("고정지출") {
             val made = Recurrer.run(Hub.ledger, Hub.db, Hub.identity.installId)
             if (made.isNotEmpty() && Hub.settings.value.notifyRecurring) {

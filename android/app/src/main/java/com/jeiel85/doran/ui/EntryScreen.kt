@@ -262,13 +262,14 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                         Spacer(Modifier.height(10.dp))
                         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (moved) P.c.pineSoft else P.c.apricotSoft)
                             .padding(horizontal = 14.dp, vertical = 12.dp)) {
-                            Text(if (moved) "옮긴 돈이에요 · 용돈에서 빼지 않았어요" else "용돈에서 쓴 돈으로 셌어요",
+                            Text(if (moved && Moves.fromOf(o) != null) "가족 돈에서 나갔어요 · 용돈에서 빼지 않았어요"
+                                else if (moved) "옮긴 돈이에요 · 용돈에서 빼지 않았어요" else "용돈에서 쓴 돈으로 셌어요",
                                 style = MaterialTheme.typography.titleSmall, color = P.c.ink)
                             Moves.reason(s, o, id.myMemberId)?.takeIf { moved || o.move != Moves.AUTO }?.let {
                                 Text(it, style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
                             }
                             Text(if (moved) "실제로 쓴 돈이면 바꿔 주세요. 남은 용돈과 가족에게 가는 용돈 합계에 들어가요."
-                                else "급여를 다른 통장으로 보냈거나 적금처럼 옮긴 돈이면 바꿔 주세요. 남은 용돈과 가족에게 가는 용돈 합계에서 빠져요.",
+                                else "급여를 다른 통장으로 보냈거나 적금처럼 옮긴 돈, 가족이 보내 준 돈으로 낸 관리비·대출이면 바꿔 주세요. 남은 용돈과 가족에게 가는 용돈 합계에서 빠져요.",
                                 style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
                             if (Moves.ruleKey(o.issuer, o.merchant) != null) {
                                 Spacer(Modifier.height(8.dp))
@@ -278,7 +279,7 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                             Spacer(Modifier.height(8.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Spacer(Modifier.weight(1f))
-                                SmallButton(if (moved) "용돈으로 쓴 돈이에요" else "옮긴 돈이에요", color = if (moved) P.c.apricot else P.c.pine) {
+                                SmallButton(if (moved) "용돈으로 쓴 돈이에요" else "옮긴 돈·가족 돈이에요", color = if (moved) P.c.apricot else P.c.pine) {
                                     Hub.capture.setMoved(o, moved = !moved, remember = rememberMove)
                                     nav.back()
                                 }
@@ -286,6 +287,16 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                         }
                     } else if (o.needsReview) Text(if (o.amount == 0L) "원화 금액이 확정되면 넣어 주세요" else "확인이 필요한 내역이에요",
                         style = MaterialTheme.typography.bodySmall, color = P.c.apricot)
+                    // 가계부 통장끼리 옮긴 돈(D-28): 짝지은 것, 또는 따로 세기로 둔 것 중 다시 묶을 짝이 있는 것.
+                    if (!o.private && (Moves.linked(o) || o.move == Moves.APART && Moves.relink(s, o).isNotEmpty())) {
+                        Spacer(Modifier.height(10.dp))
+                        LinkCard(s, o) { nav.back() }
+                    }
+                    // 가족이 가계부 통장에서 보낸 돈(D-28): 나만 보는 은행 입금.
+                    if (o.private && o.memberId == id.myMemberId && Moves.fundOf(o) != null) {
+                        Spacer(Modifier.height(10.dp))
+                        FundCard(s, o, id.myMemberId) { nav.back() }
+                    }
                 }
             }
             Spacer(Modifier.height(14.dp))
@@ -519,5 +530,57 @@ fun Keypad(onAdd: (Long) -> Unit, onDigit: (String) -> Unit, onBack: () -> Unit,
             }
         }
         TextButton(onClick = onDone, modifier = Modifier.align(Alignment.End)) { Text("자판 닫기", color = P.c.inkSoft) }
+    }
+}
+
+/** 가계부 통장끼리 옮긴 돈의 한쪽(D-28): 왜 짝지었는지와 "따로 세기", 또는 따로 세던 것을 "옮긴 돈으로 묶기". */
+@Composable
+private fun LinkCard(s: com.jeiel85.doran.data.LedgerState, o: Txn, onDone: () -> Unit) {
+    val linked = Moves.linked(o)
+    val other = if (linked) Moves.linkOf(o)?.let { s.txns[it] } else Moves.linkPartner(s, o, again = true)
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (linked) P.c.pineSoft else P.c.surface2)
+        .padding(horizontal = 14.dp, vertical = 12.dp)) {
+        Text(if (linked) "옮긴 돈이에요 · 가계부 합계에서 빠져요" else "따로 세고 있어요 · 가계부 합계에 들어가요",
+            style = MaterialTheme.typography.titleSmall, color = P.c.ink)
+        other?.let { x ->
+            val where = listOfNotNull(s.member(x.memberId)?.name, s.account(x.accountId)?.name).joinToString(" ")
+            val what = if (x.kind == Kind.INCOME) "입금" else "출금"
+            Text("$where $what(${Fmt.time(x.at)})과 같은 돈이라 가계부 통장끼리 옮긴 것으로 봤어요. 통장 잔액에는 그대로 들어가요.",
+                style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.weight(1f))
+            if (linked) SmallButton("따로 세기", color = P.c.apricot) {
+                Moves.apart(s, o).forEach { Hub.ledger.saveTxn(it) }
+                onDone()
+            } else SmallButton("옮긴 돈으로 묶기", color = P.c.pine) {
+                Moves.relink(s, o).forEach { Hub.ledger.saveTxn(it) }
+                onDone()
+            }
+        }
+    }
+}
+
+/** 가족이 보내 준 돈(D-28): 누가 보냈는지, 그 돈으로 나간 출금, "가족 돈 아니에요". */
+@Composable
+private fun FundCard(s: com.jeiel85.doran.data.LedgerState, o: Txn, me: String?, onDone: () -> Unit) {
+    val src = Moves.fundOf(o)?.let { s.txns[it] }
+    val spentBy = s.txns.values.firstOrNull { Moves.fromOf(it) == o.id }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(P.c.pineSoft).padding(horizontal = 14.dp, vertical = 12.dp)) {
+        Text("가족 돈이에요 · 용돈이 아니에요", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
+        val who = src?.let { listOfNotNull(if (it.memberId == me) "내" else s.member(it.memberId)?.name, s.account(it.accountId)?.name).joinToString(" ") }
+        Text("${who ?: "가족 통장"} 출금${src?.let { "(${Fmt.time(it.at)})" } ?: ""}과 같은 돈이라 가족이 보내 준 돈으로 봤어요. " +
+            (spentBy?.let { "${Fmt.date(it.at).let { d -> "${d.monthValue}/${d.dayOfMonth}" }} ${it.merchant.ifBlank { "출금" }}이 이 돈으로 나가 용돈에서 뺐어요." }
+                ?: "${Moves.FUND_DAYS}일 안에 이 통장에서 같은 금액이 나가면 용돈에서 빼요."),
+            style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.weight(1f))
+            SmallButton("가족 돈 아니에요", color = P.c.apricot) {
+                Hub.capture.setNotFund(o)
+                onDone()
+            }
+        }
     }
 }

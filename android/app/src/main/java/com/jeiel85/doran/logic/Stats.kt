@@ -92,8 +92,12 @@ object Stats {
     /** 월 용돈이 정해진 사람: 그 용돈은 고정지출 한 번으로 세고, 안에서 쓴 것은 더하지 않습니다. */
     fun hasFixedAllowance(s: LedgerState, memberId: String?): Boolean = (s.member(memberId)?.allowance ?: 0) > 0
 
-    /** 이 거래를 가계부 합계에 더하는지: 월 용돈이 정해진 사람의 용돈 내역은 빼요. */
-    fun counts(s: LedgerState, t: Txn): Boolean = !t.personal && !(t.private && hasFixedAllowance(s, t.memberId))
+    /**
+     * 이 거래를 가계부 합계에 더하는지: 월 용돈이 정해진 사람의 용돈 내역은 빼요. 가계부 통장끼리 옮긴 돈(출금·입금 한 쌍)도
+     * 쓴 돈·수입이 아니라 빼요(D-28, 통장 잔액에는 그대로 들어감).
+     */
+    fun counts(s: LedgerState, t: Txn): Boolean =
+        !t.personal && !(t.private && hasFixedAllowance(s, t.memberId)) && !Moves.linked(t)
 
     /**
      * 이 기간에 [memberId]가 용돈으로 쓴 결제(본인 폰에만 있음, D-7). 용돈 계좌로 들어온 입금(내 다른 통장에서 옮긴 돈 등)은
