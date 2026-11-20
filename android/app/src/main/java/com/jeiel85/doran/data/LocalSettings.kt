@@ -36,6 +36,10 @@ data class Settings(
     val notifyRecurring: Boolean = true,
     val lastBackupAt: Long = 0,
     val showSenders: Boolean = true,
+    /** "AI로 한 번 더 보기"(D-25): "" = 끔, "openai", "claude". 키는 [LocalSettings.aiKey]에 따로 암호화해 둡니다. */
+    val aiProvider: String = "",
+    /** 비어 있으면 그 회사의 기본 모델. */
+    val aiModel: String = "",
 )
 
 class LocalSettings(context: Context) {
@@ -57,6 +61,8 @@ class LocalSettings(context: Context) {
         notifyRecurring = prefs.getBoolean("notifyRecurring", true),
         lastBackupAt = prefs.getLong("lastBackupAt", 0),
         showSenders = prefs.getBoolean("showSenders", true),
+        aiProvider = prefs.getString("aiProvider", "") ?: "",
+        aiModel = prefs.getString("aiModel", "") ?: "",
     )
 
     fun update(f: (Settings) -> Settings) {
@@ -68,8 +74,27 @@ class LocalSettings(context: Context) {
             .putBoolean("notifyAllowance", s.notifyAllowance)
             .putBoolean("notifyBudget", s.notifyBudget).putBoolean("notifyRecurring", s.notifyRecurring)
             .putLong("lastBackupAt", s.lastBackupAt).putBoolean("showSenders", s.showSenders)
+            .putString("aiProvider", s.aiProvider).putString("aiModel", s.aiModel)
             .apply()
         _state.value = s
+    }
+
+    // --- "AI로 한 번 더 보기" API 키 (D-25): 이 폰에만, 안드로이드 키 저장소로 암호화. 백업·동기화하지 않음 -------
+    private val aiCipher = com.jeiel85.doran.crypto.KeystoreCipher("doran-ai-key")
+
+    /** 회사별로 따로 둡니다(바꿔 가며 시험해도 다시 넣지 않게). 키 저장소 키가 없어졌으면 null. */
+    fun aiKey(provider: String): String? =
+        aiCipher.decrypt(prefs.getString("aiKey.$provider", null))?.toString(Charsets.UTF_8)?.takeIf { it.isNotBlank() }
+
+    /** 화면에 보일 키 끝 4자리(키 자체는 보이지 않음). */
+    fun aiKeyTail(provider: String): String? = prefs.getString("aiKeyTail.$provider", null)
+
+    fun setAiKey(provider: String, key: String?) {
+        val k = key?.trim()?.takeIf { it.isNotEmpty() }
+        prefs.edit().apply {
+            if (k == null) remove("aiKey.$provider").remove("aiKeyTail.$provider")
+            else putString("aiKey.$provider", aiCipher.encrypt(k.toByteArray())).putString("aiKeyTail.$provider", k.takeLast(4))
+        }.apply()
     }
 
     // --- "새 내역" 표시: 이 폰에서 아직 확인하지 않은 자동 등록 거래 (DECISIONS.md D-5) -----------
