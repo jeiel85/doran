@@ -227,4 +227,31 @@ class FamilyMoneyTest {
         val apart = s.with(listOf(got.copy(move = Moves.APART)))
         assertTrue(Moves.fundUpdates(apart, listOf(null to sent), "h", install).isEmpty())
     }
+
+    // --- 예전 기록 정리 -------------------------------------------------------------------------
+
+    @Test fun staleWithdrawalsAreOfferedOnlyWhenTheCountChanges() {
+        // 판정 전(0.3.0)에 기록된 범위 밖 은행 출금들(move 없음)
+        val salary = myOut("o1", 3_000_000, ms(12, 59), merchant = "급여")
+        val small = myOut("o2", 20_000, ms(14, 0), merchant = "홍길동")
+        val card = myOut("o3", 9_000, ms(15, 0), issuer = "토스뱅크", merchant = "편의점")
+        val judged = myOut("o4", 500_000, ms(16, 0)).copy(move = Moves.AUTO)
+        val sent = wifeOut("w1", 200_000, ms(13, 13))
+        val fund = Moves.asFund(myIn("i1", 200_000, ms(13, 13)), sent)
+        val loan = myOut("o5", 200_000, ms(9, 0, d = 21))
+        val kept = myOut("o6", 400_000, ms(17, 0), merchant = "적금")
+        val s = ledger(salary, small, card, judged, sent, fund, loan, kept)
+        val bankOuts = setOf("o1", "o2", "o4", "o5", "o6")
+        val got = Moves.staleCandidates(s, "h", { it.id in bankOuts }) { t -> if (t.merchant == "적금") false else null }
+        // 급여(월 용돈보다 큼)와 가족 돈으로 나간 대출만. 작은 송금·카드 결제·이미 판정한 것·쓴 돈으로 기억한 것은 아님
+        assertEquals(listOf("o5", "o1"), got.map { it.first.id })
+        val (_, nextSalary) = got.single { it.first.id == "o1" }
+        assertEquals(Kind.TRANSFER, nextSalary.kind)
+        assertEquals(Moves.LARGE, nextSalary.move)
+        assertEquals(false, nextSalary.needsReview)
+        assertEquals("i1", Moves.fromOf(got.single { it.first.id == "o5" }.second))
+        // 정리하면 급여·대출만 남은 용돈에서 빠지고, 작은 송금·카드 결제·이미 판정한 것·쓴 돈으로 기억한 것은 그대로
+        val after = s.with(got.map { it.second })
+        assertEquals(20_000L + 9_000L + 500_000L + 400_000L, Stats.allowanceSpent(after, "h", p))
+    }
 }

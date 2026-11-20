@@ -284,4 +284,23 @@ object Moves {
         }
         return out.values.filter { it != s.txns[it.id] }
     }
+
+    // --- 예전 기록 정리 (D-28) ---------------------------------------------------------------------
+
+    /**
+     * 판정(D-26)이 생기기 전에 기록된 내 범위 밖 은행 출금 중, 지금 기준이면 '옮긴 돈'·'가족 돈에서 나감'인 것: (지금 모양, 바뀔 모양).
+     * 예전 기록은 앱이 몰래 바꾸지 않고 사용자에게 한 번 물어 정리합니다. 지금 기준으로도 쓴 돈인 것은 목록에 넣지 않습니다.
+     * [isBankOut]: 알림 원문을 다시 읽어 은행 출금인지(카드 승인·카드값 출금이 아닌지) 보는 함수(DB를 읽어 밖에서 줌).
+     * [rule]: 기억한 규칙(옮긴 돈 true, 쓴 돈 false, 없으면 null).
+     */
+    fun staleCandidates(s: LedgerState, me: String, isBankOut: (Txn) -> Boolean, rule: (Txn) -> Boolean?): List<Pair<Txn, Txn>> =
+        s.txns.values.asSequence()
+            .filter { it.private && it.memberId == me && it.move == null && it.kind == Kind.EXPENSE && it.cancelOf == null && captured(it) }
+            .filter(isBankOut)
+            .map { it to judge(s, it, s.member(it.memberId)?.allowance ?: 0, rule(it)) }
+            .filter { (_, next) -> isMoved(next) }
+            // 사용자가 목록을 보고 정리하므로 '확인 필요'는 붙이지 않습니다.
+            .map { (cur, next) -> cur to next.copy(needsReview = false) }
+            .sortedByDescending { it.first.at }
+            .toList()
 }

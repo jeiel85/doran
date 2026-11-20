@@ -484,6 +484,33 @@ class CaptureProcessor(
         ledger.saveTxn(cur.copy(move = com.jeiel85.doran.logic.Moves.APART))
     }
 
+    /** 예전 기록 정리(D-28): 판정 전에 기록된 내 은행 출금 중 지금 기준이면 옮긴 돈인 것. 알림 원문(30일)을 읽으니 IO 스레드에서. */
+    fun staleMoves(): List<Pair<Txn, Txn>> {
+        val me = identity.value.myMemberId ?: return emptyList()
+        return com.jeiel85.doran.logic.Moves.staleCandidates(ledger.value, me, ::isBankWithdrawal) { t ->
+            settings.movedBy(com.jeiel85.doran.logic.Moves.ruleKey(t.issuer, t.merchant))
+        }
+    }
+
+    /** "모두 정리": 지금 기준대로 옮긴 돈으로 바꿉니다. 그사이 사용자가 고친 것은 건드리지 않습니다. */
+    @Synchronized
+    fun applyStaleMoves(items: List<Pair<Txn, Txn>>) {
+        for ((before, next) in items) {
+            if (ledger.value.txns[before.id] != before) continue
+            ledger.saveTxn(next)
+            noteMove(next)
+        }
+    }
+
+    /** "그대로 두기": 쓴 돈으로 정했다고 남겨 다시 묻지 않습니다. */
+    @Synchronized
+    fun keepStaleMoves(items: List<Pair<Txn, Txn>>) {
+        for ((before, _) in items) {
+            if (ledger.value.txns[before.id] != before) continue
+            ledger.saveTxn(com.jeiel85.doran.logic.Moves.spent(ledger.value, before, com.jeiel85.doran.logic.Moves.KEPT))
+        }
+    }
+
     /** "최근 받은 알림"의 기록 결과에 옮긴 돈 표시를 붙이거나 뗍니다. */
     private fun noteMove(t: Txn) {
         val moved = com.jeiel85.doran.logic.Moves.isMoved(t)

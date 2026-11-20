@@ -1,6 +1,10 @@
 package com.jeiel85.doran.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -338,4 +342,62 @@ fun CandidatesCard(nav: Nav) {
         }
         SmallButton("보기", color = P.c.apricot) { nav.go(Route.CaptureLog) }
     }
+}
+
+/**
+ * 홈에 띄우는 "예전 기록 N건을 지금 기준으로 정리할 수 있어요" 카드(D-28). 판정이 생기기 전에 '용돈에서 쓴 돈'으로 들어간
+ * 범위 밖 은행 출금 중 지금 기준이면 옮긴 돈·가족 돈인 것을 보여 주고, 모두 정리하거나 그대로 둡니다. 답하면 사라집니다.
+ */
+@Composable
+fun StaleMovesCard(nav: Nav) {
+    val tick = rememberResumeTick()
+    var done by remember { mutableIntStateOf(0) }
+    val items by produceState(emptyList<Pair<Txn, Txn>>(), tick, done) { value = withContext(Dispatchers.IO) { Hub.capture.staleMoves() } }
+    var open by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    if (items.isEmpty()) return
+    val s = Hub.ledger.value
+    val me = Hub.identity.value.myMemberId
+    Spacer(Modifier.height(14.dp))
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(P.c.pineSoft).padding(16.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text("예전 기록 ${items.size}건을 지금 기준으로 정리할 수 있어요", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
+            Text("용돈에서 쓴 돈으로 들어간 출금 중 다른 통장으로 옮긴 돈·가족 돈이에요. 정리하면 남은 용돈에서 빠져요",
+                style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+        }
+        SmallButton("보기", color = P.c.pine) { open = true }
+    }
+    if (open) AlertDialog(onDismissRequest = { open = false }, containerColor = P.c.bg,
+        title = { Text("예전 기록 정리") },
+        text = {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                Text("지금 기준으로 다시 본 결과예요. 하나씩 고치려면 내역을 눌러 주세요.", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                items.forEach { (cur, next) ->
+                    Spacer(Modifier.height(12.dp))
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { open = false; nav.go(Route.Entry(txnId = cur.id)) }
+                        .background(P.c.surface).padding(12.dp)) {
+                        Row {
+                            Text("${Fmt.date(cur.at).let { "${it.monthValue}/${it.dayOfMonth}" }} ${cur.issuer ?: ""} ${cur.merchant}".trim(),
+                                style = MaterialTheme.typography.titleSmall, color = P.c.ink, modifier = Modifier.weight(1f))
+                            Text(Fmt.won(cur.amount), style = MaterialTheme.typography.titleSmall.merge(Money), color = P.c.ink)
+                        }
+                        Text("용돈에서 쓴 돈 → ${if (com.jeiel85.doran.logic.Moves.fromOf(next) != null) "가족 돈에서 나감" else "옮긴 돈"}",
+                            style = MaterialTheme.typography.bodySmall, color = P.c.pine)
+                        com.jeiel85.doran.logic.Moves.reason(s, next, me)?.let {
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton({
+            val picked = items
+            open = false
+            scope.launch { withContext(Dispatchers.IO) { Hub.capture.applyStaleMoves(picked) }; done++ }
+        }) { Text("모두 정리") } },
+        dismissButton = { TextButton({
+            val picked = items
+            open = false
+            scope.launch { withContext(Dispatchers.IO) { Hub.capture.keepStaleMoves(picked) }; done++ }
+        }) { Text("그대로 두기", color = P.c.inkSoft) } })
 }
