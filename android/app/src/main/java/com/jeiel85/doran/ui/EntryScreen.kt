@@ -121,7 +121,11 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
     var merchant by remember { mutableStateOf(original?.merchant ?: "") }
     var memo by remember { mutableStateOf(original?.memo ?: "") }
     var categoryId by remember { mutableStateOf(original?.categoryId) }
-    var accountId by remember { mutableStateOf(original?.accountId ?: s.accounts.values.firstOrNull { it.ownerId == id.myMemberId && it.type == AccountType.CASH }?.id) }
+    // 내 현금 계좌는 새로 쓰는 내역에만 미리 고릅니다. 계좌 없는 기록(범위 밖 통장의 용돈 내역·옮긴 돈, D-19·D-26)을 열 때 채우면
+    // 옮긴 돈은 받는 계좌를 고르기 전까지 저장이 막히고, 저장하면 범위 밖 출금이 가계부 현금 잔액에 섞입니다(#49 리뷰).
+    var accountId by remember {
+        mutableStateOf(if (original != null) original.accountId else s.accounts.values.firstOrNull { it.ownerId == id.myMemberId && it.type == AccountType.CASH }?.id)
+    }
     var toAccountId by remember { mutableStateOf(original?.toAccountId) }
     var memberId by remember { mutableStateOf(original?.memberId ?: id.myMemberId) }
     var installment by remember { mutableStateOf(original?.installment ?: 0) }
