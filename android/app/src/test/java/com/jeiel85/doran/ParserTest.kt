@@ -256,4 +256,69 @@ class ParserTest {
         assertNull(r.at)
         assertNotNull(r.merchant)
     }
+
+    // --- 결제·출금 예정 안내 (D-4 "돈이 나가지 않은 알림" 2) ---------------------------------------------------
+
+    @Test fun tossScheduledWithdrawalIsNotRecorded() {
+        // 실제 토스 앱 푸시(2026-11-20 사용자 폰 "최근 받은 알림", 가맹점 이름·계좌 끝자리는 바꿈). 출금으로 읽혀 '나만 보는 용돈'으로 기록됐던 것
+        val notice = "납부 예정\n오늘 동네헬스 외 1곳에서 30,000원 출금할 예정이에요. 토스뱅크 통장 (1234)에서 출금돼요."
+        assertNull(Parser.parse(notice, now, hint = "토스"))
+        assertTrue(Parser.isScheduled(notice))
+        assertEquals(Parser.Unspent.SCHEDULED, Parser.unspent(notice))
+        assertFalse(Parser.isFailedPayment(notice))
+        // 골라 보낼 후보로도 권하지 않음
+        assertFalse(Parser.looksFinancial(notice))
+        // 오탐이면 "그래도 보내기"로 보낼 수 있게 초기값은 읽힘
+        val anyway = Parser.parse(notice, now, hint = "토스", ignoreFailure = true)!!
+        assertEquals(Parsed.Type.WITHDRAWAL, anyway.type)
+        assertEquals("토스뱅크", anyway.issuer)
+        assertEquals(30_000L, anyway.amount)
+    }
+
+    @Test fun scheduledAndBillNoticesAreNotTransactions() {
+        val notices = listOf(
+            "[현대카드] 12월 결제예정금액 523,000원 안내",
+            "[KB]11/25 자동이체 출금예정 50,000원 보험료",
+            "[신한] 내일 관리비 120,000원이 출금될 예정입니다",
+            "토스뱅크 통장에서 내일 30,000원이 결제될 예정이에요",
+            "[통신사] 이번 달 납부하실 금액 65,000원 (25일 자동이체 계좌에서 출금)",
+            "[우리] 예약이체 예정 안내 200,000원 11/21 09:00",
+            "[삼성카드] 11월 청구금액 812,000원 결제일 12/14",
+        )
+        for (text in notices) {
+            assertNull(text, p(text))
+            assertEquals(text, Parser.Unspent.SCHEDULED, Parser.unspent(text))
+            assertFalse(text, Parser.looksFinancial(text))
+        }
+        // 예정이었다가 실패한 것은 실패 알림
+        assertEquals(Parser.Unspent.FAILED, Parser.unspent("출금 예정이던 30,000원이 잔액 부족으로 출금되지 않았어요"))
+    }
+
+    @Test fun realTransactionsWithFutureWordsAreStillRecorded() {
+        // 이미 일어난 거래의 덧말에 쓰인 '예정'은 거래를 막지 않음
+        val cancel = p("현대카드 승인취소 홍*동 12,300원 11/17 13:00 스타벅스 환불은 3일 안에 입금 예정")!!
+        assertEquals(Parsed.Type.CANCEL, cancel.type)
+        assertEquals(12_300L, cancel.amount)
+        val cashback = p("현대카드 승인 홍*동 20,000원 일시불 11/17 13:00 동네마트 캐시백 500원 지급 예정")!!
+        assertEquals(Parsed.Type.APPROVAL, cashback.type)
+        assertEquals(20_000L, cashback.amount)
+        val points = p("현대카드 승인 홍*동 9,000원 일시불 11/17 13:00 동네빵집 M포인트 적립 예정")!!
+        assertEquals(9_000L, points.amount)
+        // 실제 출금은 그대로 출금
+        val paid = Parser.parse("30,000원 출금\n토스뱅크 통장 → 동네헬스", now, hint = "토스")!!
+        assertEquals(Parsed.Type.WITHDRAWAL, paid.type)
+        assertEquals(30_000L, paid.amount)
+        assertNull(Parser.unspent("30,000원 출금\n토스뱅크 통장 → 동네헬스"))
+    }
+
+    @Test fun versionNumbersAreNotForeignMoney() {
+        // 사내 메신저의 보안 공지(2026-11-20 사용자 폰, 사람 이름·회사 문구는 뺌): "PHP 8.2.0"을 필리핀 페소로 읽어 금액 알림 후보로 남겼음
+        val chat = "팀 대화방\n아래 내용 빠르게 처리해야 할 것 같아요. PHP 원격 코드 실행 등 보안 취약점 18건 안내드립니다. " +
+            "영향 범위 • PHP 8.2.0 ~ 8.2.35 → 8.2.36 이상 • PHP 8.3.0 ~ 8.3.36 → 8.3.37 이상. 사용 중인 서버는 업데이트해 주세요"
+        assertFalse(Parser.looksFinancial(chat))
+        assertNull(Parser.unspent(chat))
+        // 실제 외화 결제는 그대로
+        assertEquals("PHP 1,250.00", p("현대카드 해외승인 홍*동 PHP 1,250.00 11/10 03:15 MANILA MART")!!.foreign)
+        assertEquals("USD 12.34", p("현대카드 해외승인 홍*동 USD 12.34. 11/10 03:15 NETFLIX.COM")!!.foreign)
+    }
 }

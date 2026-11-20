@@ -45,11 +45,12 @@ class CaptureProcessor(
         val custom = rule?.let { Issuer(it.issuer, it.card, listOf(it.issuer)) }
         val parsed = Parser.parse(body, Fmt.dateTime(postedAt), appLabel, custom)
         if (parsed == null) {
+            val unspent = Parser.unspent(body)
             when {
-                // 결제·출금 실패 알림은 돈이 나가지 않았으니 기록하지도, 골라 보낼 후보로 권하지도 않고 이유만 남깁니다(D-4).
+                // 결제·출금 실패, 결제·출금 예정 안내는 돈이 나가지 않았으니 기록하지도, 골라 보낼 후보로 권하지도 않고 이유만 남깁니다(D-4).
                 // 같은 알림이 앱 푸시·문자·알림 갱신으로 여러 번 와도 한 번만 남기고(#13), 오탐이면 "그래도 보내기"로 보낼 수 있습니다.
-                Parser.isFailedPayment(body) -> if (!db.hasCapture(Db.FAILED, source.code, pkg, text)) {
-                    db.logCapture(postedAt, source.code, pkg, title, text, FAILED_RESULT, null, status = Db.FAILED, label = appLabel ?: pkg)
+                unspent != null -> if (!db.hasCapture(Db.FAILED, source.code, pkg, text)) {
+                    db.logCapture(postedAt, source.code, pkg, title, text, resultOf(unspent), null, status = Db.FAILED, label = appLabel ?: pkg)
                 }
                 Parser.looksFinancial(body) && !db.hasCapture(Db.CANDIDATE, source.code, pkg, text) -> {
                     // 간편결제 앱 알림이 이미 기록·보낸 카드·은행 결제와 같은 결제면 후보로 남기지 않고 그 기록에 묶습니다(D-5).
@@ -256,35 +257,42 @@ class CaptureProcessor(
         return if (row.isFailed) parsed?.copy(merchant = Parser.withoutFailureWords(parsed.merchant)) else parsed
     }
 
-    // --- 0.1.11 전에 지출로 기록된 결제·출금 실패 알림 (#13) ---------------------------------------------
+    // --- 예전 버전이 기록한, 돈이 나가지 않은 알림: 0.1.11 전의 결제·출금 실패(#13), 0.2.3 전의 출금 예정 안내 ---------------
 
-    /** 지금 기준으로는 실패 알림인데 이 폰이 지출로 기록해 장부에 남아 있는 것(최근 30일 수집 기록 안). */
+    /** 지금 기준으로는 돈이 나가지 않은 알림(실패·예정)인데 이 폰이 내역으로 기록해 장부에 남아 있는 것(최근 30일 수집 기록 안). */
     fun recordedFailures(): List<Pair<Db.CaptureRow, Txn>> {
         val rows = db.recordedCaptures()
-        val failed = rows.filter { Parser.isFailedPayment(listOfNotNull(it.title, it.text).joinToString("\n")) }
+        val failed = rows.filter { unspentOf(it) != null }
         if (failed.isEmpty()) return emptyList()
         // 같은 거래를 정상 알림도 가리키면(같은 결제의 다른 알림) 실제로 돈이 나간 것이라 그대로 둡니다.
         val alsoReal = (rows - failed.toSet()).mapNotNull { it.txnId }.toSet()
         return failed
-            .filter { r -> (r.result.startsWith("기록함") || r.result.startsWith(PRIVATE_RESULT)) && PICKED_NOTE !in r.result && KEPT_NOTE !in r.result }
+            .filter { r -> (r.result.startsWith("기록함") || r.result.startsWith(PRIVATE_RESULT)) && PICKED_NOTE !in r.result && KEPT_NOTES.none { it in r.result } }
             .mapNotNull { r -> ledger.value.txns[r.txnId]?.takeIf { it.createdBy == identity.installId && it.id !in alsoReal }?.let { r to it } }
             .distinctBy { it.second.id }
     }
 
-    /** [recordedFailures]의 거래를 지우고, 수집 기록은 실패 알림으로 되돌립니다. */
+    /** [recordedFailures]의 거래를 지우고, 수집 기록은 실패·예정 알림으로 되돌립니다. */
     @Synchronized
     fun deleteRecordedFailures(items: List<Pair<Db.CaptureRow, Txn>>) {
         for ((row, t) in items) {
             ledger.deleteTxn(t.id)
-            db.updateCapture(row.id, Db.FAILED, "$FAILED_RESULT · 기록했던 내역 지움", null)
+            db.updateCapture(row.id, Db.FAILED, "${resultOf(unspentOf(row) ?: Parser.Unspent.FAILED)} · 기록했던 내역 지움", null)
         }
         requestSync()
     }
 
     /** 그대로 두기로 한 것: 다시 묻지 않게 표시합니다. */
     fun keepRecordedFailures(items: List<Pair<Db.CaptureRow, Txn>>) {
-        for ((row, t) in items) db.updateCapture(row.id, row.status, "${row.result} · $KEPT_NOTE", t.id)
+        for ((row, t) in items) {
+            val note = if (unspentOf(row) == Parser.Unspent.SCHEDULED) KEPT_SCHEDULED_NOTE else KEPT_NOTE
+            db.updateCapture(row.id, row.status, "${row.result} · $note", t.id)
+        }
     }
+
+    private fun unspentOf(row: Db.CaptureRow) = Parser.unspent(listOfNotNull(row.title, row.text).joinToString("\n"))
+
+    private fun resultOf(unspent: Parser.Unspent) = if (unspent == Parser.Unspent.SCHEDULED) SCHEDULED_RESULT else FAILED_RESULT
 
     private fun deliver(parsed: Parsed, source: Source, pkg: String?, title: String?, text: String, postedAt: Long,
                         appLabel: String?, logId: Long?, forceShare: Boolean = false, note: String? = null): Outcome {
@@ -523,10 +531,14 @@ class CaptureProcessor(
 
     companion object {
         const val FAILED_RESULT = "결제·출금 실패 알림 · 기록 안 함"
+        const val SCHEDULED_RESULT = "결제·출금 예정 안내 · 기록 안 함"
         private const val PRIVATE_RESULT = "나만 보는 용돈으로 기록"
-        /** 직접 골라 보낸 기록의 표시. 실패 알림을 "그래도 보내기"로 보낸 것을 다시 지우자고 묻지 않는 데 씁니다. */
+        /** 직접 골라 보낸 기록의 표시. 실패·예정 알림을 "그래도 보내기"로 보낸 것을 다시 지우자고 묻지 않는 데 씁니다. */
         const val PICKED_NOTE = "직접 골라 보냄"
+        /** "그대로 두기"의 표시. 이 낱말로 다시 묻지 않으니 바꾸면 예전에 그대로 둔 것을 또 묻게 됩니다. */
         private const val KEPT_NOTE = "실패 알림이지만 그대로 둠"
+        private const val KEPT_SCHEDULED_NOTE = "예정 안내지만 그대로 둠"
+        private val KEPT_NOTES = listOf(KEPT_NOTE, KEPT_SCHEDULED_NOTE)
 
         /** 이 링크로 보낼 카드사·은행인지. 비어 있으면 전부, 표기가 달라도 같은 곳이면 보냅니다(#10). */
         fun sendsTo(link: OutLink, issuer: String): Boolean = link.issuers.isEmpty() || link.issuers.any { Issuers.same(it, issuer) }
