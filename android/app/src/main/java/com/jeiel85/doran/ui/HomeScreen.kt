@@ -41,6 +41,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -93,6 +96,8 @@ fun HomeScreen(nav: Nav) {
     val upcoming = remember(s.version) { Stats.upcoming(s, 7, today) }
     val goals = s.goals.values.filter { !it.done }.sortedBy { it.order }.take(3)
     val me = s.member(id.myMemberId)
+    val allowanceFirst = me != null && me.sharesPicked && me.allowance > 0
+    var showFamily by rememberSaveable { mutableStateOf(false) }
 
     if (!id.inHousehold) {
         SenderHome(nav)
@@ -145,7 +150,28 @@ fun HomeScreen(nav: Nav) {
             }
         }
 
-        item { Hero(spent, income, totalBudget?.budget ?: 0, p.end, today) { nav.go(Route.Budget) } }
+        // '정한 결제만 보내기'이고 월 용돈이 있는 사람(남편 폰)은 맨 위가 내 용돈입니다. 가계부 전체 합계는 아내 통장 출금이 대부분이라
+        // 내 돈처럼 읽히면 크게 틀려 보여서, 그 아래 한 줄로 두고 누르면 펼칩니다(D-28 A). '함께 관리'하는 사람은 그대로.
+        if (allowanceFirst && me != null) {
+            item {
+                val ap = remember(s.version, today, me.id) { Stats.allowancePeriod(s, me.id, today) }
+                val mine = remember(s.version, ap) { Stats.allowanceSpent(s, me.id, ap) }
+                AllowanceHero(me.allowance, mine, ap, onClick = { nav.go(Route.Allowance) })
+            }
+            item {
+                Spacer(Modifier.height(12.dp))
+                SoftCard(onClick = { showFamily = !showFamily }, padding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("가족 가계부 · ${Fmt.month(p.label)}", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
+                            Text("쓴 돈 ${Fmt.won(spent)} · 수입 ${Fmt.won(income)}", style = MaterialTheme.typography.bodySmall.merge(Money), color = P.c.inkSoft)
+                        }
+                        Text(if (showFamily) "접기" else "펼치기", style = MaterialTheme.typography.labelMedium, color = P.c.pine)
+                    }
+                }
+            }
+            if (showFamily) item { Spacer(Modifier.height(12.dp)); Hero(spent, income, totalBudget?.budget ?: 0, p.end, today) { nav.go(Route.Budget) } }
+        } else item { Hero(spent, income, totalBudget?.budget ?: 0, p.end, today) { nav.go(Route.Budget) } }
 
         if (s.activeMembers.count { !it.isSender } <= 1) item {
             Spacer(Modifier.height(14.dp))
@@ -163,6 +189,7 @@ fun HomeScreen(nav: Nav) {
         }
 
         item { FailedRecordsCard(nav) }
+        item { StaleMovesCard(nav) }
         item { CandidatesCard(nav) }
 
         if (!captureOn) item {
@@ -256,7 +283,7 @@ fun HomeScreen(nav: Nav) {
             }
         }
 
-        if (me != null && me.allowance > 0) item {
+        if (me != null && me.allowance > 0 && !allowanceFirst) item {
             Spacer(Modifier.height(20.dp))
             // 남은 용돈은 용돈이 들어온 날부터(주말이면 앞 금요일, D-27). 가계부 한 달과 날짜가 다를 수 있어요.
             val ap = remember(s.version, today, me.id) { Stats.allowancePeriod(s, me.id, today) }
@@ -486,6 +513,37 @@ private fun SenderHome(nav: Nav) {
         if (logs.isEmpty()) item { Text("아직 보낸 알림이 없어요", style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft) }
         items(logs, key = { it.id }) { l ->
             ListRow(l.title ?: l.text.take(24), "${Fmt.full(l.at)} · ${l.result}", icon = Icons.Rounded.NotificationsActive, tint = P.c.apricot)
+        }
+    }
+}
+
+/** 남편 폰 맨 위 카드(D-28 A): 이번 용돈 기간의 남은 용돈. 용돈 날(주말이면 앞 금요일)부터 다음 용돈 전날까지(D-27). */
+@Composable
+private fun AllowanceHero(allowance: Long, spent: Long, ap: com.jeiel85.doran.logic.Period, onClick: () -> Unit) {
+    val left = allowance - spent
+    val last = ap.end.minusDays(1)
+    val dow = listOf("월", "화", "수", "목", "금", "토", "일")[ap.end.dayOfWeek.value - 1]
+    Box(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(30.dp))
+            .background(Brush.linearGradient(listOf(Color(0xFF2E7A62), Color(0xFF1B4D3E))))
+            .clickable(onClick = onClick),
+    ) {
+        Image(painterResource(R.drawable.art_cat_savings), null, Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 14.dp).size(78.dp),
+            contentScale = ContentScale.Fit, alpha = 0.95f)
+        Column(Modifier.padding(22.dp)) {
+            Text("내 용돈 · ${ap.start.monthValue}.${ap.start.dayOfMonth} ~ ${last.monthValue}.${last.dayOfMonth}",
+                style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.78f))
+            Spacer(Modifier.height(4.dp))
+            Text(if (left >= 0) "${Fmt.won(left)} 남음" else "${Fmt.won(-left)} 넘었어요",
+                style = MaterialTheme.typography.displaySmall.merge(Money), color = Color.White)
+            Spacer(Modifier.height(16.dp))
+            Progress(spent.toFloat() / allowance.coerceAtLeast(1), Color(0xFFFFD36B), height = 10.dp)
+            Spacer(Modifier.height(16.dp))
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.12f)).padding(14.dp)) {
+                Mini("월 용돈", Fmt.won(allowance), Modifier.weight(1f))
+                Mini("쓴 돈", Fmt.won(spent), Modifier.weight(1f))
+                Mini("다음 용돈", "${ap.end.monthValue}/${ap.end.dayOfMonth}($dow)", Modifier.weight(1f))
+            }
         }
     }
 }

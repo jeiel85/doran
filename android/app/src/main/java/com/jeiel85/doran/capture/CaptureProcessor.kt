@@ -434,7 +434,13 @@ class CaptureProcessor(
             if (original != null) first.copy(cancelOf = original.id, categoryId = original.categoryId, merchant = p.merchant ?: original.merchant)
             else first.copy(kind = Kind.INCOME, categoryId = "c.income_etc", memo = "원래 승인을 찾지 못한 취소 — 확인해 주세요", needsReview = true)
         } else first.copy(categoryId = Categorizer.categorize(ledger.value, first.merchant, kind))
-        val saved = if (bankOut) judgeMove(txn) else txn
+        // 은행 입금은 가족이 가계부 통장에서 보낸 돈(가족 돈)인지 봅니다(D-28). 그 돈으로 나가는 출금은 용돈에서 뺍니다.
+        val bankIn = p.type == Parsed.Type.DEPOSIT && !p.isCard && !isCancel
+        val saved = when {
+            bankOut -> judgeMove(txn)
+            bankIn -> com.jeiel85.doran.logic.Moves.fundSource(ledger.value, txn)?.let { com.jeiel85.doran.logic.Moves.asFund(txn, it) } ?: txn
+            else -> txn
+        }
         ledger.saveTxn(saved)
         settings.markUnseen(listOf(saved.id))
         return Outcome("$PRIVATE_RESULT(공유 범위 밖)" + if (com.jeiel85.doran.logic.Moves.isMoved(saved)) " · $MOVED_NOTE" else "", saved.id)
@@ -461,6 +467,55 @@ class CaptureProcessor(
                 ledger.saveTxn(next, auto = true)
                 noteMove(next)
             }
+        }
+    }
+
+    /** 장부가 바뀐 뒤(가족 폰의 출금이 늦게 동기화된 경우 포함) 내 나만 보는 입금의 가족 돈 표시를 고칩니다(D-28). */
+    @Synchronized
+    fun markFunds(changed: List<Pair<Txn?, Txn?>>) {
+        val me = identity.value.myMemberId ?: return
+        com.jeiel85.doran.logic.Moves.fundUpdates(ledger.value, changed, me, identity.installId).forEach { ledger.saveTxn(it, auto = true) }
+    }
+
+    /** 사용자가 내역 화면에서 "가족 돈 아니에요"를 누름: 다시 표시하지 않고, 이 돈으로 본 출금은 다음 훅에서 다시 판정됩니다. */
+    @Synchronized
+    fun setNotFund(t: Txn) {
+        val cur = ledger.value.txns[t.id]?.takeIf { it.private && it.memberId == identity.value.myMemberId && it.kind == Kind.INCOME } ?: return
+        ledger.saveTxn(cur.copy(move = com.jeiel85.doran.logic.Moves.APART))
+    }
+
+    /** 예전 기록 정리(D-28): 판정 전에 기록된 내 은행 출금 중 지금 기준이면 옮긴 돈인 것. 알림 원문(30일)을 읽으니 IO 스레드에서. */
+    fun staleMoves(): List<Pair<Txn, Txn>> {
+        val me = identity.value.myMemberId ?: return emptyList()
+        return com.jeiel85.doran.logic.Moves.staleCandidates(ledger.value, me, ::isBankWithdrawal) { t ->
+            settings.movedBy(com.jeiel85.doran.logic.Moves.ruleKey(t.issuer, t.merchant))
+        }
+    }
+
+    /**
+     * "모두 정리": 보여 준 것들을 지금 장부로 다시 판정해(그사이 다른 출금이 같은 입금·가족 돈을 가져갔을 수 있어서, #54 리뷰)
+     * 아직 옮긴 돈인 것만 바꿉니다. 그사이 사용자가 고친 것은 건드리지 않습니다.
+     */
+    @Synchronized
+    fun applyStaleMoves(items: List<Pair<Txn, Txn>>) {
+        val shown = items.map { it.first }.filter { ledger.value.txns[it.id] == it }.mapTo(HashSet()) { it.id }
+        if (shown.isEmpty()) return
+        val me = identity.value.myMemberId ?: return
+        val fresh = com.jeiel85.doran.logic.Moves.staleCandidates(ledger.value, me, { it.id in shown }) { t ->
+            settings.movedBy(com.jeiel85.doran.logic.Moves.ruleKey(t.issuer, t.merchant))
+        }
+        for ((_, next) in fresh) {
+            ledger.saveTxn(next)
+            noteMove(next)
+        }
+    }
+
+    /** "그대로 두기": 쓴 돈으로 정했다고 남겨 다시 묻지 않습니다. */
+    @Synchronized
+    fun keepStaleMoves(items: List<Pair<Txn, Txn>>) {
+        for ((before, _) in items) {
+            if (ledger.value.txns[before.id] != before) continue
+            ledger.saveTxn(com.jeiel85.doran.logic.Moves.spent(ledger.value, before, com.jeiel85.doran.logic.Moves.KEPT))
         }
     }
 
@@ -496,8 +551,9 @@ class CaptureProcessor(
      */
     fun isBankWithdrawal(t: Txn): Boolean {
         if (!t.private || t.memberId != identity.value.myMemberId || t.cancelOf != null || !t.source.captured) return false
-        if (t.move != null) return true
-        if (t.kind != Kind.EXPENSE) return false
+        if (t.kind == Kind.INCOME) return false
+        if (com.jeiel85.doran.logic.Moves.withdrawalMarked(t)) return true
+        if (t.move != null || t.kind != Kind.EXPENSE) return false
         return db.capturesOf(t.id).any { row ->
             Parser.parse(listOfNotNull(row.title, row.text).joinToString("\n"), Fmt.dateTime(row.at), row.label)
                 ?.let { it.type == Parsed.Type.WITHDRAWAL && !it.isCard && it.cardPaymentTo == null } == true
