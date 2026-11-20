@@ -6,6 +6,7 @@ import com.jeiel85.doran.logic.AllowanceAlert
 import com.jeiel85.doran.logic.AllowancePlan
 import com.jeiel85.doran.logic.Stats
 import com.jeiel85.doran.model.Defaults
+import com.jeiel85.doran.model.Household
 import com.jeiel85.doran.model.Kind
 import com.jeiel85.doran.model.Member
 import com.jeiel85.doran.model.Recurring
@@ -36,28 +37,43 @@ class PaydayTest {
         assertEquals(d(2026, 11, 20), Stats.beforeWeekend(d(2026, 11, 20))) // 금은 그대로
     }
 
+    /** 사용자 집: 가계부는 달력 달(1일 시작), 용돈은 21일. */
+    private val ledgerStart = 1
+
     @Test fun allowanceOnSaturdayIsDueFriday() {
-        assertEquals(listOf(d(2026, 11, 20)), Stats.dueDates(allowanceRule, d(2026, 11, 15), d(2026, 11, 25)))
+        assertEquals(listOf(d(2026, 11, 20)), Stats.dueDates(allowanceRule, d(2026, 11, 15), d(2026, 11, 25), ledgerStart))
         // 몇 달을 이어 봐도 달마다 한 번씩: 10/21(수) · 11/20(금, 21일 토) · 12/21(월)
         assertEquals(listOf(d(2026, 10, 21), d(2026, 11, 20), d(2026, 12, 21)),
-            Stats.dueDates(allowanceRule, d(2026, 10, 1), d(2026, 12, 31)))
+            Stats.dueDates(allowanceRule, d(2026, 10, 1), d(2026, 12, 31), ledgerStart))
+        // 옛 버전이 만든 기록을 찾을 수 있게 정한 날도 함께
+        assertEquals(listOf(d(2026, 11, 21) to d(2026, 11, 20)), Stats.occurrences(allowanceRule, d(2026, 11, 15), d(2026, 11, 25), ledgerStart))
+        // 가구 시작일을 모르면 앞당기지 않음
+        assertEquals(listOf(d(2026, 11, 21)), Stats.dueDates(allowanceRule, d(2026, 11, 15), d(2026, 11, 25)))
     }
 
     @Test fun allowanceOnSundayIsDueFriday() {
-        assertEquals(listOf(d(2027, 2, 19)), Stats.dueDates(allowanceRule, d(2027, 2, 1), d(2027, 2, 28)))
+        assertEquals(listOf(d(2027, 2, 19)), Stats.dueDates(allowanceRule, d(2027, 2, 1), d(2027, 2, 28), ledgerStart))
     }
 
     @Test fun otherFixedRulesKeepTheirDay() {
         // 관리비·구독 자동이체는 은행이 대개 다음 영업일에 빼 가서 앞당기지 않음
         val rent = allowanceRule.copy(id = "rent", name = "관리비")
-        assertEquals(listOf(d(2026, 11, 21)), Stats.dueDates(rent, d(2026, 11, 15), d(2026, 11, 25)))
+        assertEquals(listOf(d(2026, 11, 21)), Stats.dueDates(rent, d(2026, 11, 15), d(2026, 11, 25), ledgerStart))
     }
 
-    @Test fun firstOfMonthOnWeekendMovesIntoPreviousMonth() {
-        // 2026-11-01은 일요일 → 10/30(금). 11월 범위에는 다시 나오지 않음(12/1은 화요일)
+    @Test fun noShiftAcrossTheLedgerMonth() {
+        // #53 리뷰: 용돈 날 = 한 달 시작일이면 앞당긴 금요일이 앞 달 기간이라, 앞 달엔 두 번·그달엔 0번이 됨 → 앞당기지 않음
+        assertEquals(listOf(d(2026, 11, 21)), Stats.dueDates(allowanceRule, d(2026, 11, 15), d(2026, 11, 25), 21))
         val first = allowanceRule.copy(day = 1)
-        assertEquals(listOf(d(2026, 10, 30)), Stats.dueDates(first, d(2026, 10, 25), d(2026, 10, 31)))
-        assertTrue(Stats.dueDates(first, d(2026, 10, 31), d(2026, 11, 30)).isEmpty())
+        // 1일 용돈·1일 시작: 11/1(일)을 10/30으로 당기면 10월 기간 → 11/1 그대로, 10월·11월 한 번씩
+        assertEquals(listOf(d(2026, 10, 1), d(2026, 11, 1)), Stats.dueDates(first, d(2026, 9, 25), d(2026, 11, 5), 1))
+    }
+
+    @Test fun firstOfMonthOnWeekendMovesIntoPreviousCalendarMonth() {
+        // 가계부가 15일 시작이면 10/30(금)과 11/1(일)이 같은 기간이라 앞당김. 11월 범위에는 다시 나오지 않음(12/1은 화요일)
+        val first = allowanceRule.copy(day = 1)
+        assertEquals(listOf(d(2026, 10, 30)), Stats.dueDates(first, d(2026, 10, 25), d(2026, 10, 31), 15))
+        assertTrue(Stats.dueDates(first, d(2026, 10, 31), d(2026, 11, 30), 15).isEmpty())
     }
 
     @Test fun upcomingShowsFridayAndDropsSaturday() {
@@ -83,9 +99,12 @@ class PaydayTest {
         assertEquals(d(2026, 11, 20) to d(2026, 12, 21), Stats.allowancePeriod(s, "h", d(2026, 11, 20)).let { it.start to it.end })
         assertEquals(d(2026, 11, 20) to d(2026, 12, 21), Stats.allowancePeriod(s, "h", d(2026, 12, 20)).let { it.start to it.end })
         assertEquals(d(2026, 12, 21), Stats.allowancePeriod(s, "h", d(2026, 12, 21)).start)
-        // 1일 규칙이 앞 달 30일(금)로 당겨진 경우도 그날부터
-        val first = s.copy(recurrings = mapOf(allowanceRule.id to allowanceRule.copy(day = 1)))
+        // 1일 규칙이 앞 달 30일(금)로 당겨진 경우(가계부 15일 시작)도 그날부터
+        val first = s.copy(household = Household(monthStartDay = 15), recurrings = mapOf(allowanceRule.id to allowanceRule.copy(day = 1)))
         assertEquals(d(2026, 10, 30) to d(2026, 12, 1), Stats.allowancePeriod(first, "h", d(2026, 10, 31)).let { it.start to it.end })
+        // 용돈 날 = 한 달 시작일(21일)이면 앞당기지 않아 토요일부터
+        val sameDay = s.copy(household = Household(monthStartDay = 21))
+        assertEquals(d(2026, 11, 21), Stats.allowancePeriod(sameDay, "h", d(2026, 11, 21)).start)
     }
 
     @Test fun withoutAllowanceRuleFallsBackToLedgerMonth() {

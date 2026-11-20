@@ -110,7 +110,7 @@ object Stats {
     fun allowancePeriod(s: LedgerState, memberId: String?, date: LocalDate = LocalDate.now(Fmt.zone)): Period {
         val r = memberId?.let { s.recurrings[AllowancePlan.idFor(it)] }?.takeIf { it.period == "m" && !it.paused }
             ?: return periodOf(date, s.household.monthStartDay)
-        fun due(ym: YearMonth) = beforeWeekend(ym.atDay(r.day.coerceIn(1, ym.lengthOfMonth())))
+        fun due(ym: YearMonth) = allowanceDue(ym, r.day, s.household.monthStartDay)
         // 지난달 몫은 늘 [date] 전이고, 두 달 뒤 몫은 늘 뒤라 그 사이에서 찾습니다(1·2일이 앞 달로 당겨져도).
         val months = (-1L..2L).map { YearMonth.from(date).plusMonths(it) }
         val i = months.indexOfLast { !due(it).isAfter(date) }
@@ -302,36 +302,52 @@ object Stats {
     }
 
     /**
-     * [from]~[to] 사이에 [r]이 장부에 들어갈 날. 월 용돈 규칙(D-20)은 월급날 받는 돈이라 그날이 토·일이면 앞 금요일에
-     * 들어갑니다(D-27). 다른 고정 규칙(자동이체·구독)은 은행이 대개 다음 영업일에 빼 가므로 그대로 둡니다.
+     * 월 용돈의 [ym] 달 몫이 들어가는 날. 정한 날([day])이 토·일이면 월급이 먼저 들어오는 앞 금요일입니다(D-27).
+     * 다만 앞당긴 날이 가계부 한 달([startDay]부터) 경계를 넘으면 앞당기지 않습니다: 정한 날이 한 달 시작일과 같거나 바로 뒤면
+     * 그달 몫이 앞 달 합계로 넘어가 앞 달엔 두 번, 그달엔 0번 들어가기 때문입니다(#53 리뷰).
      */
-    fun dueDates(r: Recurring, from: LocalDate, to: LocalDate): List<LocalDate> {
+    fun allowanceDue(ym: YearMonth, day: Int, startDay: Int): LocalDate {
+        val nominal = ym.atDay(day.coerceIn(1, ym.lengthOfMonth()))
+        val early = beforeWeekend(nominal)
+        return if (periodOf(early, startDay).key == periodOf(nominal, startDay).key) early else nominal
+    }
+
+    /**
+     * [from]~[to] 사이에 [r]이 장부에 들어갈 날. 월 용돈 규칙(D-20)은 월급날 받는 돈이라 그날이 토·일이면 앞 금요일에
+     * 들어갑니다([allowanceDue], D-27). [startDay]는 가구 한 달 시작일이고, 모르면(null) 앞당기지 않습니다.
+     * 다른 고정 규칙(자동이체·구독)은 은행이 대개 다음 영업일에 빼 가므로 그대로 둡니다.
+     */
+    fun dueDates(r: Recurring, from: LocalDate, to: LocalDate, startDay: Int? = null): List<LocalDate> =
+        occurrences(r, from, to, startDay).map { it.second }
+
+    /** [dueDates]와 같되 (정한 날, 들어가는 날) 쌍. 앞당긴 용돈만 둘이 다릅니다(옛 버전이 정한 날로 만든 기록을 찾을 때). */
+    fun occurrences(r: Recurring, from: LocalDate, to: LocalDate, startDay: Int? = null): List<Pair<LocalDate, LocalDate>> {
         if (r.paused) return emptyList()
         val start = maxOf(from, Fmt.date(r.startAt))
         val end = r.endAt?.let { minOf(to, Fmt.date(it)) } ?: to
         if (start.isAfter(end)) return emptyList()
-        val out = ArrayList<LocalDate>()
+        val out = ArrayList<Pair<LocalDate, LocalDate>>()
         when (r.period) {
             "w" -> {
                 var d = start
                 val dow = DayOfWeek.of(r.day.coerceIn(1, 7))
                 while (d.dayOfWeek != dow) d = d.plusDays(1)
-                while (!d.isAfter(end)) { out += d; d = d.plusWeeks(1) }
+                while (!d.isAfter(end)) { out += d to d; d = d.plusWeeks(1) }
             }
             "y" -> for (y in start.year..end.year) {
                 val ym = YearMonth.of(y, r.month.coerceIn(1, 12))
                 val d = ym.atDay(r.day.coerceIn(1, ym.lengthOfMonth()))
-                if (!d.isBefore(start) && !d.isAfter(end)) out += d
+                if (!d.isBefore(start) && !d.isAfter(end)) out += d to d
             }
             else -> {
-                val payday = AllowancePlan.isRule(r.id)
+                val payday = startDay?.takeIf { AllowancePlan.isRule(r.id) }
                 // 앞당긴 날은 앞 달 말일에 올 수 있어(1·2일이 토·일) 한 달 더 봅니다. 그 밖의 날은 범위 밖이라 걸러져요.
                 val last = YearMonth.from(end).plusMonths(1)
                 var ym = YearMonth.from(start)
                 while (!ym.isAfter(last)) {
-                    val day = ym.atDay(r.day.coerceIn(1, ym.lengthOfMonth()))
-                    val d = if (payday) beforeWeekend(day) else day
-                    if (!d.isBefore(start) && !d.isAfter(end)) out += d
+                    val nominal = ym.atDay(r.day.coerceIn(1, ym.lengthOfMonth()))
+                    val d = payday?.let { allowanceDue(ym, r.day, it) } ?: nominal
+                    if (!d.isBefore(start) && !d.isAfter(end)) out += nominal to d
                     ym = ym.plusMonths(1)
                 }
             }
@@ -340,7 +356,7 @@ object Stats {
     }
 
     fun upcoming(s: LedgerState, days: Int, today: LocalDate = LocalDate.now(Fmt.zone)): List<Pair<Recurring, LocalDate>> =
-        s.recurrings.values.flatMap { r -> dueDates(r, today.plusDays(1), today.plusDays(days.toLong())).map { r to it } }
+        s.recurrings.values.flatMap { r -> dueDates(r, today.plusDays(1), today.plusDays(days.toLong()), s.household.monthStartDay).map { r to it } }
             .sortedBy { it.second }
 
     // --- 저축 목표 -------------------------------------------------------------------------------
