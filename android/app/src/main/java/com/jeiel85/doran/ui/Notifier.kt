@@ -67,6 +67,14 @@ object Notifier {
         if (can(context)) NotificationManagerCompat.from(context).notify(id, n.build())
     }
 
+    /** 이미 띄운 용돈 알림 묶음([key])을 거둡니다: 그 안의 결제가 모두 옮긴 돈으로 바뀐 경우(D-26). */
+    fun cancelAllowance(context: Context, key: String) = NotificationManagerCompat.from(context).cancel(key.hashCode())
+
+    /** 용돈 알림 묶음([key])이 아직 알림 창에 떠 있는지. 사용자가 지운 알림을 고쳐 쓰며 다시 띄우지 않으려고 봅니다. */
+    fun allowanceShown(context: Context, key: String): Boolean =
+        runCatching { context.getSystemService(android.app.NotificationManager::class.java).activeNotifications.any { it.id == key.hashCode() } }
+            .getOrDefault(false)
+
     /** "남편 · 현대카드 12,300원" / "스타벅스 · 이번 달 누적 523,000원" */
     fun familyTxn(context: Context, txnId: String, title: String, text: String) {
         post(context, txnId.hashCode(), builder(context, FAMILY, title, text)

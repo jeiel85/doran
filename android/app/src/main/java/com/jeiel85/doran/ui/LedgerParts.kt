@@ -78,7 +78,8 @@ fun TxnRow(e: Entry, s: LedgerState, isNew: Boolean, showDate: Boolean = false, 
                     member?.name?.let(::add)
                     val acc = s.account(t.accountId)
                     (acc?.name ?: t.cardLabel)?.let { add(if (acc?.family == true) "$it(가족 카드)" else it) }
-                    if (!e.counted) add("용돈 · 합계 제외")
+                    if (t.private && com.jeiel85.doran.logic.Moves.isMoved(t)) add("옮긴 돈 · 용돈에서 안 뺌")
+                    else if (!e.counted) add("용돈 · 합계 제외")
                     if (t.kind == Kind.TRANSFER) s.account(t.toAccountId)?.name?.let { add("→ $it") }
                     if (t.installment > 1) add("${t.installment}개월")
                     if (t.source == Source.RECURRING) add("고정")

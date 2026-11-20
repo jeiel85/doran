@@ -321,4 +321,39 @@ class ParserTest {
         assertEquals("PHP 1,250.00", p("현대카드 해외승인 홍*동 PHP 1,250.00 11/10 03:15 MANILA MART")!!.foreign)
         assertEquals("USD 12.34", p("현대카드 해외승인 홍*동 USD 12.34. 11/10 03:15 NETFLIX.COM")!!.foreign)
     }
+
+    // --- 은행 받는 분·메모 칸(적요) (2026-11-20 사용자 폰 KB스타뱅킹 앱 푸시, 이름·계좌·금액·회사 이름은 바꿈) -----------------------
+
+    @Test fun kbPushMemoIsTheMerchant() {
+        val now = LocalDateTime.of(2026, 11, 20, 13, 0)
+        val out = Parser.parse("출금 3,200,615원\n홍*동님 11/20 12:59 123456-**-***789 급여 스마트폰출금 3,200,615 잔액0", now, hint = "KB스타뱅킹")!!
+        assertEquals(Parsed.Type.WITHDRAWAL, out.type)
+        assertEquals("KB국민은행", out.issuer)
+        assertFalse(out.isCard)
+        assertEquals(3_200_615L, out.amount)
+        assertEquals(0L, out.balance)
+        assertNull(out.cardPaymentTo)
+        // 거래 방식("스마트폰출금")과 본문에 되풀이된 금액을 떼면 메모 칸만 남음. 전에는 "급여 스마트폰 4"처럼 읽혔음
+        assertEquals("급여", out.merchant)
+        assertEquals(LocalDateTime.of(2026, 11, 20, 12, 59), out.at)
+
+        val inn = Parser.parse("입금 3,200,000원\n홍*동님 11/20 12:33 123456-**-***789 주식회사가 전자금융입금 3,200,000 잔액3,200,615", now, hint = "KB스타뱅킹")!!
+        assertEquals(Parsed.Type.DEPOSIT, inn.type)
+        assertEquals(3_200_000L, inn.amount)
+        assertEquals(3_200_615L, inn.balance)
+        assertEquals("주식회사가", inn.merchant)
+
+        // 다른 거래 방식 낱말도 같은 방식으로
+        assertEquals("월세", Parser.parse("[KB]11/20 09:00 123456**789 월세 인터넷출금 500,000 잔액100,000", now)!!.merchant)
+        assertEquals("홍길동", Parser.parse("[신한]11/20 09:00 110-***-123456 홍길동 모바일출금 30,000 잔액70,000", now)!!.merchant)
+    }
+
+    @Test fun channelWordsAndAmountEchoesLeaveShopNamesAlone() {
+        // 입출금 낱말이 바로 붙지 않은 '스마트폰'은 가게 이름
+        assertEquals("스마트폰케이스몰", p("현대카드 승인 홍*동 25,000원 일시불 11/17 13:00 스마트폰케이스몰")!!.merchant)
+        // 금액과 같은 숫자로 시작해도 '원'에 글자가 붙은 가게 이름은 지우지 않음
+        val shop = p("신한카드 승인 홍*동 1,000원 일시불 11/17 13:00 1000원샵 성수점")!!
+        assertEquals(1_000L, shop.amount)
+        assertTrue(shop.merchant!!, shop.merchant!!.contains("1000원샵"))
+    }
 }

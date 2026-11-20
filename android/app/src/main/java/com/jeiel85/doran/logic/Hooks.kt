@@ -23,6 +23,8 @@ object Hooks {
 
     fun onChanges(context: Context, changes: List<Change>) {
         if (changes.any { it.local }) Hub.requestSync()
+        rejudgeMoves(changes)
+        refreshAllowanceAlert(context, changes)
         updateAllowance(changes)
         notifyAllowance(context, changes)
         learnCategories(changes)
@@ -93,6 +95,31 @@ object Hooks {
         }
     }
 
+    /** 동기화로 받은 아내 폰의 입금 등으로 내 은행 출금의 '옮긴 돈' 판정이 바뀌면 고칩니다(D-26). 고친 것은 다시 이 훅을 거칩니다. */
+    private fun rejudgeMoves(changes: List<Change>) {
+        val txns = changes.filter { it.type == T.TXN }
+        if (txns.isEmpty()) return
+        Hub.capture.rejudgeMoves(txns.map { c -> c.before?.let { Txn.from(c.id, it) } to c.after?.let { Txn.from(c.id, it) } })
+    }
+
+    /**
+     * 이미 띄운 "용돈에서 썼어요" 알림 묶음 안의 결제가 바뀌거나 지워지면(옮긴 돈으로 바뀜, 직접 고침·지움) 알림을 고쳐 쓰거나 거둡니다.
+     * 사용자가 이미 지운 알림은 다시 띄우지 않습니다.
+     */
+    private fun refreshAllowanceAlert(context: Context, changes: List<Change>) {
+        val ids = changes.filter { it.type == T.TXN && it.before != null }.mapTo(HashSet()) { it.id }
+        if (ids.isEmpty()) return
+        val group = Hub.db.kv(ALLOWANCE_GROUP)?.let { runCatching { AllowanceAlert.Group.from(JSONObject(it)) }.getOrNull() } ?: return
+        if (group.ids.none { it in ids } || !Notifier.allowanceShown(context, group.key)) return
+        val me = Hub.identity.value.myMemberId ?: return
+        val s = Hub.ledger.value
+        val txns = group.ids.mapNotNull { s.txns[it] }.filter { AllowanceAlert.applies(it, me, Hub.identity.installId, System.currentTimeMillis()) }
+            .sortedBy { it.at }
+        if (txns.isEmpty()) { Notifier.cancelAllowance(context, group.key); return }
+        val text = AllowanceAlert.ofMany(s, txns)
+        Notifier.allowanceTxn(context, group.key, txns.last().id, text.title, text.body)
+    }
+
     /**
      * 이 폰이 알림에서 읽어 내 용돈으로 기록한 새 결제를 내 폰에 알립니다(남은 용돈과 함께).
      * 가계부로 올라간 결제(가족 카드 등)는 가족 폰에 "가족이 쓴 내역"으로 가므로 내 폰에는 띄우지 않습니다.
@@ -102,9 +129,14 @@ object Hooks {
         val me = Hub.identity.value.myMemberId ?: return
         val install = Hub.identity.installId
         val now = System.currentTimeMillis()
-        val fresh = changes.filter { it.local && it.type == T.TXN && it.before == null && it.after != null }
+        val inserted = changes.filter { it.local && it.type == T.TXN && it.before == null && it.after != null }
             .map { Txn.from(it.id, it.after!!) }
-            .filter { AllowanceAlert.applies(it, me, install, now) }
+        // 월 용돈보다 커서 옮긴 돈으로 본 은행 출금: 용돈에서 빼지 않았다고 따로 알려 바로 고칠 수 있게(D-26).
+        for (t in inserted.filter { AllowanceAlert.appliesMoved(it, me, install, now) }) {
+            val text = AllowanceAlert.moved(t)
+            Notifier.allowanceTxn(context, "move.${t.id}", t.id, text.title, text.body)
+        }
+        val fresh = inserted.filter { AllowanceAlert.applies(it, me, install, now) }
         if (fresh.isEmpty()) return
         // 몇 분 안에 잇달아 온 것은 한 알림을 고쳐 가며 묶어 보여 줍니다(#15). 지워진 것은 빼고요.
         val prev = Hub.db.kv(ALLOWANCE_GROUP)?.let { runCatching { AllowanceAlert.Group.from(JSONObject(it)) }.getOrNull() }

@@ -291,6 +291,23 @@ fun ForwardRulesSection() {
     }
 }
 
+/** 알림 자동 기록 화면 안: 내역 화면에서 "앞으로도"로 기억한 은행 출금 판정(옮긴 돈·쓴 돈, D-26). */
+@Composable
+fun MoveRulesSection() {
+    val rules by Hub.local.moveRules.collectAsStateWithLifecycle()
+    if (rules.isEmpty()) return
+    Spacer(Modifier.height(20.dp))
+    SectionTitle("기억한 은행 출금")
+    SoftCard(padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
+        rules.forEach { r ->
+            ListRow(r.label, if (r.moved) "옮긴 돈으로 봐요 · 용돈에서 안 빼요" else "용돈에서 쓴 돈으로 봐요", Icons.Rounded.AutoMode,
+                if (r.moved) P.c.pine else P.c.apricot) {
+                SmallButton("그만", color = P.c.danger) { Hub.local.removeMoveRule(r.key) }
+            }
+        }
+    }
+}
+
 /** 홈에 띄우는 "실패·예정 알림이 내역으로 기록돼 있어요 N건" 카드(#13). 답하면(지우기·그대로 두기) 사라집니다. */
 @Composable
 fun FailedRecordsCard(nav: Nav) {

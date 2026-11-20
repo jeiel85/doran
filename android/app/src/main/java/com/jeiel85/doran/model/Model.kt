@@ -209,6 +209,11 @@ data class Txn(
     val recurringId: String? = null,
     val createdBy: String? = null,
     val createdAt: Long = 0,
+    /**
+     * 나만 보는 용돈의 은행 출금을 '쓴 돈'과 '옮긴 돈' 중 어느 쪽으로 왜 셌는지(DECISIONS.md D-26, `Moves`).
+     * null이면 은행 출금이 아니거나 이 판정이 생기기 전에 기록된 것입니다.
+     */
+    val move: String? = null,
 ) {
     val isCancel get() = cancelOf != null
     fun json(): JSONObject = JSONObject().put("kind", kind.code).put("amount", amount).put("at", at)
@@ -217,7 +222,7 @@ data class Txn(
         .put("installment", installment).putN("cancelOf", cancelOf).putN("cumulative", cumulative)
         .putN("issuer", issuer).putN("cardLabel", cardLabel).putN("foreign", foreign).put("needsReview", needsReview)
         .put("receiptIds", receiptIds.json()).put("private", private).put("personal", personal).putN("recurringId", recurringId)
-        .putN("createdBy", createdBy).put("createdAt", createdAt)
+        .putN("createdBy", createdBy).put("createdAt", createdAt).putN("move", move)
     companion object {
         fun from(id: String, o: JSONObject) = Txn(
             id = id, kind = Kind.of(o.str("kind")), amount = o.long("amount") ?: 0, at = o.long("at") ?: 0,
@@ -227,7 +232,7 @@ data class Txn(
             cumulative = o.long("cumulative"), issuer = o.str("issuer"), cardLabel = o.str("cardLabel"),
             foreign = o.str("foreign"), needsReview = o.optBoolean("needsReview"), receiptIds = o.strs("receiptIds"),
             private = o.optBoolean("private"), personal = o.optBoolean("personal"), recurringId = o.str("recurringId"), createdBy = o.str("createdBy"),
-            createdAt = o.long("createdAt") ?: 0,
+            createdAt = o.long("createdAt") ?: 0, move = o.str("move"),
         )
     }
 }
