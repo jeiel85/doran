@@ -2,6 +2,7 @@ package com.jeiel85.doran
 
 import com.jeiel85.doran.core.Fmt
 import com.jeiel85.doran.logic.Stats
+import com.jeiel85.doran.ui.CalendarSize
 import com.jeiel85.doran.ui.Fit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -82,6 +83,26 @@ class LayoutTest {
         assertEquals(LocalDate.of(2026, 11, 29), row.start)
         assertEquals(LocalDate.of(2026, 12, 5), row.endInclusive)
         assertEquals(8_000L to 10_000L, rowSum)
+    }
+
+    @Test
+    fun calendarRowsGrowWithSystemFontSize() {
+        // 기본 글꼴: 지금 화면 그대로(날짜 20, 금액 줄 14, 한 종류 16, 한 주 62)
+        val base = CalendarSize.of(oneKind = false) { it }
+        assertEquals(CalendarSize.Dims(20f, 14f, 62f), base)
+        assertEquals(16f, CalendarSize.of(oneKind = true) { it }.line, 0f)
+        assertEquals(62f, CalendarSize.of(oneKind = true) { it }.row, 0f)
+
+        // 글꼴 150%: 금액 줄(13sp → 19.5dp)이 잘리지 않게 줄·날짜·한 주 높이가 함께 늘어남(#66 리뷰)
+        val big = CalendarSize.of(oneKind = false) { it * 1.5f }
+        assertEquals(20.5f, big.line, 0.001f)
+        assertEquals(28f, big.dayBox, 0.001f)
+        assertTrue("row=${big.row}", big.row >= big.dayBox + 2 * big.line)
+        assertTrue(big.row > base.row)
+
+        // 글꼴 200%, 한 종류: 한 줄짜리도 칸 안에 들어감
+        val huge = CalendarSize.of(oneKind = true) { it * 2f }
+        assertTrue("row=${huge.row}", huge.row >= huge.dayBox + huge.line)
     }
 
     @Test

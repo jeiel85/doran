@@ -213,6 +213,9 @@ fun CalendarGrid(ym: YearMonth, byDay: Map<LocalDate, Pair<Long, Long>>, selecte
     val (start, end) = Stats.calendarRange(ym)
     val rows = (java.time.temporal.ChronoUnit.DAYS.between(start, end) / 7).toInt()
     val today = LocalDate.now(Fmt.zone)
+    // 시스템 글꼴을 키우면 줄·칸 높이도 같이 늘려 금액 위아래가 잘리지 않게 합니다(#66 리뷰).
+    val density = LocalDensity.current
+    val dims = remember(density, oneKind) { CalendarSize.of(oneKind) { sp -> with(density) { sp.sp.toDp().value } } }
     Column {
         Row(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
             listOf("일", "월", "화", "수", "목", "금", "토").forEachIndexed { i, d ->
@@ -222,22 +225,43 @@ fun CalendarGrid(ym: YearMonth, byDay: Map<LocalDate, Pair<Long, Long>>, selecte
         }
         for (r in 0 until rows) {
             Box(Modifier.fillMaxWidth().height(1.dp).background(P.c.line))
-            Row(Modifier.fillMaxWidth().height(62.dp)) {
+            Row(Modifier.fillMaxWidth().height(dims.row.dp)) {
                 for (c in 0 until 7) {
                     val d = start.plusDays((r * 7 + c).toLong())
-                    DayCell(d, YearMonth.from(d) == ym, byDay[d], d == selected, d == today, oneKind, Modifier.weight(1f).fillMaxHeight()) { onSelect(d) }
+                    DayCell(d, YearMonth.from(d) == ym, byDay[d], d == selected, d == today, oneKind, dims, Modifier.weight(1f).fillMaxHeight()) { onSelect(d) }
                 }
             }
         }
     }
 }
 
+/**
+ * 달력 칸 크기(dp): 날짜 동그라미, 금액 한 줄, 한 주 줄. [spToDp]로 글자 크기(sp)를 dp로 바꿔(시스템 글꼴 배율 반영) 글자가 커지면
+ * 같이 늘어납니다 — 고정 dp 높이에 sp 글자를 넣으면 큰 글꼴에서 금액 위아래가 잘립니다(#66 리뷰). 기본 배율에서는 20·14(한 종류면 16)·62.
+ */
+object CalendarSize {
+    data class Dims(val dayBox: Float, val line: Float, val row: Float)
+
+    /** 금액 글씨의 줄 높이(sp): [CellMoney]·[CellMoneyBig]와 같아야 합니다. */
+    const val LINE_SP = 13f
+    const val LINE_BIG_SP = 15f
+
+    fun of(oneKind: Boolean, spToDp: (Float) -> Float): Dims {
+        val line = spToDp(if (oneKind) LINE_BIG_SP else LINE_SP) + 1f
+        val dayBox = maxOf(20f, spToDp(16f) + 4f) // 날짜 12sp의 줄 높이 16sp + 여백
+        return Dims(dayBox, line, maxOf(62f, dayBox + line * (if (oneKind) 1 else 2) + 10f))
+    }
+}
+
 /** 달력 칸의 금액 글씨: 고정폭 숫자, 좁은 칸에서도 읽히도록 굵기는 한 단계 낮춤. 한 종류만 볼 때는 한 줄이라 더 크게. */
-private val CellMoney = Money.copy(fontSize = 10.5.sp, lineHeight = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp)
-private val CellMoneyBig = Money.copy(fontSize = 12.5.sp, lineHeight = 15.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp)
+private val CellMoney = Money.copy(fontSize = 10.5.sp, lineHeight = CalendarSize.LINE_SP.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp)
+private val CellMoneyBig = Money.copy(fontSize = 12.5.sp, lineHeight = CalendarSize.LINE_BIG_SP.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp)
 
 @Composable
-private fun DayCell(d: LocalDate, inMonth: Boolean, sums: Pair<Long, Long>?, isSel: Boolean, isToday: Boolean, oneKind: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun DayCell(
+    d: LocalDate, inMonth: Boolean, sums: Pair<Long, Long>?, isSel: Boolean, isToday: Boolean, oneKind: Boolean,
+    dims: CalendarSize.Dims, modifier: Modifier, onClick: () -> Unit,
+) {
     val (ex, inc) = sums ?: (0L to 0L)
     // 앞뒤 달 날짜는 금액까지 흐리게(비주얼 가계부처럼) — 이 달 것과 섞여 보이지 않게.
     val fade = if (inMonth) 1f else 0.4f
@@ -250,7 +274,7 @@ private fun DayCell(d: LocalDate, inMonth: Boolean, sums: Pair<Long, Long>?, isS
             .clickable(onClick = onClick).padding(horizontal = 3.dp, vertical = 3.dp),
     ) {
         Box(
-            Modifier.size(20.dp).then(if (isToday) Modifier.clip(CircleShape).background(P.c.pine) else Modifier),
+            Modifier.size(dims.dayBox.dp).then(if (isToday) Modifier.clip(CircleShape).background(P.c.pine) else Modifier),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -268,15 +292,15 @@ private fun DayCell(d: LocalDate, inMonth: Boolean, sums: Pair<Long, Long>?, isS
         val expense = P.c.expense.copy(alpha = fade)
         val income = P.c.income.copy(alpha = fade)
         if (oneKind) {
-            Box(Modifier.fillMaxWidth().height(16.dp)) {
+            Box(Modifier.fillMaxWidth().height(dims.line.dp)) {
                 when {
                     exText != null -> FitText(exText, CellMoneyBig, expense, minSize = 8.sp, textAlign = TextAlign.End)
                     incText != null -> FitText(incText, CellMoneyBig, income, minSize = 8.sp, textAlign = TextAlign.End)
                 }
             }
         } else {
-            Box(Modifier.fillMaxWidth().height(14.dp)) { if (exText != null) FitText(exText, CellMoney, expense, minSize = 7.5.sp, textAlign = TextAlign.End) }
-            Box(Modifier.fillMaxWidth().height(14.dp)) { if (incText != null) FitText(incText, CellMoney, income, minSize = 7.5.sp, textAlign = TextAlign.End) }
+            Box(Modifier.fillMaxWidth().height(dims.line.dp)) { if (exText != null) FitText(exText, CellMoney, expense, minSize = 7.5.sp, textAlign = TextAlign.End) }
+            Box(Modifier.fillMaxWidth().height(dims.line.dp)) { if (incText != null) FitText(incText, CellMoney, income, minSize = 7.5.sp, textAlign = TextAlign.End) }
         }
     }
 }
