@@ -91,6 +91,25 @@ object Issuers {
 
     fun same(a: String, b: String) = canonical(a) == canonical(b)
 
+    /**
+     * 가맹점 자리에 남은 것이 카드 상품 이름뿐인지("현대 ZERO", "신한 Deep Dream", "현대카드"): 그 카드사의 이름(줄기)으로 시작하고,
+     * 그 뒤에서 "카드"를 떼면 한글이 남지 않는 것. "현대백화점"·"롯데마트"처럼 이름 뒤에 한글이 이어지면 실제 가맹점이고,
+     * "ABC MART"처럼 영문 이름 가운데에 든 "BC"는 카드사 이름이 아닙니다.
+     * 가맹점이 없는 카드 문자에서 상품 이름을 가맹점으로 읽어, 같은 결제를 두 폰이 각각 기록했는데 다른 가게로 보인 일(2026-11-21 주유, D-5).
+     * 카드사 알림에만 봅니다: 은행 출금의 받는 곳 "신한카드"는 카드값(이체)을 가리는 단서라 지우면 안 됩니다(#62 리뷰).
+     */
+    fun cardNameOnly(merchant: String?, issuer: String?): Boolean {
+        val m = merchant?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+        val i = cards.firstOrNull { it.name == issuer } ?: return false
+        val stems = (i.aliases + i.name.removeSuffix("카드").removeSuffix("은행")).filter { it.isNotBlank() }.sortedByDescending { it.length }
+        val stem = stems.firstOrNull { s ->
+            m.startsWith(s, ignoreCase = true) && !(s.last().isLatinLetter() && m.getOrNull(s.length)?.isLatinLetter() == true)
+        } ?: return false
+        return m.substring(stem.length).replace("카드", " ").none { it in '가'..'힣' }
+    }
+
+    private fun Char.isLatinLetter() = this in 'A'..'Z' || this in 'a'..'z'
+
     /** 해석기가 아는 카드사·은행 이름인지. 아니면 "앞으로도 자동으로" 규칙으로 정한 간편결제 앱 등입니다(#18). */
     fun listed(name: String?): Boolean = name != null && all.any { it.name == name }
 
@@ -298,7 +317,7 @@ object Parser {
         issuer.aliases.forEach { a -> Regex(Regex.escape(a), RegexOption.IGNORE_CASE).findAll(text).forEach { take(it) } }
         HOLDER.findAll(text).forEach { take(it) }
 
-        val merchant = merchantFrom(text, consumed, place)
+        val merchant = merchantFrom(text, consumed, place, issuer.name)
         return Parsed(
             type = type, issuer = issuer.name, isCard = issuer.card, amount = amount, last4 = last4,
             installment = installment, merchant = merchant, at = at, cumulative = cumulative, balance = balance,
@@ -344,14 +363,17 @@ object Parser {
         return null
     }
 
-    /** [place]: "…에서 N원"의 '에서' 위치. 있으면 그 바로 앞 덩어리를 가맹점으로 씁니다. */
-    private fun merchantFrom(text: String, consumed: List<IntRange>, place: Int? = null): String? {
+    /**
+     * [place]: "…에서 N원"의 '에서' 위치. 있으면 그 바로 앞 덩어리를 가맹점으로 씁니다.
+     * 카드 상품 이름뿐인 덩어리("현대 ZERO")는 가맹점이 아닙니다([Issuers.cardNameOnly]) — 가맹점이 없는 문자면 비워 둡니다.
+     */
+    private fun merchantFrom(text: String, consumed: List<IntRange>, place: Int? = null, issuer: String? = null): String? {
         val sb = StringBuilder(text)
         for (r in consumed.sortedByDescending { it.first }) {
             val end = minOf(r.last + 1, sb.length)
             if (r.first < end) for (i in r.first until end) sb.setCharAt(i, '\n')
         }
-        fun usable(s: String) = s.length >= 2 && !s.all { c -> c.isDigit() || c == '*' || c == ' ' }
+        fun usable(s: String) = s.length >= 2 && !s.all { c -> c.isDigit() || c == '*' || c == ' ' } && !Issuers.cardNameOnly(s, issuer)
         place?.let { p -> tidy(sb.substring(0, p).split(*SEPARATORS).last()).takeIf(::usable)?.let { return it.take(40) } }
         // 괄호로는 나누지 않습니다: "씨유(CU)가산하이엔드6차점"이 "가산하이엔드6차점"만 남아 브랜드를 잃기 때문입니다.
         val chunks = sb.toString().split(*SEPARATORS).map(::tidy).filter(::usable)

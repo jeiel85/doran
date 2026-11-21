@@ -89,6 +89,22 @@ class FamilyAlertTest {
         assertFalse(Twins.same(a, b.copy(cancelOf = "a")))
     }
 
+    @Test fun twinsIgnoreCardProductNameAsMerchant() {
+        // 2026-11-21 주유: 남편 폰(현대카드 앱 알림)은 가맹점을, 아내 폰(문자)은 카드 상품 이름 "현대 ZERO"를 가맹점으로 남겨 두 번 기록됐어요.
+        val push = cardTxn("g", "h", merchant = "동네주유소", label = "현대카드", createdAt = 10)
+        val sms = cardTxn("z", "w", at = 1_030_000, merchant = "현대 ZERO", label = "현대카드", source = Source.SMS, createdAt = 20)
+        assertTrue(Twins.same(push, sms))
+        assertTrue(Twins.same(sms, push))
+        assertEquals("g", Twins.keeper(push, sms).id)
+        // 승인 뒤 취소된 앞 결제(09:36)도 취소끼리 같은 결제
+        assertTrue(Twins.same(push.copy(cancelOf = "o1"), sms.copy(cancelOf = "o2")))
+        // 카드사 이름으로 시작해도 실제 가게면 지금처럼 가맹점을 비교해 다른 결제
+        assertFalse(Twins.same(push, sms.copy(merchant = "현대백화점 목동점")))
+        // 금액·카드 끝자리가 다르면 여전히 다른 결제
+        assertFalse(Twins.same(push, sms.copy(amount = 75_000)))
+        assertFalse(Twins.same(push.copy(cardLabel = "현대카드(1234)"), sms.copy(cardLabel = "현대카드(9999)")))
+    }
+
     @Test fun inviteLinksRoundTrip() {
         val secret = ByteArray(32) { it.toByte() }
         val link = com.jeiel85.doran.sync.Pairing.link(secret, "sender", "남편")

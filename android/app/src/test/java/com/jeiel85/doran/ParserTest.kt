@@ -1,5 +1,6 @@
 package com.jeiel85.doran
 
+import com.jeiel85.doran.capture.Issuers
 import com.jeiel85.doran.capture.Parsed
 import com.jeiel85.doran.capture.Parser
 import org.junit.Assert.assertEquals
@@ -355,5 +356,42 @@ class ParserTest {
         val shop = p("신한카드 승인 홍*동 1,000원 일시불 11/17 13:00 1000원샵 성수점")!!
         assertEquals(1_000L, shop.amount)
         assertTrue(shop.merchant!!, shop.merchant!!.contains("1000원샵"))
+    }
+
+    // 2026-11-21 주유: 아내 폰이 가맹점 없는 현대카드 문자에서 카드 상품 이름 "현대 ZERO"를 가맹점으로 읽어, 남편 폰의 같은 결제
+    // ("동네주유소")와 다른 가게로 보여 두 번 기록됐어요. 원문은 아내 폰에만 있어, 상품 이름만 남는 형식을 본뜬 합성 예시입니다.
+    @Test fun cardProductNameIsNotTheMerchant() {
+        val r = p("[Web발신]\n[현대카드]\n현대 ZERO 승인\n홍*동\n70,000원 일시불\n11/21 09:37\n누적1,234,567원")!!
+        assertEquals("현대카드", r.issuer)
+        assertEquals(70_000L, r.amount)
+        assertNull(r.merchant)
+        // 가맹점이 함께 오면 그쪽
+        assertEquals("동네주유소", p("현대카드 ZERO 승인 홍*동 70,000원 일시불 11/21 09:37 동네주유소")!!.merchant)
+        assertEquals("동네주유소", p("[현대카드]\n현대 ZERO 승인\n홍*동\n70,000원 일시불\n11/21 09:37\n동네주유소")!!.merchant)
+    }
+
+    @Test fun cardNameOnlyKeepsRealShopsThatShareTheBrand() {
+        assertTrue(Issuers.cardNameOnly("현대 ZERO", "현대카드"))
+        assertTrue(Issuers.cardNameOnly("현대카드", "현대카드"))
+        assertTrue(Issuers.cardNameOnly("현대카드 the Green 카드", "현대카드"))
+        assertTrue(Issuers.cardNameOnly("신한 Deep Dream", "신한카드"))
+        // 카드사 이름 뒤에 한글이 이어지면 실제 가게
+        assertFalse(Issuers.cardNameOnly("현대백화점 목동점", "현대카드"))
+        assertFalse(Issuers.cardNameOnly("현대오일뱅크 성수주유소", "현대카드"))
+        assertFalse(Issuers.cardNameOnly("롯데마트", "롯데카드"))
+        // 카드사 이름으로 시작하지 않거나, 영문 이름 가운데에 든 짧은 이름은 아님
+        assertFalse(Issuers.cardNameOnly("동네주유소", "현대카드"))
+        assertFalse(Issuers.cardNameOnly("ABC MART", "BC카드"))
+        assertFalse(Issuers.cardNameOnly("BCMART", "BC카드"))
+        assertFalse(Issuers.cardNameOnly("BC 바로카드", "BC카드"))
+        // 은행 알림에는 쓰지 않음: 같은 이름의 카드사로 나가는 카드값 출금의 받는 곳("신한카드")이 이체를 가리는 단서(#62 리뷰)
+        assertFalse(Issuers.cardNameOnly("신한카드", "신한은행"))
+        val bill = p("[신한]11/25 10:00\n출금 523,000원\n잔액711,000원\n신한카드")!!
+        assertEquals("신한은행", bill.issuer)
+        assertEquals("신한카드", bill.cardPaymentTo)
+        // 다른 카드사·모르는 카드사의 이름은 보지 않음
+        assertFalse(Issuers.cardNameOnly("현대 ZERO", "신한카드"))
+        assertFalse(Issuers.cardNameOnly("현대 ZERO", null))
+        assertFalse(Issuers.cardNameOnly("", "현대카드"))
     }
 }

@@ -327,18 +327,26 @@ class CaptureProcessor(
     private fun recordLocal(p: Parsed, source: Source, at: Long): Outcome {
         val me = identity.value.myMemberId
         val s = ledger.value
-        val account = accountFor(s, p, me)
         val label = p.cardLabel
-
-        withBalance(account, p.balance, at).takeIf { it != account }?.let { ledger.saveAccount(it) }
-
-        // 같은 승인이 앱 알림과 문자로 두 번 온 경우 (DECISIONS.md D-5).
         val kind = when (p.type) {
             Parsed.Type.APPROVAL, Parsed.Type.CANCEL -> Kind.EXPENSE
             Parsed.Type.DEPOSIT -> Kind.INCOME
             Parsed.Type.WITHDRAWAL -> if (p.cardPaymentTo != null) Kind.TRANSFER else Kind.EXPENSE
         }
         val isCancel = p.type == Parsed.Type.CANCEL
+        // 다른 가족 폰이 같은 결제를 이미 올려 둔 경우(가족카드 알림이 양쪽에 오는 등)
+        val probe = Txn(id = "probe", kind = kind, amount = p.amount, at = at, merchant = p.merchant.orEmpty(), source = source,
+            issuer = p.issuer, cardLabel = label, cancelOf = if (isCancel) "?" else null)
+        fun twin() = ledger.value.txns.values.firstOrNull { it.memberId != me && Twins.same(it, probe) }
+        // 이 폰에 그 카드·통장이 아직 없으면, 계좌를 만들기 전에 봅니다: 남편 카드의 같은 결제가 아내 폰에도 오면
+        // 기록은 안 해도 아내 앞으로 빈 카드가 생겼습니다(2026-11-21 주유).
+        val existing = existingAccount(s, p, me)
+        if (existing == null) twin()?.let { return Outcome("가족 폰이 이미 기록함", it.id) }
+        val account = existing ?: newAccount(s, p, me)
+
+        withBalance(account, p.balance, at).takeIf { it != account }?.let { ledger.saveAccount(it) }
+
+        // 같은 승인이 앱 알림과 문자로 두 번 온 경우 (DECISIONS.md D-5).
         val dup = ledger.value.txns.values.firstOrNull {
             it.accountId == account.id && it.amount == p.amount && it.kind == kind && (it.cancelOf != null) == isCancel &&
                 abs(it.at - at) <= sameMinutes && it.source.captured
@@ -355,12 +363,7 @@ class CaptureProcessor(
             SamePayment.unpairedAppCancel(ledger.value, ledger.value.txns.values.filter { it.accountId == account.id }, p.amount, at, p.merchant, ::cardPaired)
                 ?.let { return Outcome("이미 기록됨(간편결제 알림의 같은 취소)", it.id) }
         }
-        // 다른 가족 폰이 같은 결제를 이미 올려 둔 경우(가족카드 알림이 양쪽에 오는 등)
-        val probe = Txn(id = "probe", kind = kind, amount = p.amount, at = at, merchant = p.merchant.orEmpty(), source = source,
-            issuer = p.issuer, cardLabel = label, cancelOf = if (isCancel) "?" else null)
-        ledger.value.txns.values.firstOrNull { it.memberId != me && Twins.same(it, probe) }?.let {
-            return Outcome("가족 폰이 이미 기록함", it.id)
-        }
+        twin()?.let { return Outcome("가족 폰이 이미 기록함", it.id) }
 
         val txn: Txn = when (p.type) {
             Parsed.Type.CANCEL -> {
@@ -581,12 +584,18 @@ class CaptureProcessor(
     }
 
     /** 알림의 카드사·은행으로 계좌를 찾고, 없으면 만들어 둡니다(자산 화면에 바로 보이게). */
-    private fun accountFor(s: LedgerState, p: Parsed, me: String?): Account =
-        if (p.isCard) cardAccount(s, p.issuer, p.last4, me, p.checkCard)
+    /** 이 알림의 카드·통장 중 이 폰 사람(또는 주인 없는) 것. 카드면 알림이 알려 준 끝자리·체크카드 여부를 채워 저장합니다. 없으면 null. */
+    private fun existingAccount(s: LedgerState, p: Parsed, me: String?): Account? =
+        if (p.isCard) pickCard(s.accounts.values, p.issuer, p.last4, me, p.checkCard)?.let { a ->
+            refreshCard(a, p.last4, p.checkCard).also { if (it != a) ledger.saveAccount(it) }
+        }
         else s.accounts.values.firstOrNull { it.institution == p.issuer && it.type == AccountType.BANK && (it.ownerId == me || it.ownerId == null) }
-            // 알림으로 처음 만든 계좌는 기준 시각을 0으로 둡니다: 알림의 거래 시각이 계좌를 만든 순간보다 조금 이를 수 있어서.
-            ?: Account(id = newId(), name = p.issuer, type = AccountType.BANK, ownerId = me, institution = p.issuer,
-                openingAt = 0, order = s.accounts.size).also { ledger.saveAccount(it) }
+
+    /** 알림으로 처음 보는 카드·통장을 만듭니다. 기준 시각은 0: 알림의 거래 시각이 계좌를 만든 순간보다 조금 이를 수 있어서. */
+    private fun newAccount(s: LedgerState, p: Parsed, me: String?): Account =
+        if (p.isCard) newCard(s, p.issuer, p.last4, me, p.checkCard)
+        else Account(id = newId(), name = p.issuer, type = AccountType.BANK, ownerId = me, institution = p.issuer,
+            openingAt = 0, order = s.accounts.size).also { ledger.saveAccount(it) }
 
     private fun cardAccount(s: LedgerState, issuer: String, last4: String?, me: String?, check: Boolean): Account {
         pickCard(s.accounts.values, issuer, last4, me, check)?.let { a ->
@@ -594,6 +603,10 @@ class CaptureProcessor(
             if (fixed != a) ledger.saveAccount(fixed)
             return fixed
         }
+        return newCard(s, issuer, last4, me, check)
+    }
+
+    private fun newCard(s: LedgerState, issuer: String, last4: String?, me: String?, check: Boolean): Account {
         // 정한 결제만 보내는 사람의 보내는 카드는 가족이 함께 쓰는 카드라 처음부터 가족 카드로(D-20).
         val family = s.member(me)?.let { it.sharesPicked && it.shares(issuer) } == true
         return Account(id = newId(), name = issuer + (last4?.let { " $it" } ?: ""), type = if (check) AccountType.CHECK else AccountType.CARD,

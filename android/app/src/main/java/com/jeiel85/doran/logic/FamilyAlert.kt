@@ -1,6 +1,7 @@
 package com.jeiel85.doran.logic
 
 import com.jeiel85.doran.capture.Categorizer
+import com.jeiel85.doran.capture.Issuers
 import com.jeiel85.doran.core.Fmt
 import com.jeiel85.doran.data.LedgerState
 import com.jeiel85.doran.model.AccountType
@@ -167,13 +168,21 @@ object Twins {
         val la = a.cardLabel?.let { digits.find(it)?.groupValues?.get(1) }
         val lb = b.cardLabel?.let { digits.find(it)?.groupValues?.get(1) }
         if (la != null && lb != null && la != lb) return false
-        if (a.merchant.isNotBlank() && b.merchant.isNotBlank()) {
+        val ma = knownMerchant(a)
+        val mb = knownMerchant(b)
+        if (ma.isNotBlank() && mb.isNotBlank()) {
             // 한쪽이 간편결제 알림의 가맹점을 앞에 붙였을 수 있어("CU 네이버페이" ↔ "네이버페이") 앞부분 일치가 아니라 포함으로 봅니다.
             // 단 두 글자 이하의 짧은 이름("CU")은 다른 가맹점 이름 안에도 흔히 들어 있어 앞부분 일치만 봅니다(#19).
-            if (!merchantsAgree(Categorizer.normalize(a.merchant), Categorizer.normalize(b.merchant))) return false
+            if (!merchantsAgree(Categorizer.normalize(ma), Categorizer.normalize(mb))) return false
         }
         return true
     }
+
+    /**
+     * 비교할 가맹점. 카드 상품 이름뿐인 것("현대 ZERO")은 가맹점을 모르는 것으로 봅니다: 0.3.4까지는 가맹점이 없는 카드 문자에서
+     * 상품 이름을 가맹점으로 읽어, 남편 폰의 "동네주유소"와 아내 폰의 "현대 ZERO"가 다른 결제로 남았습니다(2026-11-21).
+     */
+    private fun knownMerchant(t: Txn): String = t.merchant.takeUnless { Issuers.cardNameOnly(it, t.issuer) }.orEmpty()
 
     private fun merchantsAgree(x: String, y: String): Boolean {
         val (short, long) = if (x.length <= y.length) x to y else y to x
