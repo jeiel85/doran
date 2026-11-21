@@ -3,6 +3,14 @@
 에뮬레이터 + 가짜 가족 폰(`scripts/fake-peer.mjs`)으로는 확인했지만, 아래는 **실제 두 폰**(남편 Galaxy S24, 아내 폰)으로만 확인할 수 있습니다.
 하나라도 실패하면 릴리스하지 않고 고칩니다.
 
+## 이 PC에서 에뮬레이터를 띄우기 전
+API 36 에뮬레이터는 AVD RAM과 관계없이 **커밋 여유 약 2.5GB**가 있어야 뜹니다. 세션·앱이 많은 날엔 못 떠서 건너뛴 적이 있어요(0.1.15, 0.2.0, 0.3.3).
+1. 커밋 여유 확인(PowerShell): `$os = Get-CimInstance Win32_OperatingSystem; '{0:N1}GB' -f ($os.FreeVirtualMemory/1MB)` — 4GB 넘으면 그대로 띄웁니다.
+2. 모자라면 먼저 떠 있는 것을 봅니다: `Get-Process java,qemu-system-x86_64* | Sort-Object PagedMemorySize64 -Descending`. 다른 세션이 쓰는 에뮬레이터가 이미 있으면 새로 띄우지 말고 그 세션과 맞춰 씁니다(RAM 때문에 에뮬레이터는 한 대만).
+3. 유휴 Gradle 데몬만 끕니다. 다른 프로젝트 폴더에서 `./gradlew --status`로 IDLE인 것의 PID를 확인해 `Stop-Process -Id <PID>`. `./gradlew --stop`은 같은 Gradle 버전의 데몬을 모두 멈춰 다른 세션의 빌드(--no-daemon 빌드도)를 죽이니 쓰지 않습니다.
+4. 그래도 모자라면 기다렸다가 다시 보고, 못 띄우면 확인 못 한 화면을 보고서와 BACKLOG에 적습니다.
+5. 시험 빌드: 디버그는 기본이 로컬 중계(`http://10.0.2.2:8787`), 릴리스 빌드를 에뮬레이터에 깔 때는 `-Papp.relayUrl=http://127.0.0.1:9`(README "개발"). 끝나면 `adb emu kill`, 로컬 중계는 wrangler와 workerd까지 끕니다.
+
 ## 설치·연결
 - [ ] 남편 폰: 소개 페이지 → APK 받기 → 설치 → "새 가계부 시작하기" → 이름 "남편"
 - [ ] 홈의 "배우자를 초대해 함께 써요" → QR이 화면 가득

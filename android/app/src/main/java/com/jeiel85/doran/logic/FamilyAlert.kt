@@ -189,6 +189,22 @@ object Twins {
         return if (short.length <= 2) long.startsWith(short) else long.contains(short)
     }
 
+    /**
+     * 같은 결제라 지운 내 기록 [removed]가 남긴 빈 계좌(#64): 동기화보다 문자가 먼저 오면 이 폰이 그 결제 때문에 카드·통장을 새로 만들고
+     * 기록한 뒤, 가족 기록이 들어오면 내 기록만 지워 계좌가 빈 채로 남았어요(아내 앞 빈 "현대카드", 2026-11-21).
+     * 알림이 자동으로 만든 모양 그대로인 계좌(이름·잔액·결제일을 손대지 않음)이고 다른 내역이 하나도 없을 때만 돌려줍니다.
+     * [s]는 [removed]를 지운 뒤의 장부입니다.
+     */
+    fun leftoverAccount(s: LedgerState, removed: Txn): com.jeiel85.doran.model.Account? {
+        val a = s.account(removed.accountId) ?: return null
+        if (a.type != AccountType.CARD && a.type != AccountType.CHECK && a.type != AccountType.BANK) return null
+        val autoName = a.institution?.let { it + (a.last4?.let { l -> " $l" } ?: "") }
+        val untouched = a.name == autoName && a.opening == 0L && a.openingAt == 0L && a.anchor == null && a.billingDay == null &&
+            a.payFromId == null && !a.allowanceCard && !a.hidden
+        if (!untouched) return null
+        return a.takeIf { s.txns.values.none { t -> t.accountId == a.id || t.toAccountId == a.id } }
+    }
+
     /** 둘 중 남길 것: 먼저 기록된 쪽(카드 주인 폰이 대개 먼저 받음), 같으면 id가 작은 쪽. */
     fun keeper(a: Txn, b: Txn): Txn =
         when {

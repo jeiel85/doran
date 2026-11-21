@@ -32,9 +32,22 @@ class AiReview(private val db: Db, private val local: LocalSettings) {
 
     val enabled: Boolean get() = setup() != null
 
-    /** 알림을 받은 직후: 방금 남은 기록(15분 안, 최대 5건)만 묻습니다. */
+    /**
+     * 알림을 받은 직후: 방금 남은 기록(15분 안, 최대 5건)만 묻습니다. 모든 앱 알림마다 불리므로, 꺼져 있거나 물을 새 기록이 없으면
+     * 키 저장소를 열지 않고 돌아갑니다(#45 — 전에는 알림마다 키를 복호화했어요).
+     */
     suspend fun afterCapture() {
-        if (enabled) review(System.currentTimeMillis() - 15 * 60_000L, 5)
+        if (AiProvider.of(local.value.aiProvider) == null) return
+        val since = System.currentTimeMillis() - 15 * 60_000L
+        if (withContext(Dispatchers.IO) { db.capturesWithoutAi(since, 1) }.isEmpty()) return
+        if (enabled) review(since, 5)
+    }
+
+    /** 최근 [days]일에 AI가 판정한 알림 수(회사별). 설정 화면에서 대략의 사용량을 보려고(#45). 수집 기록이 30일만 남아 그 안에서 셉니다. */
+    fun judgedSince(days: Int = 30): Map<String, Int> {
+        val since = System.currentTimeMillis() - days * 86_400_000L
+        return db.captureAis().mapNotNull(AiVerdict::from).filter { it.error == null && it.at >= since }
+            .groupingBy { it.provider }.eachCount()
     }
 
     /** "최근 받은 알림"의 "AI로 보기": 아직 묻지 않은 최근 30일 기록 [limit]건. 물은 건수와, 멈췄으면 그 이유. */

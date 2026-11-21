@@ -54,10 +54,49 @@ object Fixed {
      * 그것이 고정수입 자리를 채우지 않게 알림 종류로도 막습니다(#34 리뷰).
      */
     fun planned(txns: Collection<Txn>, txn: Txn, accountId: String?, cancelNotice: Boolean = false): Txn? {
-        if (cancelNotice || txn.kind == Kind.TRANSFER || txn.cancelOf != null) return null
-        return txns.firstOrNull {
-            it.source == Source.RECURRING && it.kind == txn.kind && it.amount == txn.amount && it.cancelOf == null &&
+        // 나만 보는 용돈·용돈으로 옮긴 결제는 가계부 고정 내역을 채우지 않습니다: 채우면 가족 가계부의 그 자리가 개인 내역이 됩니다(#36).
+        if (cancelNotice || txn.kind == Kind.TRANSFER || txn.cancelOf != null || txn.private || txn.personal) return null
+        return nearest(txns.filter {
+            it.source == Source.RECURRING && it.kind == txn.kind && it.amount == txn.amount && it.cancelOf == null && !it.private &&
                 abs(it.at - txn.at) <= NEAR && (it.accountId == null || it.accountId == accountId)
-        }
+        }, txn.at)
+    }
+
+    /**
+     * 3일 안 후보 중 날짜가 가장 가까운 것(같으면 id 순 — 두 폰이 같은 것을 고르게). 같은 금액의 구독 둘이 며칠 사이로 있으면
+     * 예전에는 맵 순서로 먼저 나온 자리를 채웠어요(#36).
+     */
+    fun nearest(candidates: Collection<Txn>, at: Long): Txn? =
+        candidates.minWithOrNull(compareBy<Txn>({ abs(it.at - at) }, { it.id }))
+
+    /**
+     * 알림이 고정 내역 자리를 채울 때의 '누구': 규칙에 정한 사람이 있으면 그 사람입니다. 아내가 보낸 남편 용돈 이체가 '남편 용돈' 자리를
+     * 채우면 아내의 지출이 아니라 남편 몫으로 남아야 사람별 지출이 옮겨가지 않습니다(D-20, #36).
+     */
+    fun memberFor(planned: Txn, captured: Txn): String? = planned.memberId ?: captured.memberId
+
+    /**
+     * 예전 버전이 남긴, 종류와 맞지 않는 카테고리를 바로잡은 고정 규칙과 그 규칙이 넣은 내역(#36). 하루 한 번 저장합니다(`Hooks.daily`).
+     * 0.2.2 전에는 지출 규칙을 수입으로 바꿔도 카테고리('구독')가 남아, 수입 내역이 지출 카테고리 통계에 섞였습니다.
+     * 사람이 고친 내역(출처가 고정이 아닌 것)과 이름·금액은 건드리지 않습니다. 월 용돈 규칙은 [AllowancePlan.repaired]가 맡습니다.
+     */
+    fun repairs(s: LedgerState): Pair<List<Recurring>, List<Txn>> {
+        fun wrong(categoryId: String?, kind: Kind) = categoryId != null && s.category(categoryId)?.kind?.let { it != kind } == true
+        val rules = s.recurrings.values.filter { !AllowancePlan.isRule(it.id) && wrong(it.categoryId, it.kind) }
+            .map { it.copy(categoryId = categoryFor(s, it.name, it.kind, it.categoryId)) }
+        val fixedRules = rules.associateBy { it.id }
+        val txns = s.txns.values.filter { it.source == Source.RECURRING && it.kind != Kind.TRANSFER && it.cancelOf == null }
+            .mapNotNull { t ->
+                when {
+                    // 수입으로 뒤집혔던 월 용돈 규칙이 넣은 내역: 용돈은 늘 가계부에서 나가는 돈입니다(D-20).
+                    t.recurringId?.let(AllowancePlan::isRule) == true && t.kind != Kind.EXPENSE ->
+                        t.copy(kind = Kind.EXPENSE, categoryId = Defaults.ALLOWANCE)
+                    wrong(t.categoryId, t.kind) ->
+                        t.copy(categoryId = fixedRules[t.recurringId]?.categoryId?.takeIf { !wrong(it, t.kind) }
+                            ?: categoryFor(s, t.merchant, t.kind, t.categoryId))
+                    else -> null
+                }
+            }
+        return rules to txns
     }
 }

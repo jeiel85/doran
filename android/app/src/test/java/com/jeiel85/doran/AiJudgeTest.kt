@@ -41,6 +41,21 @@ class AiJudgeTest {
         listOf("홍*동", "30,000원", "11/17 12:30").forEach { assertTrue(it, masked.contains(it)) }
     }
 
+    @Test fun masksNamesInTransferPlacesButKeepsShops() {
+        // 이체·입금 문구의 사람 이름 자리(#45)
+        val toss = AiPrompt.mask("30,000원 입금\n홍길동 → 내 토스뱅크 통장")
+        assertFalse(toss, toss.contains("홍길동"))
+        assertTrue(toss, toss.contains("30,000원") && toss.contains("토스뱅크"))
+        assertFalse(AiPrompt.mask("내 토스뱅크 통장 → 김하나 50,000원 출금").contains("김하나"))
+        assertFalse(AiPrompt.mask("김하나님이 보낸 50,000원이 들어왔어요").contains("김하나"))
+        val bank = AiPrompt.mask("[신한]11/20 09:00 110-***-123456 홍길동 모바일출금 30,000 잔액70,000")
+        assertFalse(bank, bank.contains("홍길동"))
+        assertTrue(bank, bank.contains("모바일출금 30,000"))
+        // 카드 결제의 가게 이름, 통장 이름은 그대로
+        assertTrue(AiPrompt.mask("현대카드 승인 홍*동 12,300원 일시불 11/17 13:00 동네빵집").contains("동네빵집"))
+        assertTrue(AiPrompt.mask("토스뱅크 통장에서 30,000원 출금").contains("통장에서"))
+    }
+
     @Test fun outgoingMessageMasksTheSenderLabelToo() {
         // 문자는 앱 이름 자리에 보낸 번호가 들어감("문자 0221234567") — 그 줄도 가림(#44 리뷰)
         val msg = AiPrompt.user("문자 0221234567", "[신한] 110-123-456789 출금 30,000원")

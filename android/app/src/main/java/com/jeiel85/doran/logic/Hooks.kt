@@ -27,6 +27,7 @@ object Hooks {
         markFunds(changes)
         rejudgeMoves(changes)
         refreshAllowanceAlert(context, changes)
+        refreshMoveAlerts(context, changes)
         updateAllowance(changes)
         notifyAllowance(context, changes)
         learnCategories(changes)
@@ -46,7 +47,10 @@ object Hooks {
         // 같은 결제를 내 폰도 기록해 둔 경우(가족카드 알림이 양쪽에 오는 등): 내가 늦게 만든 쪽을 지우고 알리지 않습니다.
         val twins = fresh.filter { f ->
             val own = s.txns.values.firstOrNull { it.createdBy == mine && Twins.same(it, f) } ?: return@filter false
-            if (Twins.keeper(own, f).id == f.id) Hub.ledger.deleteTxn(own.id)
+            if (Twins.keeper(own, f).id == f.id) {
+                Hub.ledger.deleteTxn(own.id)
+                Twins.leftoverAccount(Hub.ledger.value, own)?.let { Hub.ledger.delete(T.ACCOUNT, it.id) }
+            }
             true
         }.map { it.id }.toSet()
         val news = fresh.filter { it.id !in twins }
@@ -140,6 +144,20 @@ object Hooks {
     }
 
     /**
+     * "○○에서 N원이 나갔어요 · 월 용돈보다 커서 옮긴 돈으로 봤어요"(move.<id>)는 그 출금의 판정이 바뀌면(받는 쪽 기록과 짝지어짐,
+     * 쓴 돈으로 바꿈, 지움) 거둡니다(#50). 전에는 알림 창에 그대로 남아, 이미 고친 것을 다시 고치라고 했어요.
+     */
+    private fun refreshMoveAlerts(context: Context, changes: List<Change>) {
+        for (c in changes) {
+            if (c.type != T.TXN || c.before == null || Txn.from(c.id, c.before).move != Moves.LARGE) continue
+            val after = c.after?.let { Txn.from(c.id, it) }
+            if (after?.kind == Kind.TRANSFER && after.move == Moves.LARGE) continue
+            val key = "move.${c.id}"
+            if (Notifier.allowanceShown(context, key)) Notifier.cancelAllowance(context, key)
+        }
+    }
+
+    /**
      * 이 폰이 알림에서 읽어 내 용돈으로 기록한 새 결제를 내 폰에 알립니다(남은 용돈과 함께).
      * 가계부로 올라간 결제(가족 카드 등)는 가족 폰에 "가족이 쓴 내역"으로 가므로 내 폰에는 띄우지 않습니다.
      */
@@ -211,6 +229,11 @@ object Hooks {
      */
     fun daily(context: Context) {
         step("월 용돈 규칙") { AllowancePlan.repaired(Hub.ledger.value).forEach { Hub.ledger.saveRecurring(it) } }
+        step("고정 규칙 카테고리") {
+            val (rules, txns) = Fixed.repairs(Hub.ledger.value)
+            rules.forEach { Hub.ledger.saveRecurring(it) }
+            txns.forEach { Hub.ledger.saveTxn(it, auto = true) }
+        }
         // 이 판정이 생기기 전에 기록된 최근 내역(업데이트한 날의 관리비·대출 돈 등)도 짝짓고 가족 돈을 표시합니다(D-28).
         step("옮긴 돈·가족 돈") {
             val since = System.currentTimeMillis() - 60L * 86_400_000
@@ -272,13 +295,15 @@ object Recurrer {
                 // 매달 규칙은 같은 가계부 기간에 이미 이어진 내역이 있으면(날짜가 며칠 달라도) 다시 만들지 않습니다.
                 val period = if (r.period == "m") Stats.periodOf(d, s.household.monthStartDay) else null
                 if (ledger.value.txns.values.any { it.recurringId == r.id && (kotlin.math.abs(it.at - at) <= near || (period != null && it.at in period)) }) continue
-                // 카드 알림으로 이미 들어온 같은 금액이 있으면 그 거래에 규칙만 이어 줍니다.
-                val captured = ledger.value.txns.values.firstOrNull {
-                    it.recurringId == null && !it.personal && it.kind == r.kind && it.amount == r.amount && it.cancelOf == null &&
+                // 카드 알림으로 이미 들어온 같은 금액이 있으면 그 거래에 규칙만 이어 줍니다. 날짜가 가장 가까운 것으로, 나만 보는 용돈
+                // 내역은 빼고(이으면 가족 가계부에 그 고정 내역이 생기지 않음), '누구'는 규칙에 정한 사람으로(#36).
+                val captured = Fixed.nearest(ledger.value.txns.values.filter {
+                    it.recurringId == null && !it.personal && !it.private && it.kind == r.kind && it.amount == r.amount && it.cancelOf == null &&
                         kotlin.math.abs(it.at - at) <= 3L * 86_400_000 && (r.accountId == null || it.accountId == r.accountId)
-                }
+                }, at)
                 if (captured != null) {
-                    ledger.saveTxn(captured.copy(recurringId = r.id, categoryId = r.categoryId ?: captured.categoryId))
+                    ledger.saveTxn(captured.copy(recurringId = r.id, categoryId = r.categoryId ?: captured.categoryId,
+                        memberId = r.memberId ?: captured.memberId))
                     continue
                 }
                 val t = Txn(id = id, kind = r.kind, amount = r.amount, at = at, accountId = r.accountId, categoryId = r.categoryId,

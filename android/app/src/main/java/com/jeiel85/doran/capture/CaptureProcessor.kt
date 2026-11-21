@@ -396,7 +396,8 @@ class CaptureProcessor(
         // 고정지출·고정수입으로 미리 잡아 둔 같은 종류·금액이 있으면 새로 만들지 않고 그 자리를 채웁니다.
         val planned = com.jeiel85.doran.logic.Fixed.planned(ledger.value.txns.values, txn, account.id, cancelNotice = isCancel)
         val saved = if (planned != null) txn.copy(id = planned.id, recurringId = planned.recurringId,
-            categoryId = planned.categoryId ?: txn.categoryId, memo = planned.memo.ifBlank { txn.memo }) else txn
+            categoryId = planned.categoryId ?: txn.categoryId, memo = planned.memo.ifBlank { txn.memo },
+            memberId = com.jeiel85.doran.logic.Fixed.memberFor(planned, txn)) else txn
         ledger.saveTxn(saved)
         settings.markUnseen(listOf(saved.id))
         return Outcome(if (planned != null) "${com.jeiel85.doran.logic.Fixed.label(planned.kind)}과 맞춤" else "기록함", saved.id)

@@ -64,8 +64,10 @@ object Stats {
     /**
      * 수입·지출 합계에 들어가는 줄. 취소 엔티티는 원거래를 상쇄하고 자기는 빠지며, 원화 확정 전 해외 결제는 0이라
      * 저절로 빠집니다. 다른 구성원의 용돈은 월 합계 한 줄로 들어갑니다.
+     * [summaryAt]: 그 용돈 월 합계 줄을 둘 시각(기본은 [p]의 첫날). 달력은 앞뒤 달 날짜까지 한 번에 읽으므로(#67) 그 달 1일에 두어
+     * 앞 달 칸에 찍히지 않게 합니다.
      */
-    fun entries(s: LedgerState, p: Period, myMemberId: String?, includeSenders: Boolean = true): List<Entry> {
+    fun entries(s: LedgerState, p: Period, myMemberId: String?, includeSenders: Boolean = true, summaryAt: Long = p.startMs): List<Entry> {
         val canceled = s.canceled
         val out = ArrayList<Entry>()
         for (t in s.txns.values) {
@@ -80,7 +82,7 @@ object Stats {
             val name = s.member(a.memberId)?.name ?: "가족"
             val fixed = hasFixedAllowance(s, a.memberId)
             out += Entry(
-                Txn(id = a.id, kind = Kind.EXPENSE, amount = a.spent, at = p.startMs, categoryId = Defaults.ALLOWANCE,
+                Txn(id = a.id, kind = Kind.EXPENSE, amount = a.spent, at = summaryAt, categoryId = Defaults.ALLOWANCE,
                     merchant = if (fixed) "$name 용돈 사용 (${a.count}건)" else "$name 용돈 (${a.count}건)", memberId = a.memberId),
                 net = a.spent, canceled = false, allowanceSummary = true, counted = !fixed,
             )

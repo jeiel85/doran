@@ -109,7 +109,13 @@ cd android && ./gradlew :app:testGithubDebugUnitTest :app:testPlayDebugUnitTest 
 cd relay && npm install && npm test
 ```
 
-- **로컬 중계로 시험**: `cd relay && npx wrangler d1 migrations apply doran-relay --local && npx wrangler dev --local --port 8787`, 앱은 `./gradlew :app:assembleGithubDebug -Papp.relayUrl=http://10.0.2.2:8787`
+- **메모리가 빠듯한 날**(커밋 여유 2~5GB, 다른 세션의 Gradle·에뮬레이터가 떠 있을 때): 데몬 없이 작업자 하나·작은 힙으로, flavor를 하나씩 돌립니다(2026-11-22 커밋 여유 2.4GB에서 통과 — 힙 1.6GB·두 flavor 함께는 시스템 메모리 부족으로 데몬이 죽었어요). `--stop`은 다른 세션의 빌드까지 멈추니 쓰지 않아요.
+  ```bash
+  cd android && ./gradlew.bat --no-daemon --max-workers=1 -Dorg.gradle.jvmargs="-Xmx1200m -XX:+UseSerialGC -XX:MaxMetaspaceSize=448m -XX:TieredStopAtLevel=1 -XX:ReservedCodeCacheSize=96m -Dfile.encoding=UTF-8" -Pkotlin.compiler.execution.strategy=in-process :app:testGithubDebugUnitTest
+  ```
+  다음에 `:app:testPlayDebugUnitTest`로 한 번 더.
+  Play 릴리스 빌드(R8)는 힙이 2GB 넘게 필요해 `-Xmx2400m`으로 바꿔 `scripts/play-bundle.sh <버전>` 뒤에 같은 인자를 붙입니다. 실패하면 `dist/logs/`에 Gradle 로그가 남아요.
+- **로컬 중계로 시험**: `cd relay && npx wrangler d1 migrations apply doran-relay --local && npx wrangler dev --local --port 8787`. 디버그 빌드(`./gradlew :app:assembleGithubDebug`)는 `-Papp.relayUrl`을 주지 않으면 이 로컬 중계(에뮬레이터에서 `http://10.0.2.2:8787`)로 갑니다. 릴리스 빌드는 기본이 운영 중계라, 에뮬레이터에서 릴리스 빌드를 볼 때는 `-Papp.relayUrl=http://127.0.0.1:9`(연결 안 됨)를 줘서 운영 중계에 시험 기기를 남기지 않아요.
 - **두 폰 동기화 시험**(에뮬레이터 한 대 + 가짜 가족 폰 `scripts/fake-peer.mjs`, 환경 변수 `RELAY`·`PEER_STATE`):
   - 에뮬레이터가 초대: 가족 → 초대 QR의 링크로 `join "<링크>"` → `pull`(장부 복호화 확인) → `push-card`(가족 카드 내역 → 에뮬레이터 알림)
   - 가짜 남편이 초대: `host`가 연결 링크를 찍으면 에뮬레이터에서 `adb shell am start -a android.intent.action.VIEW -d "<링크>"` → `push-hyundai`

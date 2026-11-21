@@ -15,8 +15,11 @@ val appVersion = providers.gradleProperty("app.version").orElse("0.1.0").get()
 val appVersionCode = appVersion.split('.', '-').take(3).map { it.toIntOrNull() ?: 0 }
     .let { (maj, min, pat) -> maj * 10000 + min * 100 + pat }
 
-val relayUrl = providers.gradleProperty("app.relayUrl")
-    .orElse("https://doran-relay.jeiel85.workers.dev").get()
+// 중계 주소는 -Papp.relayUrl로 정합니다. 주지 않으면 릴리스는 운영 중계, 디버그는 에뮬레이터에서 본 PC의 로컬 중계
+// (wrangler dev, README "로컬 중계로 시험")입니다. 예전에는 디버그도 운영이라 에뮬레이터 시험이 운영 중계에 기기를 등록했어요(#45).
+val relayOverride = providers.gradleProperty("app.relayUrl").orNull
+val relayUrl = relayOverride ?: "https://doran-relay.jeiel85.workers.dev"
+val debugRelayUrl = relayOverride ?: "http://10.0.2.2:8787"
 
 // --- 서명 (값은 git에 없는 properties 파일 또는 환경 변수) — 채널마다 다른 키 (DECISIONS.md D-16) ---------
 // github: GitHub 릴리스 키(release-signing.properties) / play: Play 업로드 키(play-upload-signing.properties).
@@ -80,6 +83,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("String", "RELAY_URL", "\"$debugRelayUrl\"")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -105,6 +111,12 @@ android {
     }
     testOptions {
         unitTests.isReturnDefaultValues = true
+        // 단위 시험은 순수 함수뿐이라 작은 힙·SerialGC로 충분합니다. 커밋 여유가 2GB 안팎인 날 시험 JVM이 G1 힙을 못 잡아
+        // hs_err 로그를 남기고 죽던 일이 있었어요(#36).
+        unitTests.all {
+            it.maxHeapSize = "512m"
+            it.jvmArgs("-XX:+UseSerialGC")
+        }
     }
 }
 

@@ -200,7 +200,12 @@ object Parser {
      */
     fun isScheduled(raw: String): Boolean {
         val compact = WHITESPACE.replace(raw, "")
-        return SCHEDULED.any { it.containsMatchIn(compact) } || compact.contains("청구") && !compact.contains("승인")
+        // 이미 일어난 거래에 다음 일정이 덧붙은 알림("승인취소 … 취소금액은 다음 달 결제예정금액에서 차감",
+        // "출금되었습니다 · 다음 출금예정일 12/25")은 예정 안내가 아닙니다(#40).
+        if (DONE.containsMatchIn(compact)) return false
+        if (SCHEDULED.any { it.containsMatchIn(compact) }) return true
+        // '청구'는 카드 청구서(청구금액·청구 예정) 말고도 쓰입니다: "보험금 청구 건 300,000원 입금"은 실제로 들어온 돈입니다(#40).
+        return compact.contains("청구") && !compact.contains("승인") && !ARRIVED.containsMatchIn(compact)
     }
 
     /**
@@ -217,11 +222,19 @@ object Parser {
     private fun moneyLike(raw: String, loose: Boolean): Boolean {
         if (AD.containsMatchIn(raw.trim())) return false
         if (PROMO.containsMatchIn(raw) && !TXN_WORD.containsMatchIn(raw)) return false
-        val amount = WON.containsMatchIn(raw) || BARE_AMOUNT.containsMatchIn(raw) || FOREIGN.containsMatchIn(raw) ||
+        val amount = WON.containsMatchIn(raw) || BARE_AMOUNT.containsMatchIn(raw) || foreignMoney(raw) ||
             loose && GROUPED_NUMBER.containsMatchIn(raw)
         return amount && (TXN_WORD.containsMatchIn(raw) || MONEY_WORD.containsMatchIn(raw))
     }
     private val MONEY_WORD = Regex("""결제|사용|카드|계좌|잔액|누적|송금|충전|페이""")
+
+    /**
+     * 외화 금액은 카드사·은행 이름이나 결제 낱말이 함께 있을 때만 봅니다. "PHP 8 업그레이드 … 사용 중인 서버"처럼 통화 코드와
+     * 정수가 든 일반 알림까지 금액 알림 후보로 남기지 않게(#40). '사용'은 일반 글에도 흔해 여기서는 넣지 않습니다.
+     */
+    private fun foreignMoney(raw: String): Boolean =
+        FOREIGN.containsMatchIn(raw) && (FOREIGN_CONTEXT.containsMatchIn(raw) || Issuers.find(raw) != null)
+    private val FOREIGN_CONTEXT = Regex("""승인|결제|해외|카드|출금|입금|이체""")
     private val GROUPED_NUMBER = Regex("""(?<![\d.])\d{1,3}(?:,\d{3})+""")
     private val WHITESPACE = Regex("""\s+""")
     private const val MONEY_VERB = "결제|출금|이체|승인|처리|납부|지급|송금|충전|거래"
@@ -240,6 +253,13 @@ object Parser {
     // 나가는 돈의 낱말만 넣습니다. '처리·입금·지급·적립'은 이미 일어난 거래의 덧말("환불은 3일 안에 입금 예정",
     // "캐시백 500원 지급 예정")에도 쓰여, 넣으면 실제 취소·결제 알림을 놓칩니다.
     private const val DUE_VERB = "결제|출금|이체|납부|인출|송금|청구"
+    /**
+     * 거래가 이미 일어났다는 말. '처리되었'·'완료되었'만으로는 넣지 않습니다: "자동이체 신청이 처리되었습니다. 다음 출금 예정일 …"처럼
+     * 등록 안내에도 쓰여, 넣으면 예정 금액을 출금으로 기록합니다. "출금돼요"(앞으로의 일)는 '됐'이 아니라 넣지 않습니다.
+     */
+    private val DONE = Regex("""승인취소|취소승인|취소(?:되었|됐|완료)|(?:결제|출금|이체|입금|인출|송금|납부|지급)(?:이|가)?(?:되었|됐|완료|하였|했)""")
+    /** 들어온 돈: "입금"으로 끝나거나 금액 뒤에 바로 오는 것. "결제계좌로 입금해 주세요", "입금 예정"은 아닙니다. */
+    private val ARRIVED = Regex("""입금(?!해|하|할|될|예정|계좌|일)""")
     private val SCHEDULED = listOf(
         // "결제예정금액", "출금 예정", "출금할 예정이에요", "결제될 예정", "납부 예정일", "자동이체 예정"
         Regex("""(?:$DUE_VERB)(?:이|가)?(?:할|될|하실|되실)?예정"""),
@@ -313,8 +333,14 @@ object Parser {
         val cardNo = take(CARD_NO.find(text))
         val last4 = cardNo?.groupValues?.drop(1)?.firstOrNull { it.isNotEmpty() }
         take(ACCOUNT_NO.find(text))
-        Regex(Regex.escape(issuer.name)).find(text)?.let { take(it) }
-        issuer.aliases.forEach { a -> Regex(Regex.escape(a), RegexOption.IGNORE_CASE).findAll(text).forEach { take(it) } }
+        // 은행 이름을 지울 때 카드사 이름 안에 든 것은 남깁니다: "KB국민카드"의 "KB국민", "NH농협카드"의 "NH농협"·"농협"을 지우면
+        // "카드"만 남아 같은 금융그룹 카드사로 나간 카드값을 지출로 기록했어요(#63, D-5 카드대금 출금).
+        val cardNames = if (issuer.card) emptyList() else Issuers.cards.flatMap { c ->
+            c.aliases.flatMap { a -> Regex(Regex.escape(a), RegexOption.IGNORE_CASE).findAll(text).map { it.range }.toList() }
+        }
+        fun takeName(m: MatchResult) { if (cardNames.none { r -> m.range.first >= r.first && m.range.last <= r.last }) take(m) }
+        Regex(Regex.escape(issuer.name)).findAll(text).forEach(::takeName)
+        issuer.aliases.forEach { a -> Regex(Regex.escape(a), RegexOption.IGNORE_CASE).findAll(text).forEach(::takeName) }
         HOLDER.findAll(text).forEach { take(it) }
 
         val merchant = merchantFrom(text, consumed, place, issuer.name)
