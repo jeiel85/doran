@@ -330,9 +330,7 @@ class CaptureProcessor(
         val account = accountFor(s, p, me)
         val label = p.cardLabel
 
-        p.balance?.let { bal ->
-            ledger.saveAccount(account.copy(anchor = bal, anchorAt = at))
-        }
+        withBalance(account, p.balance, at).takeIf { it != account }?.let { ledger.saveAccount(it) }
 
         // 같은 승인이 앱 알림과 문자로 두 번 온 경우 (DECISIONS.md D-5).
         val kind = when (p.type) {
@@ -692,11 +690,23 @@ class CaptureProcessor(
          */
         fun refreshCard(a: Account, last4: String?, check: Boolean): Account {
             val sameCard = last4 != null && a.last4 == last4
+            val toCheck = check && sameCard && a.type == AccountType.CARD && a.billingDay == null
             return a.copy(
                 last4 = a.last4 ?: last4,
-                type = if (check && sameCard && a.type == AccountType.CARD && a.billingDay == null) AccountType.CHECK else a.type,
+                type = if (toCheck) AccountType.CHECK else a.type,
+                // 신용카드에 남아 있던 기준 잔액은 예전 알림의 '잔액'(연결 통장 잔액)이라, 체크카드가 되면서 지웁니다.
+                // 남기면 체크카드가 잔액을 세는 계좌로 보여 통장 잔액이 순자산에 두 번 들어갑니다(#59 리뷰).
+                anchor = if (toCheck) null else a.anchor,
+                anchorAt = if (toCheck) null else a.anchorAt,
             )
         }
+
+        /**
+         * 알림이 알려 준 거래 후 잔액을 계좌의 기준점으로. 잔액을 세는 계좌에만 적습니다: 체크카드 알림의 '잔액'은 연결 통장의 잔액이라
+         * 체크카드에 적으면 잔액을 세는 계좌로 바뀌어 통장 잔액이 두 번 들어가고, 신용카드는 잔액 대신 갚을 돈을 셉니다(#59 리뷰, D-29).
+         */
+        fun withBalance(a: Account, balance: Long?, at: Long): Account =
+            if (balance != null && com.jeiel85.doran.logic.Stats.keepsBalance(a)) a.copy(anchor = balance, anchorAt = at) else a
 
         /** 시험용: 지금 시각을 넣어 해석만 해 봅니다(설정 화면 "문구 시험"). */
         fun preview(text: String): Parsed? = Parser.parse(text, LocalDateTime.now())

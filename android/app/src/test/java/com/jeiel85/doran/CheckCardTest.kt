@@ -75,6 +75,31 @@ class CheckCardTest {
         assertNull(CaptureProcessor.pickCard(listOf(card("h", "4321", owner = "h")), "신한카드", "4321", "w", check = true))
     }
 
+    /**
+     * #59 리뷰: 체크카드 알림의 '잔액'(연결 통장 잔액)이 카드 계좌의 기준 잔액으로 적히면 잔액을 세는 계좌로 바뀌어
+     * 통장 잔액이 순자산에 두 번 들어감 → 잔액을 세는 계좌에만 적고, 신용카드에서 체크카드로 바꿀 때 남은 값을 지움.
+     */
+    @Test fun noticeBalanceNeverTurnsCardIntoBalanceAccount() {
+        val check = card("k", "4321", AccountType.CHECK)
+        assertEquals(check, CaptureProcessor.withBalance(check, 512_000, ms(20)))
+        val credit = card("c", "1234")
+        assertEquals(credit, CaptureProcessor.withBalance(credit, 512_000, ms(20)))
+        val bank = Account("b", "신한은행", AccountType.BANK, ownerId = "w", institution = "신한은행")
+        assertEquals(512_000L, CaptureProcessor.withBalance(bank, 512_000, ms(20)).anchor)
+        // 예전부터 잔액을 세던 체크카드는 알림 잔액으로 계속 맞춤
+        val tracked = check.copy(anchor = 100_000, anchorAt = ms(1))
+        assertEquals(512_000L, CaptureProcessor.withBalance(tracked, 512_000, ms(20)).anchor)
+
+        // 0.3.3까지 신용카드 계좌에 적혀 있던 알림 잔액은 체크카드로 바뀔 때 지워짐
+        val oldCredit = card("a", "4321").copy(anchor = 512_000, anchorAt = ms(19))
+        val converted = CaptureProcessor.refreshCard(oldCredit, "4321", check = true)
+        assertEquals(AccountType.CHECK, converted.type)
+        assertNull(converted.anchor)
+        assertFalse(Stats.keepsBalance(converted))
+        // 바뀌지 않는 카드의 값은 그대로
+        assertEquals(512_000L, CaptureProcessor.refreshCard(oldCredit, "4321", check = false).anchor)
+    }
+
     /** #59 리뷰: 신용카드 결제가 끝자리 모르는 체크카드 계좌로 가면 갚을 돈에서 빠짐 → 다른 종류로 넘기지 않음. */
     @Test fun creditNeverFallsBackToCheckCard() {
         val unnumberedCheck = listOf(card("k", null, AccountType.CHECK))

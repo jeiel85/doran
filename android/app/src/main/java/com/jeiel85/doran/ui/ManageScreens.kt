@@ -396,8 +396,10 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
     var hidden by remember { mutableStateOf(o?.hidden ?: false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val used = o != null && s.txns.values.any { it.accountId == o.id || it.toAccountId == o.id }
-    // 체크카드는 잔액을 정한 적이 있을 때만(통장처럼 쓰던 것) 잔액 칸을 보여 줍니다(D-29). 종류 칩을 바꾸면 바뀔 종류로 봅니다.
-    val noBalance = !Stats.keepsBalance((o ?: Account(id = "", name = "", type = type)).copy(type = type))
+    // 체크카드는 예전부터 잔액을 세던 체크카드(통장처럼 쓰던 것)일 때만 잔액 칸을 보여 줍니다(D-29). 다른 종류에서 체크카드로 바꾸면
+    // 잔액을 세지 않고, 저장할 때 남아 있던 기준 잔액(신용카드에 알림 '잔액'으로 적힌 연결 통장 잔액 등)을 지웁니다(#59 리뷰).
+    val trackedCheck = o != null && o.type == AccountType.CHECK && Stats.keepsBalance(o)
+    val noBalance = type == AccountType.CARD || type == AccountType.CHECK && !trackedCheck
 
     SubScreen(if (o == null) "계좌·카드 추가" else o.name, { nav.back() }, actions = {
         if (o != null) IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.DeleteOutline, "지우기", tint = P.c.danger) }
@@ -412,7 +414,9 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
                 name = name.trim(), type = type, ownerId = ownerId, institution = institution.trim().ifEmpty { null },
                 billingDay = billingDay.toIntOrNull()?.coerceIn(1, 31), cycleStartDay = cycleStart.toIntOrNull()?.coerceIn(1, 28),
                 allowanceCard = allowanceCard && !family, family = family, hidden = hidden,
-                anchor = if (changed) bal else base.anchor, anchorAt = if (changed) now else base.anchorAt,
+                anchor = if (type == AccountType.CHECK && noBalance) null else if (changed) bal else base.anchor,
+                anchorAt = if (type == AccountType.CHECK && noBalance) null else if (changed) now else base.anchorAt,
+                opening = if (type == AccountType.CHECK && noBalance) 0 else base.opening,
             ))
             nav.back()
         }
