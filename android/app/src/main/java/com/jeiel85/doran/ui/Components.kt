@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -49,22 +50,28 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -166,6 +173,138 @@ fun Amount(amount: Long, kind: Kind?, style: TextStyle = MaterialTheme.typograph
         else -> "-" + Fmt.won(amount)
     }
     Text(text, style = style.merge(Money), color = c, maxLines = 1)
+}
+
+/**
+ * 한 줄에 다 들어가도록 글자 크기를 줄이는 글. 금액이 커져도 옆 칸이나 그림과 겹치지 않게 합니다.
+ * [minSize]까지 줄여도 넘치면 말줄임표로 끝냅니다. 크기는 놓인 너비로 미리 재서 정하므로 깜빡이지 않습니다.
+ * 안에서 너비를 재므로(SubcomposeLayout) 고유 크기(IntrinsicSize)를 묻는 부모 안에 두지 않습니다.
+ */
+@Composable
+fun FitText(
+    text: String,
+    style: TextStyle,
+    color: Color,
+    modifier: Modifier = Modifier,
+    minSize: TextUnit = 11.sp,
+    textAlign: TextAlign? = null,
+) {
+    val measurer = rememberTextMeasurer()
+    BoxWithConstraints(modifier) {
+        val maxW = constraints.maxWidth
+        val fitted = remember(text, style, maxW, minSize) {
+            val base = style.fontSize
+            if (text.isEmpty() || maxW == Constraints.Infinity || !base.isSp || !minSize.isSp) style
+            else {
+                fun at(size: Float) = style.copy(
+                    fontSize = size.sp,
+                    lineHeight = if (style.lineHeight.isSp) (style.lineHeight.value * size / base.value).sp else style.lineHeight,
+                )
+                val size = Fit.size(base.value, minSize.value, maxW) { sz -> measurer.measure(text, at(sz), maxLines = 1, softWrap = false).size.width }
+                if (size == base.value) style else at(size)
+            }
+        }
+        Text(text, style = fitted, color = color, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, textAlign = textAlign,
+            modifier = if (textAlign != null) Modifier.fillMaxWidth() else Modifier)
+    }
+}
+
+/** [FitText]의 크기 고르기. 너비 재기([width], 그 크기로 잰 px)를 받아 기기 없이 시험합니다. */
+object Fit {
+    /** [maxWidth] 안에 한 줄로 들어가는 가장 큰 글자 크기(sp). [min]보다 작게는 줄이지 않습니다. */
+    fun size(base: Float, min: Float, maxWidth: Int, width: (Float) -> Int): Float {
+        if (maxWidth <= 0 || base <= min) return base
+        val full = width(base)
+        if (full <= maxWidth) return base
+        // 너비는 글자 크기에 거의 비례하므로 한 번에 맞추고, 반올림으로 조금 넘치면 0.5sp씩 더 줄입니다.
+        var size = (base * maxWidth / full).coerceIn(min, base)
+        while (size > min && width(size) > maxWidth) size = (size - 0.5f).coerceAtLeast(min)
+        return size
+    }
+}
+
+/** 숫자 칸 하나: 위에 이름, 아래 값. [StatStrip]에 나란히 놓습니다. */
+data class Stat(val label: String, val value: String, val color: Color? = null)
+
+/**
+ * 금액 여러 개를 한 줄에 나눠 놓는 띠. 칸 너비를 글 길이에 맞춰 나누고(긴 금액 칸이 넓게, "10일" 같은 칸은 좁게)
+ * 칸 사이에 가는 세로줄을 그어, 금액이 길어져도 붙어 보이거나 겹치지 않게 합니다. 다 못 들어가면 값이 [FitText]로 줄어듭니다.
+ */
+@Composable
+fun StatStrip(
+    stats: List<Stat>,
+    modifier: Modifier = Modifier,
+    background: Color = P.c.surface2,
+    labelColor: Color = P.c.inkSoft,
+    valueColor: Color = P.c.ink,
+    divider: Color = P.c.line,
+    valueStyle: TextStyle = MaterialTheme.typography.titleSmall,
+) {
+    val measurer = rememberTextMeasurer()
+    val labelStyle = MaterialTheme.typography.bodySmall
+    val numberStyle = valueStyle.merge(Money)
+    val pad = with(LocalDensity.current) { 24.dp.toPx() }
+    val weights = remember(stats, labelStyle, numberStyle, pad) {
+        stats.map { st ->
+            maxOf(measurer.measure(st.label, labelStyle, maxLines = 1, softWrap = false).size.width,
+                measurer.measure(st.value, numberStyle, maxLines = 1, softWrap = false).size.width) + pad
+        }
+    }
+    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(background).padding(vertical = 12.dp)) {
+        stats.forEachIndexed { i, st ->
+            Column(
+                Modifier.weight(weights[i].coerceAtLeast(1f))
+                    .then(if (i > 0) Modifier.drawBehind {
+                        val inset = 2.dp.toPx()
+                        drawLine(divider, Offset(0f, inset), Offset(0f, size.height - inset), strokeWidth = 1.dp.toPx())
+                    } else Modifier)
+                    .padding(horizontal = 12.dp),
+            ) {
+                // 라벨도 잘리지 않고 줄어듭니다("11/30까지"가 "11/30…"이 되면 무슨 날인지 모름 — 좁은 폰에서 확인).
+                FitText(st.label, labelStyle, labelColor, minSize = 9.5.sp)
+                Spacer(Modifier.height(2.dp))
+                FitText(st.value, valueStyle.merge(Money), st.color ?: valueColor)
+            }
+        }
+    }
+}
+
+/**
+ * 화면 맨 위 큰 카드: 이름과 큰 금액, 오른쪽에 그림. 그림은 금액 옆 자리를 따로 차지해 금액과 겹치지 않고,
+ * 금액이 길면 글자가 줄어듭니다. 아래쪽([content])에 진행 막대·[StatStrip] 등을 둡니다.
+ */
+@Composable
+fun HeroCard(
+    colors: List<Color>,
+    @DrawableRes art: Int,
+    label: String,
+    amount: String,
+    onClick: (() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit = {},
+) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(30.dp)).background(Brush.linearGradient(colors))
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(22.dp),
+    ) {
+        Row {
+            Column(Modifier.weight(1f)) {
+                Text(label, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.78f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(4.dp))
+                FitText(amount, MaterialTheme.typography.displaySmall.merge(Money), Color.White, minSize = 22.sp)
+            }
+            Spacer(Modifier.width(10.dp))
+            Image(painterResource(art), null, Modifier.size(64.dp), contentScale = ContentScale.Fit, alpha = 0.95f)
+        }
+        content()
+    }
+}
+
+/** 큰 카드 안의 숫자 띠: 반투명 흰 바탕. */
+@Composable
+fun HeroStats(stats: List<Stat>) {
+    StatStrip(stats, background = Color.White.copy(alpha = 0.12f), labelColor = Color.White.copy(alpha = 0.72f),
+        valueColor = Color.White, divider = Color.White.copy(alpha = 0.22f))
 }
 
 @Composable

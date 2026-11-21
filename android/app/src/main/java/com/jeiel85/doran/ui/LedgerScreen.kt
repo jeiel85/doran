@@ -3,13 +3,14 @@ package com.jeiel85.doran.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -42,6 +43,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -75,26 +78,33 @@ fun LedgerScreen(nav: Nav) {
     // 달력은 달력 달(1일~말일)로, 위 합계는 같은 범위로 계산합니다.
     val range = remember(ym) { com.jeiel85.doran.logic.Period(ym, ym.atDay(1), ym.plusMonths(1).atDay(1)) }
     val all = remember(s.version, range, id.myMemberId) { Stats.entries(s, range, id.myMemberId) }
-    val filtered = all.filter { e ->
-        (memberFilter == null || e.txn.memberId == memberFilter) &&
-            (kindFilter == null || e.txn.kind.code == kindFilter)
-    }
-    val byDay = remember(filtered) { Stats.byDay(filtered) }
+    fun keep(e: Entry) = (memberFilter == null || e.txn.memberId == memberFilter) && (kindFilter == null || e.txn.kind.code == kindFilter)
+    val filtered = all.filter(::keep)
+    // 달력 칸은 앞뒤 달 날짜까지 그리므로(D-30) 그 범위로 따로 읽습니다. 한 주 합계도 이것으로 셉니다.
+    val grid = remember(ym) { Stats.calendarRange(ym).let { (a, b) -> com.jeiel85.doran.logic.Period(ym, a, b) } }
+    val gridAll = remember(s.version, grid, id.myMemberId) { Stats.entries(s, grid, id.myMemberId) }
+    val byDay = remember(gridAll, memberFilter, kindFilter) { Stats.byDay(gridAll.filter(::keep)) }
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 8.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { month = ym.minusMonths(1).toString() }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "이전 달", tint = P.c.ink) }
-            Text(Fmt.month(ym), style = MaterialTheme.typography.titleLarge, color = P.c.ink)
+            // 달 이름을 누르면 오늘로 돌아옵니다.
+            Text(Fmt.month(ym), style = MaterialTheme.typography.titleLarge, color = P.c.ink,
+                modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable {
+                    month = YearMonth.now(Fmt.zone).toString(); selected = LocalDate.now(Fmt.zone).toString()
+                }.padding(horizontal = 4.dp, vertical = 2.dp))
             IconButton(onClick = { month = ym.plusMonths(1).toString() }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "다음 달", tint = P.c.ink) }
             Spacer(Modifier.weight(1f))
             Segmented(listOf("달력", "목록"), if (calendar) 0 else 1) { calendar = it == 0 }
             IconButton(onClick = { nav.go(Route.Search) }) { Icon(Icons.Rounded.Search, "검색", tint = P.c.ink) }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
-            Summary("지출", Stats.expense(filtered), P.c.ink, Modifier.weight(1f))
-            Summary("수입", Stats.income(filtered), P.c.income, Modifier.weight(1f))
-            Summary("합계", Stats.income(filtered) - Stats.expense(filtered), P.c.inkSoft, Modifier.weight(1f))
-        }
+        val ex = Stats.expense(filtered)
+        val inc = Stats.income(filtered)
+        StatStrip(listOf(
+            Stat("지출", Fmt.won(ex), P.c.expense),
+            Stat("수입", "+" + Fmt.won(inc), P.c.income),
+            Stat("합계", (if (inc - ex > 0) "+" else "") + Fmt.won(inc - ex)),
+        ), Modifier.padding(horizontal = 14.dp, vertical = 6.dp), background = P.c.surface)
         ChipRow(Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
             Chip("모두", memberFilter == null && kindFilter == null, { memberFilter = null; kindFilter = null })
             Chip("지출", kindFilter == "e", { kindFilter = if (kindFilter == "e") null else "e" }, color = P.c.expense)
@@ -113,21 +123,41 @@ fun LedgerScreen(nav: Nav) {
             val dayEntries = filtered.filter { !it.allowanceSummary && sel != null && Fmt.date(it.txn.at) == sel }
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 120.dp)) {
                 item {
-                    SoftCard(padding = PaddingValues(10.dp)) {
-                        CalendarGrid(ym, byDay, sel) { selected = it.toString() }
+                    // 옆으로 밀어 앞뒤 달로 넘깁니다(화살표와 같음).
+                    val swipe = with(LocalDensity.current) { 56.dp.toPx() }
+                    SoftCard(
+                        Modifier.pointerInput(ym) {
+                            var dx = 0f
+                            detectHorizontalDragGestures(onDragStart = { dx = 0f }, onDragEnd = {
+                                if (dx > swipe) month = ym.minusMonths(1).toString()
+                                else if (dx < -swipe) month = ym.plusMonths(1).toString()
+                            }) { change, amount -> dx += amount; change.consume() }
+                        },
+                        padding = PaddingValues(start = 6.dp, end = 6.dp, top = 12.dp, bottom = 6.dp),
+                    ) {
+                        CalendarGrid(ym, byDay, sel, oneKind = kindFilter != null) { d -> month = YearMonth.from(d).toString(); selected = d.toString() }
                     }
                 }
                 if (sel != null) {
                     item {
                         val (ex, inc) = byDay[sel] ?: (0L to 0L)
+                        val (week, weekSum) = Stats.week(byDay, sel)
                         Row(Modifier.fillMaxWidth().padding(top = 18.dp, start = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(Fmt.dayLabel(sel), style = MaterialTheme.typography.titleMedium, color = P.c.ink)
                                 Text(listOfNotNull(if (ex > 0) "지출 ${Fmt.won(ex)}" else null, if (inc > 0) "수입 ${Fmt.won(inc)}" else null)
-                                    .joinToString(" · ").ifEmpty { "내역 없음" }, style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                                    .joinToString(" · ").ifEmpty { "지출·수입 없음" }, style = MaterialTheme.typography.bodySmall.merge(Money), color = P.c.inkSoft)
+                                // 그 주(달력 한 줄) 합계: 하루하루보다 한 주 단위로 씀씀이를 보는 경우가 많아서.
+                                Text("${week.start.monthValue}/${week.start.dayOfMonth}~${week.endInclusive.monthValue}/${week.endInclusive.dayOfMonth} 한 주 · " +
+                                    listOfNotNull("지출 ${Fmt.won(weekSum.first)}", if (weekSum.second > 0) "수입 ${Fmt.won(weekSum.second)}" else null).joinToString(" · "),
+                                    style = MaterialTheme.typography.bodySmall.merge(Money), color = P.c.inkFaint)
                             }
                             SmallButton("이날 쓰기") { nav.go(Route.Entry(date = sel)) }
                         }
+                    }
+                    if (dayEntries.isEmpty()) item {
+                        Text("이날 기록이 없어요", style = MaterialTheme.typography.bodyMedium, color = P.c.inkFaint,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp), textAlign = TextAlign.Center)
                     }
                     items(dayEntries, key = { it.txn.id }) { e ->
                         TxnRow(e, s, e.txn.id in unseen) { open(nav, e) }
@@ -158,14 +188,6 @@ private fun open(nav: Nav, e: Entry) {
 }
 
 @Composable
-private fun Summary(label: String, value: Long, color: Color, modifier: Modifier) {
-    Column(modifier) {
-        Text(label, style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
-        Text(Fmt.won(value), style = MaterialTheme.typography.titleSmall.merge(Money), color = color, maxLines = 1)
-    }
-}
-
-@Composable
 fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
     Row(Modifier.clip(RoundedCornerShape(14.dp)).background(P.c.surface2).border(1.dp, P.c.line, RoundedCornerShape(14.dp)).padding(3.dp)) {
         options.forEachIndexed { i, o ->
@@ -179,56 +201,106 @@ fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
     }
 }
 
-/** 월 달력: 날짜마다 지출(잉크)·수입(블루) 축약 금액, 지출 크기에 따라 바탕이 짙어집니다. */
+/**
+ * 월 달력(일요일 시작, DECISIONS.md D-30 — 비주얼 가계부의 달력을 따름). 날짜 칸마다 위에 날짜, 아래 두 줄에 지출(빨강, "-")과
+ * 수입(파랑, "+")을 오른쪽 맞춤으로 둡니다. 두 줄은 자리가 정해져 있어 한 주를 가로로 훑을 때 지출끼리, 수입끼리 줄이 맞습니다.
+ * 금액은 [Fmt.cell](100만 원 아래는 원 단위)로 쓰고, 칸보다 길면 글자가 줄어듭니다. [oneKind](지출이나 수입만 골라 봄)면 한 줄만 크게 씁니다.
+ * 주마다 가는 줄로 나누고, 고른 날은 칠하지 않고 옅은 바탕과 테두리로만 표시해 금액 색이 그대로 보이게 합니다.
+ * 앞뒤 달 날짜도 금액까지 흐리게 보여 주고([byDay]는 [Stats.calendarRange] 범위), 누르면 그 달로 갑니다.
+ */
 @Composable
-fun CalendarGrid(ym: YearMonth, byDay: Map<LocalDate, Pair<Long, Long>>, selected: LocalDate?, onSelect: (LocalDate) -> Unit) {
-    val first = ym.atDay(1)
-    val lead = first.dayOfWeek.value % 7 // 일요일 시작
-    val cells = lead + ym.lengthOfMonth()
-    val rows = (cells + 6) / 7
-    val maxEx = byDay.values.maxOfOrNull { it.first }?.coerceAtLeast(1) ?: 1
+fun CalendarGrid(ym: YearMonth, byDay: Map<LocalDate, Pair<Long, Long>>, selected: LocalDate?, oneKind: Boolean = false, onSelect: (LocalDate) -> Unit) {
+    val (start, end) = Stats.calendarRange(ym)
+    val rows = (java.time.temporal.ChronoUnit.DAYS.between(start, end) / 7).toInt()
     val today = LocalDate.now(Fmt.zone)
+    // 시스템 글꼴을 키우면 줄·칸 높이도 같이 늘려 금액 위아래가 잘리지 않게 합니다(#66 리뷰).
+    val density = LocalDensity.current
+    val dims = remember(density, oneKind) { CalendarSize.of(oneKind) { sp -> with(density) { sp.sp.toDp().value } } }
     Column {
         Row(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
             listOf("일", "월", "화", "수", "목", "금", "토").forEachIndexed { i, d ->
                 Text(d, Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.labelMedium,
-                    color = when (i) { 0 -> P.c.expense; 6 -> P.c.income; else -> P.c.inkFaint })
+                    color = when (i) { 0 -> P.c.expense; 6 -> P.c.income; else -> P.c.inkSoft })
             }
         }
         for (r in 0 until rows) {
-            Row(Modifier.fillMaxWidth()) {
+            Box(Modifier.fillMaxWidth().height(1.dp).background(P.c.line))
+            Row(Modifier.fillMaxWidth().height(dims.row.dp)) {
                 for (c in 0 until 7) {
-                    val idx = r * 7 + c - lead
-                    Box(Modifier.weight(1f).aspectRatio(0.78f).padding(2.dp)) {
-                        if (idx in 0 until ym.lengthOfMonth()) {
-                            val d = ym.atDay(idx + 1)
-                            val (ex, inc) = byDay[d] ?: (0L to 0L)
-                            val heat = if (ex > 0) 0.08f + 0.32f * (ex.toFloat() / maxEx) else 0f
-                            val isSel = d == selected
-                            Column(
-                                Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp))
-                                    .background(if (isSel) P.c.pine else P.c.apricot.copy(alpha = heat))
-                                    .clickable { onSelect(d) }.padding(top = 5.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                val dayColor = when {
-                                    isSel -> Color.White
-                                    d.dayOfWeek == DayOfWeek.SUNDAY -> P.c.expense
-                                    d.dayOfWeek == DayOfWeek.SATURDAY -> P.c.income
-                                    else -> P.c.ink
-                                }
-                                Box(contentAlignment = Alignment.Center) {
-                                    if (d == today && !isSel) Box(Modifier.size(22.dp).clip(CircleShape).border(1.5.dp, P.c.pine, CircleShape))
-                                    Text("${d.dayOfMonth}", fontSize = 13.sp, fontWeight = if (d == today) FontWeight.ExtraBold else FontWeight.SemiBold, color = dayColor)
-                                }
-                                Spacer(Modifier.height(2.dp))
-                                if (ex > 0) Text(Fmt.compact(ex), fontSize = 9.5.sp, style = Money, color = if (isSel) Color.White else P.c.ink, maxLines = 1)
-                                if (inc > 0) Text("+" + Fmt.compact(inc), fontSize = 9.5.sp, style = Money, color = if (isSel) Color.White else P.c.income, maxLines = 1)
-                            }
-                        }
-                    }
+                    val d = start.plusDays((r * 7 + c).toLong())
+                    DayCell(d, YearMonth.from(d) == ym, byDay[d], d == selected, d == today, oneKind, dims, Modifier.weight(1f).fillMaxHeight()) { onSelect(d) }
                 }
             }
+        }
+    }
+}
+
+/**
+ * 달력 칸 크기(dp): 날짜 동그라미, 금액 한 줄, 한 주 줄. [spToDp]로 글자 크기(sp)를 dp로 바꿔(시스템 글꼴 배율 반영) 글자가 커지면
+ * 같이 늘어납니다 — 고정 dp 높이에 sp 글자를 넣으면 큰 글꼴에서 금액 위아래가 잘립니다(#66 리뷰). 기본 배율에서는 20·14(한 종류면 16)·62.
+ */
+object CalendarSize {
+    data class Dims(val dayBox: Float, val line: Float, val row: Float)
+
+    /** 금액 글씨의 줄 높이(sp): [CellMoney]·[CellMoneyBig]와 같아야 합니다. */
+    const val LINE_SP = 13f
+    const val LINE_BIG_SP = 15f
+
+    fun of(oneKind: Boolean, spToDp: (Float) -> Float): Dims {
+        val line = spToDp(if (oneKind) LINE_BIG_SP else LINE_SP) + 1f
+        val dayBox = maxOf(20f, spToDp(16f) + 4f) // 날짜 12sp의 줄 높이 16sp + 여백
+        return Dims(dayBox, line, maxOf(62f, dayBox + line * (if (oneKind) 1 else 2) + 10f))
+    }
+}
+
+/** 달력 칸의 금액 글씨: 고정폭 숫자, 좁은 칸에서도 읽히도록 굵기는 한 단계 낮춤. 한 종류만 볼 때는 한 줄이라 더 크게. */
+private val CellMoney = Money.copy(fontSize = 10.5.sp, lineHeight = CalendarSize.LINE_SP.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp)
+private val CellMoneyBig = Money.copy(fontSize = 12.5.sp, lineHeight = CalendarSize.LINE_BIG_SP.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp)
+
+@Composable
+private fun DayCell(
+    d: LocalDate, inMonth: Boolean, sums: Pair<Long, Long>?, isSel: Boolean, isToday: Boolean, oneKind: Boolean,
+    dims: CalendarSize.Dims, modifier: Modifier, onClick: () -> Unit,
+) {
+    val (ex, inc) = sums ?: (0L to 0L)
+    // 앞뒤 달 날짜는 금액까지 흐리게(비주얼 가계부처럼) — 이 달 것과 섞여 보이지 않게.
+    val fade = if (inMonth) 1f else 0.4f
+    val exText = if (ex > 0) "-" + Fmt.cell(ex) else null
+    val incText = if (inc > 0) "+" + Fmt.cell(inc) else null
+    val shape = RoundedCornerShape(10.dp)
+    Column(
+        modifier.padding(1.dp).clip(shape)
+            .then(if (isSel) Modifier.background(P.c.pineSoft).border(1.5.dp, P.c.pine, shape) else Modifier)
+            .clickable(onClick = onClick).padding(horizontal = 3.dp, vertical = 3.dp),
+    ) {
+        Box(
+            Modifier.size(dims.dayBox.dp).then(if (isToday) Modifier.clip(CircleShape).background(P.c.pine) else Modifier),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "${d.dayOfMonth}", fontSize = 12.sp, fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.SemiBold,
+                color = when {
+                    isToday -> Color.White
+                    !inMonth -> P.c.inkFaint.copy(alpha = 0.6f)
+                    d.dayOfWeek == DayOfWeek.SUNDAY -> P.c.expense
+                    d.dayOfWeek == DayOfWeek.SATURDAY -> P.c.income
+                    else -> P.c.ink
+                },
+            )
+        }
+        Spacer(Modifier.weight(1f))
+        val expense = P.c.expense.copy(alpha = fade)
+        val income = P.c.income.copy(alpha = fade)
+        if (oneKind) {
+            Box(Modifier.fillMaxWidth().height(dims.line.dp)) {
+                when {
+                    exText != null -> FitText(exText, CellMoneyBig, expense, minSize = 8.sp, textAlign = TextAlign.End)
+                    incText != null -> FitText(incText, CellMoneyBig, income, minSize = 8.sp, textAlign = TextAlign.End)
+                }
+            }
+        } else {
+            Box(Modifier.fillMaxWidth().height(dims.line.dp)) { if (exText != null) FitText(exText, CellMoney, expense, minSize = 7.5.sp, textAlign = TextAlign.End) }
+            Box(Modifier.fillMaxWidth().height(dims.line.dp)) { if (incText != null) FitText(incText, CellMoney, income, minSize = 7.5.sp, textAlign = TextAlign.End) }
         }
     }
 }
