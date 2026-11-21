@@ -213,9 +213,20 @@ object Stats {
     /** 결제일을 모르는 카드는 흔한 14일로 어림합니다(카드 설정에서 바꾸면 정확해짐). */
     const val DEFAULT_BILLING_DAY = 14
 
-    /** 현재 잔액. 자산은 +, 카드·대출 빚은 −. */
+    /**
+     * 이 계좌가 잔액을 따로 세는지. 체크카드는 연결된 통장에서 바로 나가 돈이 머무르지 않으므로, 잔액을 정한 적이 없으면
+     * 잔액(쓴 돈이 쌓여 계속 마이너스) 대신 이번 달 쓴 돈만 보여 줍니다. 예전에 체크카드에 잔액을 적어 통장처럼 쓰던 것은 그대로(D-29).
+     */
+    fun keepsBalance(a: Account): Boolean = when (a.type) {
+        AccountType.CARD -> false
+        AccountType.CHECK -> a.anchor != null || a.opening != 0L
+        else -> true
+    }
+
+    /** 현재 잔액. 자산은 +, 카드·대출 빚은 −. 잔액을 세지 않는 체크카드는 0. */
     fun balance(s: LedgerState, a: Account, today: LocalDate = LocalDate.now(Fmt.zone)): Long {
         if (a.type == AccountType.CARD) return -cardOutstanding(s, a, today)
+        if (!keepsBalance(a)) return 0
         val baseAt = a.anchorAt ?: a.openingAt
         var bal = a.anchor ?: a.opening
         for ((t, net) in live(s)) {

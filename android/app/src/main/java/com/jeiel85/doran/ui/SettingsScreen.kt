@@ -109,7 +109,7 @@ fun SettingsScreen(nav: Nav) {
                     ListRow("내 이름", (s.member(id.myMemberId)?.name ?: "") + " · 가족 알림에 이 이름이 나와요", Icons.Rounded.Face, onClick = { dialog = "myName" })
                     ListRow("가계부 이름", s.household.name, Icons.Rounded.Home, onClick = { dialog = "name" })
                     ListRow("한 달 시작일", "매달 ${s.household.monthStartDay}일부터 · 월급날에 맞추면 편해요", Icons.Rounded.CalendarMonth, onClick = { dialog = "startDay" })
-                    ListRow("예산", if (s.household.budget > 0) "월 ${Fmt.won(s.household.budget)}" else "정하지 않음", Icons.Rounded.Wallet, onClick = { nav.go(Route.Budget) })
+                    ListRow("예산", if (s.household.budget > 0) "가족 가계부 전체 · 월 ${Fmt.won(s.household.budget)}" else "정하지 않음", Icons.Rounded.Wallet, onClick = { nav.go(Route.Budget) })
                     ListRow(com.jeiel85.doran.logic.Fixed.title(s.recurrings.values), "${s.recurrings.size}개", Icons.Rounded.EventRepeat, onClick = { nav.go(Route.Recurring) })
                     ListRow("저축 목표", "${s.goals.values.count { !it.done }}개 진행 중", Icons.Rounded.Flag, onClick = { nav.go(Route.Goals) })
                     ListRow("내 용돈", s.member(id.myMemberId)?.allowance?.takeIf { it > 0 }?.let { "월 ${Fmt.won(it)}" } ?: "쓰지 않음",

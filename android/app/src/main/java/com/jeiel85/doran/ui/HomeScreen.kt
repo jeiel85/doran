@@ -156,7 +156,7 @@ fun HomeScreen(nav: Nav) {
             item {
                 val ap = remember(s.version, today, me.id) { Stats.allowancePeriod(s, me.id, today) }
                 val mine = remember(s.version, ap) { Stats.allowanceSpent(s, me.id, ap) }
-                AllowanceHero(me.allowance, mine, ap, onClick = { nav.go(Route.Allowance) })
+                AllowanceHero(me.allowance, mine, ap, today, onClick = { nav.go(Route.Allowance) })
             }
             item {
                 Spacer(Modifier.height(12.dp))
@@ -404,7 +404,9 @@ private fun Hero(spent: Long, income: Long, budget: Long, end: LocalDate, today:
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.12f)).padding(14.dp)) {
                 Mini("수입", "+" + Fmt.won(income), Modifier.weight(1f))
                 Mini("남은 돈", Fmt.won(income - spent), Modifier.weight(1f))
-                Mini("남은 날", "${daysLeft}일", Modifier.weight(1f))
+                // "남은 날"만 쓰면 월급날부터 세는지 말일까지 세는지 헷갈려서(2026-11-20 리뷰) 가계부 한 달의 끝 날을 함께 씁니다.
+                val last = end.minusDays(1)
+                Mini("${last.monthValue}/${last.dayOfMonth}까지", "${daysLeft}일", Modifier.weight(1f))
             }
         }
     }
@@ -439,7 +441,10 @@ fun CardTile(c: com.jeiel85.doran.logic.CardStatus, owner: com.jeiel85.doran.mod
                 listOfNotNull(
                     c.issuerCumulative?.let { "카드사 누적 ${Fmt.compact(it)}" },
                     c.dueDate?.let { "${it.monthValue}/${it.dayOfMonth} 결제 ${Fmt.compact(c.dueAmount)}" },
-                ).joinToString(" · ").ifEmpty { "결제일을 정하면 결제 예정액을 보여 드려요" },
+                ).joinToString(" · ").ifEmpty {
+                    // 체크카드는 청구가 없어 결제일을 묻지 않습니다(D-29).
+                    if (c.account.type == AccountType.CHECK) "체크카드 · 통장에서 바로 나가요" else "결제일을 정하면 결제 예정액을 보여 드려요"
+                },
                 style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
@@ -519,7 +524,7 @@ private fun SenderHome(nav: Nav) {
 
 /** 남편 폰 맨 위 카드(D-28 A): 이번 용돈 기간의 남은 용돈. 용돈 날(주말이면 앞 금요일)부터 다음 용돈 전날까지(D-27). */
 @Composable
-private fun AllowanceHero(allowance: Long, spent: Long, ap: com.jeiel85.doran.logic.Period, onClick: () -> Unit) {
+private fun AllowanceHero(allowance: Long, spent: Long, ap: com.jeiel85.doran.logic.Period, today: LocalDate, onClick: () -> Unit) {
     val left = allowance - spent
     val last = ap.end.minusDays(1)
     val dow = listOf("월", "화", "수", "목", "금", "토", "일")[ap.end.dayOfWeek.value - 1]
@@ -538,6 +543,13 @@ private fun AllowanceHero(allowance: Long, spent: Long, ap: com.jeiel85.doran.lo
                 style = MaterialTheme.typography.displaySmall.merge(Money), color = Color.White)
             Spacer(Modifier.height(16.dp))
             Progress(spent.toFloat() / allowance.coerceAtLeast(1), Color(0xFFFFD36B), height = 10.dp)
+            Spacer(Modifier.height(10.dp))
+            // 용돈(월급) 들어온 날부터 거꾸로 줄어드는 날 수(2026-11-20 리뷰). 오늘도 쓸 수 있는 날이라 오늘을 넣어 셉니다.
+            val daysLeft = ChronoUnit.DAYS.between(today, ap.end).toInt().coerceAtLeast(1)
+            Text(
+                "다음 용돈까지 ${daysLeft}일" + if (left > 0) " · 하루 ${Fmt.won(left / daysLeft)}씩 쓸 수 있어요" else "",
+                style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.9f), fontWeight = FontWeight.SemiBold,
+            )
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.12f)).padding(14.dp)) {
                 Mini("월 용돈", Fmt.won(allowance), Modifier.weight(1f))
