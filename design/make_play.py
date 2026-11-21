@@ -11,6 +11,7 @@
 첫 장의 알림(fcm1.png, 2026-11-17)은 옛 이름 '도란' 때 찍은 실제 알림이라, 아이콘 원만 2026-11-20 '둥지' 앱이 실제로 띄운 알림에서
 잘라 둔 notify-icon.png로 바꿔 붙입니다(같은 기기 설정·같은 자리·같은 크기). 가족 알림을 다시 찍으면 이 단계를 지우세요.
 """
+import hashlib
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -75,8 +76,16 @@ def screenshot(name: str, title: str, sub: str, src: str, overlay: Image.Image |
     img.convert("RGB").save(OUT / "screenshots" / f"{name}.png", optimize=True)
 
 
+# 아이콘 덧붙이기는 옛 '도란' 캡처(fcm1.png, 2026-11-17 1f16c78)에만 맞습니다. 가족 알림을 새로 찍어 fcm1.png를 바꾸면
+# 새 캡처 위 옛 자리에 아이콘을 덮게 되니 멈춥니다(#29) — 그때는 아래 아이콘 붙이기(icon·ring·paste)와 notify-icon.png를 지우세요.
+OLD_FCM1_SHA256 = "0f1c878353bcfd2afd481cb8a8f3ac9ea85dc178f71e4e7e588a61c7d565e05d"
+
+
 def notification_card() -> Image.Image:
     """실제 알림(아내 폰, 앱은 꺼진 상태)을 잘라 크게 띄웁니다."""
+    if hashlib.sha256((SRC / "fcm1.png").read_bytes()).hexdigest() != OLD_FCM1_SHA256:
+        raise SystemExit("fcm1.png가 옛 '도란' 캡처가 아니에요. 새로 찍은 알림이면 notification_card()의 아이콘 붙이기와 "
+                         "notify-icon.png를 지우고 OLD_FCM1_SHA256 검사도 지우세요(make_play.py 맨 위 설명)")
     shade = Image.open(SRC / "fcm1.png").convert("RGB")
     icon = Image.open(SRC / "notify-icon.png").convert("RGB")  # 67x67, 원(63px) 둘레 2px 포함
     ring = Image.new("L", (icon.width * 4, icon.height * 4), 0)

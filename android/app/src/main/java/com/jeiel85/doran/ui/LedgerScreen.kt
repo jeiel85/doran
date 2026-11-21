@@ -77,12 +77,13 @@ fun LedgerScreen(nav: Nav) {
 
     // 달력은 달력 달(1일~말일)로, 위 합계는 같은 범위로 계산합니다.
     val range = remember(ym) { com.jeiel85.doran.logic.Period(ym, ym.atDay(1), ym.plusMonths(1).atDay(1)) }
-    val all = remember(s.version, range, id.myMemberId) { Stats.entries(s, range, id.myMemberId) }
+    // 달력 칸은 앞뒤 달 날짜까지 그리므로(D-30) 그 넓은 범위를 한 번만 읽고, 그 달 합계는 그중에서 거릅니다(#67 — 전에는 장부를 두 번 훑었어요).
+    // 한 주 합계도 이것으로 셉니다. 다른 가족의 용돈 월 합계 줄은 그 달 1일에 둡니다.
+    val grid = remember(ym) { Stats.calendarRange(ym).let { (a, b) -> com.jeiel85.doran.logic.Period(ym, a, b) } }
+    val gridAll = remember(s.version, grid, id.myMemberId) { Stats.entries(s, grid, id.myMemberId, summaryAt = range.startMs) }
+    val all = remember(gridAll, range) { gridAll.filter { it.txn.at in range } }
     fun keep(e: Entry) = (memberFilter == null || e.txn.memberId == memberFilter) && (kindFilter == null || e.txn.kind.code == kindFilter)
     val filtered = all.filter(::keep)
-    // 달력 칸은 앞뒤 달 날짜까지 그리므로(D-30) 그 범위로 따로 읽습니다. 한 주 합계도 이것으로 셉니다.
-    val grid = remember(ym) { Stats.calendarRange(ym).let { (a, b) -> com.jeiel85.doran.logic.Period(ym, a, b) } }
-    val gridAll = remember(s.version, grid, id.myMemberId) { Stats.entries(s, grid, id.myMemberId) }
     val byDay = remember(gridAll, memberFilter, kindFilter) { Stats.byDay(gridAll.filter(::keep)) }
 
     Column(Modifier.fillMaxSize()) {

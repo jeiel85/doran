@@ -85,8 +85,8 @@ fun CaptureLogScreen(nav: Nav) {
             Spacer(Modifier.height(10.dp))
             Text(if (tab == 0) "금액이 적혀 있는데 둥지가 형식을 몰라 기록하지 못한 알림이에요. 골라서 보낼 수 있어요."
             else "원문은 이 폰에만 30일 남아요.", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
-            // 묶기·실패 기준이 실제 알림에서 어떻게 도는지 보이게(#13·#19)
-            if (tab == 1) Text("최근 30일 · 기록 ${counts.recorded} · 같은 결제로 묶음 ${counts.joined} · 실패·예정이라 뺀 것 ${counts.failed} · 기록 안 된 것 ${counts.candidates}",
+            // 묶기·실패·예정 기준이 실제 알림에서 어떻게 도는지 보이게(#13·#19·#40)
+            if (tab == 1) Text("최근 30일 · 기록 ${counts.recorded} · 같은 결제로 묶음 ${counts.joined} · 실패라 뺀 것 ${counts.failed} · 예정 안내라 뺀 것 ${counts.scheduled} · 기록 안 된 것 ${counts.candidates}",
                 style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint, modifier = Modifier.padding(top = 4.dp))
             if (aiOn || compared.values.any { it != null }) {
                 val judged = compared.values.count { it?.first?.kind != null }

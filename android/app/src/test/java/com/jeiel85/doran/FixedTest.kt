@@ -98,6 +98,59 @@ class FixedTest {
         assertNull(Fixed.planned(listOf(filled), Txn("n", Kind.EXPENSE, 350_000, ms(25, 12), source = Source.PUSH), null))
     }
 
+    @Test fun theClosestPlannedEntryIsFilled() {
+        // 같은 금액의 구독 둘이 며칠 사이로 있으면 날짜가 가까운 자리를 채움(#36). 예전에는 목록 순서로 먼저 나온 것
+        val a = Txn("rc.a.20261123", Kind.EXPENSE, 9_900, ms(23, 9), merchant = "구독 A", source = Source.RECURRING, recurringId = "a")
+        val b = Txn("rc.b.20261125", Kind.EXPENSE, 9_900, ms(25, 9), merchant = "구독 B", source = Source.RECURRING, recurringId = "b")
+        val card = Txn("n", Kind.EXPENSE, 9_900, ms(25, 15), accountId = "acc.card", source = Source.PUSH)
+        assertEquals(b.id, Fixed.planned(listOf(a, b), card, "acc.card")?.id)
+        assertEquals(b.id, Fixed.planned(listOf(b, a), card, "acc.card")?.id)
+        assertEquals(a.id, Fixed.planned(listOf(b, a), card.copy(at = ms(23, 20)), "acc.card")?.id)
+    }
+
+    @Test fun privateAllowancePaymentsDoNotFillHouseholdEntries() {
+        // 나만 보는 용돈 결제·용돈으로 옮긴 결제는 가족 가계부의 고정 내역 자리를 채우지 않음(#36)
+        val pay = Txn("n", Kind.EXPENSE, 350_000, ms(25, 11), source = Source.PUSH)
+        assertNull(Fixed.planned(listOf(plannedExpense), pay.copy(private = true), null))
+        assertNull(Fixed.planned(listOf(plannedExpense), pay.copy(personal = true), null))
+        assertNull(Fixed.planned(listOf(plannedExpense.copy(private = true)), pay, null))
+    }
+
+    @Test fun theRulesPersonStaysWhenANoticeFillsTheEntry() {
+        // 아내가 보낸 남편 용돈 이체가 '남편 용돈' 자리를 채워도 남편 몫(D-20, #36)
+        val planned = plannedExpense.copy(memberId = "husband")
+        val transfer = Txn("n", Kind.EXPENSE, 350_000, ms(25, 11), memberId = "wife", source = Source.SMS)
+        assertEquals("husband", Fixed.memberFor(planned, transfer))
+        assertEquals("wife", Fixed.memberFor(planned.copy(memberId = null), transfer))
+    }
+
+    @Test fun wrongKindCategoriesLeftByOldVersionsAreRepaired() {
+        val income = Recurring("rec.salary", "월급", Kind.INCOME, 3_000_000, "c.subscription", null, null, startAt = ms(1))
+        val ok = Recurring("rec.netflix", "넷플릭스", Kind.EXPENSE, 17_000, "c.subscription", null, null, startAt = ms(1))
+        val allowance = Recurring(AllowancePlan.idFor("h"), "남편 용돈", Kind.INCOME, 350_000, Defaults.ALLOWANCE, null, "h", startAt = ms(1))
+        val salaryEntry = Txn("rc.rec.salary.20261125", Kind.INCOME, 3_000_000, ms(25, 9), categoryId = "c.subscription",
+            merchant = "월급", source = Source.RECURRING, recurringId = income.id)
+        val flipped = Txn("rc.${allowance.id}.20261101", Kind.INCOME, 350_000, ms(1, 9), categoryId = Defaults.INCOME_FALLBACK,
+            merchant = "남편 용돈", memberId = "h", source = Source.RECURRING, recurringId = allowance.id)
+        // 사람이 고쳤거나 알림이 채운 내역은 그대로
+        val edited = salaryEntry.copy(id = "x", source = Source.MANUAL)
+        val st = s.copy(recurrings = listOf(income, ok, allowance).associateBy { it.id },
+            txns = listOf(salaryEntry, flipped, edited).associateBy { it.id })
+        val (rules, txns) = Fixed.repairs(st)
+        assertEquals(listOf("rec.salary"), rules.map { it.id })
+        assertEquals("c.salary", rules.single().categoryId)
+        val byId = txns.associateBy { it.id }
+        assertEquals(setOf(salaryEntry.id, flipped.id), byId.keys)
+        assertEquals("c.salary", byId.getValue(salaryEntry.id).categoryId)
+        assertEquals(Kind.EXPENSE, byId.getValue(flipped.id).kind)
+        assertEquals(Defaults.ALLOWANCE, byId.getValue(flipped.id).categoryId)
+        assertEquals(350_000L, byId.getValue(flipped.id).amount)
+        // 고친 뒤 다시 돌리면 할 일이 없음
+        val again = st.copy(recurrings = st.recurrings + rules.associateBy { it.id }, txns = st.txns + byId)
+        assertTrue(Fixed.repairs(again).first.isEmpty())
+        assertTrue(Fixed.repairs(again).second.isEmpty())
+    }
+
     @Test fun allowanceRuleIdsAreRecognised() {
         assertTrue(AllowancePlan.isRule(AllowancePlan.idFor("h")))
         assertFalse(AllowancePlan.isRule("rec.netflix"))

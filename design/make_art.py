@@ -9,6 +9,7 @@
 - 일러스트 4장: 가로 960px WebP
 원본 출처와 프롬프트는 design/art/SOURCES.md.
 """
+import io
 import sys
 from pathlib import Path
 from PIL import Image
@@ -64,23 +65,40 @@ def gradient(size: int) -> Image.Image:
     return bg
 
 
+def webp(img: Image.Image, path: Path, quality: int) -> tuple[Path, bytes]:
+    """WebP로 인코딩만 합니다(파일은 build_art 끝에 한꺼번에 씁니다)."""
+    buf = io.BytesIO()
+    try:
+        img.save(buf, "WEBP", quality=quality, method=6)
+    except (OSError, ValueError) as e:
+        # Pillow의 "encoding error N"은 libwebp 오류 번호이고, 1은 메모리 부족(VP8_ENC_ERROR_OUT_OF_MEMORY)입니다.
+        # 이 PC의 커밋 여유가 바닥난 날 docs/assets/art에서 멈춘 적이 있어요(#29).
+        raise SystemExit(f"WebP 인코딩 실패({path.name}): {e}. 'encoding error 1'은 메모리 부족이에요 — "
+                         "메모리를 비우고 다시 돌리세요. 아직 아무 파일도 바꾸지 않았어요")
+    return path, buf.getvalue()
+
+
 def build_art() -> None:
-    """카테고리·자산 아이콘과 일러스트(이름과 상관없는 그림)."""
+    """카테고리·자산 아이콘과 일러스트(이름과 상관없는 그림).
+    전부 인코딩한 뒤에 씁니다: 예전에는 도중에 실패하면 그 전 파일만 다시 인코딩돼 바이트가 바뀐 채 남았어요(#29)."""
     nodpi = RES / "drawable-nodpi"
-    nodpi.mkdir(parents=True, exist_ok=True)
+    web_art = DOCS / "art"
+    out: list[tuple[Path, bytes]] = []
     icons = {**sheet_cells(SRC / "categories-a.png", SHEET_A), **sheet_cells(SRC / "categories-b.png", SHEET_B)}
     for name, img in icons.items():
-        img.save(nodpi / f"art_cat_{name}.webp", "WEBP", quality=88, method=6)
+        out.append(webp(img, nodpi / f"art_cat_{name}.webp", 88))
 
-    web_art = DOCS / "art"
-    web_art.mkdir(parents=True, exist_ok=True)
     for src, dst in ILLUSTRATIONS.items():
         img = trim(Image.open(SRC / f"{src}.png").convert("RGBA"))
         img.thumbnail((960, 960), Image.LANCZOS)
-        img.save(nodpi / f"{dst}.webp", "WEBP", quality=86, method=6)
-        img.save(web_art / f"{dst.removeprefix('art_')}.webp", "WEBP", quality=84, method=6)  # 소개 페이지용
+        out.append(webp(img, nodpi / f"{dst}.webp", 86))
+        out.append(webp(img, web_art / f"{dst.removeprefix('art_')}.webp", 84))  # 소개 페이지용
     for name in ("card", "savings", "bank"):
-        icons[name].resize((128, 128), Image.LANCZOS).save(web_art / f"cat-{name}.webp", "WEBP", quality=88, method=6)
+        out.append(webp(icons[name].resize((128, 128), Image.LANCZOS), web_art / f"cat-{name}.webp", 88))
+
+    for path, data in out:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
     print(f"categories {len(icons)}, illustrations {len(ILLUSTRATIONS)}")
 
 

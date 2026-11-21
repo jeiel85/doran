@@ -158,7 +158,8 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
     }
     var rememberMove by remember { mutableStateOf(false) }
 
-    fun save() {
+    /** 화면의 고침을 장부에 씁니다(닫지 않음). */
+    fun persist() {
         val t = (original ?: Txn(id = newId(), kind = kind, amount = 0, at = at, source = Source.MANUAL,
             createdBy = Hub.identity.installId, createdAt = System.currentTimeMillis())).copy(
             kind = kind, amount = value, at = at, merchant = merchant.trim(), memo = memo.trim(),
@@ -174,6 +175,10 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
         // 가족 카드에서 용돈으로 옮겼던 결제를 다시 공유로 돌리면, 대신 남겨 둔 금액 자리를 지웁니다(D-20).
         if (original?.private == true && !t.private) stubId(t.id).takeIf { s.txns.containsKey(it) }?.let { Hub.ledger.delete(com.jeiel85.doran.model.T.TXN, it) }
         scope.launch { receipts.forEach { Receipts.upload(context, it) } }
+    }
+
+    fun save() {
+        persist()
         nav.back()
     }
 
@@ -280,6 +285,9 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Spacer(Modifier.weight(1f))
                                 SmallButton(if (moved) "용돈으로 쓴 돈이에요" else "옮긴 돈·가족 돈이에요", color = if (moved) P.c.apricot else P.c.pine) {
+                                    // 먼저 고친 내용·메모·날짜가 있으면 함께 저장하고 판정만 바꿉니다(#50 — 전에는 판정만 저장하고 닫아 다른 고침을 버렸어요).
+                                    // 위에서 종류를 손으로 바꿨으면 그 고침이 판정이라 여기서는 쓰지 않습니다.
+                                    if (valid && kind == o.kind) persist()
                                     Hub.capture.setMoved(o, moved = !moved, remember = rememberMove)
                                     nav.back()
                                 }

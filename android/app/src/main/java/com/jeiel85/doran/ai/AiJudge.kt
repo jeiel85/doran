@@ -125,7 +125,7 @@ object AiPrompt {
     // 짧게 가려진 카드번호("1*2*승인", "**1234")는 NUMBERISH 길이에 못 미쳐 따로 봅니다(#44 리뷰). 숫자 없는 "홍*동"은 그대로.
     private val SHORT_MASKED = Regex("""[\d*]{2,}""")
 
-    /** 밖으로 보내기 전에 계좌·카드·전화번호를 가립니다. 이름은 가리지 못합니다(화면에 그렇게 안내). */
+    /** 밖으로 보내기 전에 계좌·카드·전화번호와, 이름이 오는 자리를 가립니다. 그 밖의 자리에 쓰인 이름은 못 가립니다(화면에 그렇게 안내). */
     fun mask(text: String): String {
         val masked = NUMBERISH.replace(text) { m ->
             val v = m.value
@@ -135,8 +135,17 @@ object AiPrompt {
             val v = m.value
             if ('*' in v && v.any(Char::isDigit)) "****" else v
         }
-        return LAST4.replace(short, "(****)")
+        return NAMES.fold(LAST4.replace(short, "(****)")) { acc, r -> r.replace(acc, NAME_MASK) }
     }
+
+    // 보내거나 받은 사람 이름 자리(#45): "홍길동 → 내 통장", "→ 홍길동", "김하나님이 보낸", 은행 문자의 받는 분·메모 칸
+    // ("홍길동 모바일출금" — 거래 방식 낱말이 붙은 앞 칸). 이름을 알아낼 수는 없어 이 자리들만 가립니다(가게 이름은 그대로).
+    private const val NAME_MASK = "(이름)"
+    private val NAMES = listOf(
+        Regex("""(?<![가-힣])[가-힣]{2,4}(?=\s*(?:님|→|->))"""),
+        Regex("""(?<=(?:→|->)\s{0,2})[가-힣]{2,4}(?![가-힣])"""),
+        Regex("""(?<![가-힣])[가-힣]{2,4}(?=\s+(?:스마트폰|인터넷|모바일|폰뱅킹|오픈뱅킹|타행|당행|FB)(?:입금|출금|이체|송금))"""),
+    )
 
     /** 응답 JSON을 판정으로. 모양이 틀리면 [AiError]. */
     fun parse(provider: String, model: String, at: Long, text: String): AiVerdict {
