@@ -67,6 +67,20 @@ object Fmt {
     fun num(amount: Long): String = comma.format(amount)
     fun signed(amount: Long, plus: Boolean): String = (if (plus) "+" else "-") + comma.format(amount)
 
+    /**
+     * 달력 날짜 칸: 100만 원 아래는 원 단위 그대로(쉼표, "원" 없이: 12,345), 그 위는 만 단위(1,234,567 → 123만).
+     * 날짜 칸은 좁지만 장 본 금액 같은 몇만 원대를 "1.2만"으로 뭉개면 다른 날과 견주기 어려워서, 길어지는 큰 금액만 줄입니다.
+     */
+    fun cell(amount: Long): String {
+        val a = kotlin.math.abs(amount)
+        val s = when {
+            a >= 100_000_000 -> String.format(Locale.KOREA, "%.1f억", a / 100_000_000.0).replace(".0억", "억")
+            a >= 1_000_000 -> comma.format(a / 10_000) + "만"
+            else -> comma.format(a)
+        }
+        return if (amount < 0) "-$s" else s
+    }
+
     /** 달력 칸처럼 좁은 곳: 12,345 → 1.2만, 1,234,567 → 123만. */
     fun compact(amount: Long): String {
         val a = kotlin.math.abs(amount)

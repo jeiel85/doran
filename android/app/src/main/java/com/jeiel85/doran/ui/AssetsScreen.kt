@@ -1,9 +1,6 @@
 package com.jeiel85.doran.ui
 
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -30,10 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jeiel85.doran.core.Fmt
@@ -68,25 +62,12 @@ fun AssetsScreen(nav: Nav) {
             }
         }
         item {
-            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(30.dp))
-                .background(Brush.linearGradient(listOf(Color(0xFF2B3A67), Color(0xFF1E2747))))) {
-                Image(painterResource(com.jeiel85.doran.R.drawable.art_cat_bank), null,
-                    Modifier.align(Alignment.TopEnd).padding(16.dp).size(76.dp))
-                Column(Modifier.padding(22.dp)) {
-                    Text("우리집 순자산", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.75f))
-                    Text(Fmt.won(worth.net), style = MaterialTheme.typography.displaySmall.merge(Money), color = Color.White)
-                    Spacer(Modifier.height(16.dp))
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.1f)).padding(14.dp)) {
-                        Column(Modifier.weight(1f)) {
-                            Text("자산", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f))
-                            Text(Fmt.won(worth.assets), style = MaterialTheme.typography.titleSmall.merge(Money), color = Color.White)
-                        }
-                        Column(Modifier.weight(1f)) {
-                            Text("갚을 돈", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f))
-                            Text(Fmt.won(-worth.debts), style = MaterialTheme.typography.titleSmall.merge(Money), color = Color(0xFFFFB4A8))
-                        }
-                    }
-                }
+            HeroCard(listOf(Color(0xFF2B3A67), Color(0xFF1E2747)), com.jeiel85.doran.R.drawable.art_cat_bank, "우리집 순자산", Fmt.won(worth.net)) {
+                Spacer(Modifier.height(16.dp))
+                HeroStats(listOf(
+                    Stat("자산", Fmt.won(worth.assets)),
+                    Stat("갚을 돈", Fmt.won(-worth.debts), Color(0xFFFFB4A8)),
+                ))
             }
         }
         if (groups.isEmpty()) item {

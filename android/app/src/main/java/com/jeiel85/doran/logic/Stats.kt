@@ -154,6 +154,23 @@ object Stats {
             v.filter { it.txn.kind == Kind.EXPENSE }.sumOf { it.net } to v.filter { it.txn.kind == Kind.INCOME }.sumOf { it.net }
         }
 
+    /**
+     * 달력에 그리는 날들(D-30): [month] 1일이 든 주의 일요일부터 말일이 든 주의 토요일까지. 끝(second)은 그다음 날(배타).
+     * 앞뒤 달 날짜도 흐리게 금액을 보여 주므로 내역도 이 범위로 읽습니다.
+     */
+    fun calendarRange(month: YearMonth): Pair<LocalDate, LocalDate> {
+        val first = month.atDay(1)
+        val last = month.atEndOfMonth()
+        return first.minusDays((first.dayOfWeek.value % 7).toLong()) to last.plusDays((6 - last.dayOfWeek.value % 7).toLong() + 1)
+    }
+
+    /** [d]가 든 달력 한 줄(일요일~토요일)과 그 [byDay] 합계(지출 to 수입). 달 경계에 걸친 주도 일곱 날을 다 셉니다. */
+    fun week(byDay: Map<LocalDate, Pair<Long, Long>>, d: LocalDate): Pair<ClosedRange<LocalDate>, Pair<Long, Long>> {
+        val sunday = d.minusDays((d.dayOfWeek.value % 7).toLong())
+        val days = (0L until 7L).map { sunday.plusDays(it) }
+        return sunday..sunday.plusDays(6) to (days.sumOf { byDay[it]?.first ?: 0L } to days.sumOf { byDay[it]?.second ?: 0L })
+    }
+
     fun topMerchants(e: List<Entry>, n: Int = 5): List<Pair<String, Long>> =
         e.filter { it.counted && it.txn.kind == Kind.EXPENSE && it.net > 0 && !it.allowanceSummary && it.txn.merchant.isNotBlank() }
             .groupBy { it.txn.merchant }.map { (k, v) -> k to v.sumOf { it.net } }.sortedByDescending { it.second }.take(n)

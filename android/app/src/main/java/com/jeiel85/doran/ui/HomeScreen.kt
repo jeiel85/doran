@@ -50,7 +50,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -375,50 +374,32 @@ private fun updateBanner(u: com.jeiel85.doran.update.UpdateState): Pair<String, 
 @Composable
 private fun Hero(spent: Long, income: Long, budget: Long, end: LocalDate, today: LocalDate, onBudget: () -> Unit) {
     val daysLeft = ChronoUnit.DAYS.between(today, end).toInt().coerceAtLeast(1)
-    val shape = RoundedCornerShape(30.dp)
-    Box(
-        Modifier.fillMaxWidth().clip(shape)
-            .background(Brush.linearGradient(listOf(Color(0xFF2E7A62), Color(0xFF1B4D3E))))
-            .clickable(onClick = onBudget),
-    ) {
-        Image(painterResource(R.drawable.art_cat_savings), null, Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 14.dp).size(78.dp),
-            contentScale = ContentScale.Fit, alpha = 0.95f)
-        Column(Modifier.padding(22.dp)) {
-            Text("이번 달 쓴 돈", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.78f))
-            Spacer(Modifier.height(4.dp))
-            Text(Fmt.won(spent), style = MaterialTheme.typography.displaySmall.merge(Money), color = Color.White)
-            Spacer(Modifier.height(16.dp))
-            if (budget > 0) {
-                val left = budget - spent
-                Progress(spent.toFloat() / budget, Color(0xFFFFD36B), height = 10.dp)
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    if (left >= 0) "예산 ${Fmt.compact(budget)} 중 ${Fmt.won(left)} 남음 · 하루 ${Fmt.won(left / daysLeft)}"
-                    else "예산보다 ${Fmt.won(-left)} 더 썼어요",
-                    style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.9f), fontWeight = FontWeight.SemiBold,
-                )
-            } else {
-                Text("예산을 정하면 하루에 쓸 수 있는 돈을 알려 드려요 →", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.85f))
-            }
-            Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.12f)).padding(14.dp)) {
-                Mini("수입", "+" + Fmt.won(income), Modifier.weight(1f))
-                Mini("남은 돈", Fmt.won(income - spent), Modifier.weight(1f))
-                // "남은 날"만 쓰면 월급날부터 세는지 말일까지 세는지 헷갈려서(2026-11-20 리뷰) 가계부 한 달의 끝 날을 함께 씁니다.
-                val last = end.minusDays(1)
-                Mini("${last.monthValue}/${last.dayOfMonth}까지", "${daysLeft}일", Modifier.weight(1f))
-            }
+    HeroCard(PineHero, R.drawable.art_cat_savings, "이번 달 쓴 돈", Fmt.won(spent), onClick = onBudget) {
+        Spacer(Modifier.height(16.dp))
+        if (budget > 0) {
+            val left = budget - spent
+            Progress(spent.toFloat() / budget, Color(0xFFFFD36B), height = 10.dp)
+            Spacer(Modifier.height(10.dp))
+            Text(
+                if (left >= 0) "예산 ${Fmt.compact(budget)} 중 ${Fmt.won(left)} 남음 · 하루 ${Fmt.won(left / daysLeft)}"
+                else "예산보다 ${Fmt.won(-left)} 더 썼어요",
+                style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.9f), fontWeight = FontWeight.SemiBold,
+            )
+        } else {
+            Text("예산을 정하면 하루에 쓸 수 있는 돈을 알려 드려요 →", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.85f))
         }
+        Spacer(Modifier.height(16.dp))
+        // "남은 날"만 쓰면 월급날부터 세는지 말일까지 세는지 헷갈려서(2026-11-20 리뷰) 가계부 한 달의 끝 날을 함께 씁니다.
+        val last = end.minusDays(1)
+        HeroStats(listOf(
+            Stat("수입", "+" + Fmt.won(income)),
+            Stat("남은 돈", Fmt.won(income - spent)),
+            Stat("${last.monthValue}/${last.dayOfMonth}까지", "${daysLeft}일"),
+        ))
     }
 }
 
-@Composable
-private fun Mini(label: String, value: String, modifier: Modifier) {
-    Column(modifier) {
-        Text(label, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f))
-        Text(value, style = MaterialTheme.typography.titleSmall.merge(Money), color = Color.White, maxLines = 1)
-    }
-}
+private val PineHero = listOf(Color(0xFF2E7A62), Color(0xFF1B4D3E))
 
 @Composable
 fun CardTile(c: com.jeiel85.doran.logic.CardStatus, owner: com.jeiel85.doran.model.Member?, onClick: () -> Unit) {
@@ -528,34 +509,26 @@ private fun AllowanceHero(allowance: Long, spent: Long, ap: com.jeiel85.doran.lo
     val left = allowance - spent
     val last = ap.end.minusDays(1)
     val dow = listOf("월", "화", "수", "목", "금", "토", "일")[ap.end.dayOfWeek.value - 1]
-    Box(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(30.dp))
-            .background(Brush.linearGradient(listOf(Color(0xFF2E7A62), Color(0xFF1B4D3E))))
-            .clickable(onClick = onClick),
+    HeroCard(
+        PineHero, R.drawable.art_cat_savings,
+        "내 용돈 · ${ap.start.monthValue}.${ap.start.dayOfMonth} ~ ${last.monthValue}.${last.dayOfMonth}",
+        if (left >= 0) "${Fmt.won(left)} 남음" else "${Fmt.won(-left)} 넘었어요",
+        onClick = onClick,
     ) {
-        Image(painterResource(R.drawable.art_cat_savings), null, Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 14.dp).size(78.dp),
-            contentScale = ContentScale.Fit, alpha = 0.95f)
-        Column(Modifier.padding(22.dp)) {
-            Text("내 용돈 · ${ap.start.monthValue}.${ap.start.dayOfMonth} ~ ${last.monthValue}.${last.dayOfMonth}",
-                style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.78f))
-            Spacer(Modifier.height(4.dp))
-            Text(if (left >= 0) "${Fmt.won(left)} 남음" else "${Fmt.won(-left)} 넘었어요",
-                style = MaterialTheme.typography.displaySmall.merge(Money), color = Color.White)
-            Spacer(Modifier.height(16.dp))
-            Progress(spent.toFloat() / allowance.coerceAtLeast(1), Color(0xFFFFD36B), height = 10.dp)
-            Spacer(Modifier.height(10.dp))
-            // 용돈(월급) 들어온 날부터 거꾸로 줄어드는 날 수(2026-11-20 리뷰). 오늘도 쓸 수 있는 날이라 오늘을 넣어 셉니다.
-            val daysLeft = ChronoUnit.DAYS.between(today, ap.end).toInt().coerceAtLeast(1)
-            Text(
-                "다음 용돈까지 ${daysLeft}일" + if (left > 0) " · 하루 ${Fmt.won(left / daysLeft)}씩 쓸 수 있어요" else "",
-                style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.9f), fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.12f)).padding(14.dp)) {
-                Mini("월 용돈", Fmt.won(allowance), Modifier.weight(1f))
-                Mini("쓴 돈", Fmt.won(spent), Modifier.weight(1f))
-                Mini("다음 용돈", "${ap.end.monthValue}/${ap.end.dayOfMonth}($dow)", Modifier.weight(1f))
-            }
-        }
+        Spacer(Modifier.height(16.dp))
+        Progress(spent.toFloat() / allowance.coerceAtLeast(1), Color(0xFFFFD36B), height = 10.dp)
+        Spacer(Modifier.height(10.dp))
+        // 용돈(월급) 들어온 날부터 거꾸로 줄어드는 날 수(2026-11-20 리뷰). 오늘도 쓸 수 있는 날이라 오늘을 넣어 셉니다.
+        val daysLeft = ChronoUnit.DAYS.between(today, ap.end).toInt().coerceAtLeast(1)
+        Text(
+            "다음 용돈까지 ${daysLeft}일" + if (left > 0) " · 하루 ${Fmt.won(left / daysLeft)}씩 쓸 수 있어요" else "",
+            style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.9f), fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.height(16.dp))
+        HeroStats(listOf(
+            Stat("월 용돈", Fmt.won(allowance)),
+            Stat("쓴 돈", Fmt.won(spent)),
+            Stat("다음 용돈", "${ap.end.monthValue}/${ap.end.dayOfMonth}($dow)"),
+        ))
     }
 }

@@ -207,8 +207,8 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).clickable { keypad = true }.padding(vertical = 6.dp)) {
                 Text(when (kind) { Kind.EXPENSE -> "얼마를 썼나요?"; Kind.INCOME -> "얼마가 들어왔나요?"; Kind.TRANSFER -> "얼마를 옮겼나요?" },
                     style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft)
-                Text(if (value > 0) Fmt.won(value) else "0원", style = MaterialTheme.typography.displaySmall.merge(Money),
-                    color = if (value > 0) kindColor(kind, P.c).takeIf { kind != Kind.EXPENSE } ?: P.c.ink else P.c.inkFaint)
+                FitText(if (value > 0) Fmt.won(value) else "0원", MaterialTheme.typography.displaySmall.merge(Money),
+                    if (value > 0) kindColor(kind, P.c).takeIf { kind != Kind.EXPENSE } ?: P.c.ink else P.c.inkFaint, minSize = 22.sp)
                 original?.let { o ->
                     if (o.source.captured || o.cumulative != null || cancels.isNotEmpty() || o.foreign != null) {
                         Spacer(Modifier.height(10.dp))
