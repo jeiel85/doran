@@ -671,7 +671,9 @@ class CaptureProcessor(
 
         /**
          * 카드사 알림이 갈 이 사람(또는 공동)의 카드 계좌. 끝자리가 같은 카드가 먼저이고, 어느 한쪽이 끝자리를 모르면
-         * 같은 종류(체크·신용)의 카드, 그다음 아무 카드입니다. 없으면 null(새로 만듦).
+         * 같은 종류(체크·신용)의 카드입니다. 없으면 null(새로 만듦).
+         * 다른 종류로는 넘기지 않습니다 — 신용카드 결제가 체크카드 계좌로 가면 갚을 돈에서 빠지기 때문입니다(#59 리뷰).
+         * 하나만 예외: 0.3.4 전에는 체크카드 알림도 신용카드 계좌를 만들었으므로, 끝자리 없는 체크카드 알림은 그 신용카드 계좌에 이어 기록합니다.
          */
         fun pickCard(accounts: Collection<Account>, issuer: String, last4: String?, me: String?, check: Boolean): Account? {
             val mine = accounts.filter {
@@ -679,7 +681,8 @@ class CaptureProcessor(
             }
             mine.firstOrNull { last4 != null && it.last4 == last4 }?.let { return it }
             val loose = mine.filter { it.last4 == null || last4 == null }
-            return loose.firstOrNull { (it.type == AccountType.CHECK) == check } ?: loose.firstOrNull()
+            loose.firstOrNull { (it.type == AccountType.CHECK) == check }?.let { return it }
+            return if (check && last4 == null) loose.firstOrNull { it.type == AccountType.CARD } else null
         }
 
         /**

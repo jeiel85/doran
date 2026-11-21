@@ -75,6 +75,17 @@ class CheckCardTest {
         assertNull(CaptureProcessor.pickCard(listOf(card("h", "4321", owner = "h")), "신한카드", "4321", "w", check = true))
     }
 
+    /** #59 리뷰: 신용카드 결제가 끝자리 모르는 체크카드 계좌로 가면 갚을 돈에서 빠짐 → 다른 종류로 넘기지 않음. */
+    @Test fun creditNeverFallsBackToCheckCard() {
+        val unnumberedCheck = listOf(card("k", null, AccountType.CHECK))
+        assertNull(CaptureProcessor.pickCard(unnumberedCheck, "신한카드", "9876", "w", check = false))
+        assertNull(CaptureProcessor.pickCard(unnumberedCheck, "신한카드", null, "w", check = false))
+        // 끝자리 있는 체크카드 알림도 끝자리 모르는 신용카드를 차지하지 않음(그 카드의 신용 결제가 섞이지 않게)
+        assertNull(CaptureProcessor.pickCard(listOf(card("c", null)), "신한카드", "4321", "w", check = true))
+        // 예외: 0.3.4 전에 체크카드 알림이 만든 신용카드 계좌에는 끝자리 없는 체크카드 알림을 이어 기록
+        assertEquals("c", CaptureProcessor.pickCard(listOf(card("c", null)), "신한카드", null, "w", check = true)!!.id)
+    }
+
     @Test fun checkCardWithoutBalanceIsNeitherDebtNorAsset() {
         val check = card("k", "4321", AccountType.CHECK).copy(name = "가계부 카드")
         val pay = Txn("t", Kind.EXPENSE, 11_810, ms(20), accountId = "k", memberId = "w", source = Source.SMS)
