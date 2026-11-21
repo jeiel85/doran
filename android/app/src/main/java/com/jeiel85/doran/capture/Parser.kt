@@ -96,10 +96,11 @@ object Issuers {
      * 그 뒤에서 "카드"를 떼면 한글이 남지 않는 것. "현대백화점"·"롯데마트"처럼 이름 뒤에 한글이 이어지면 실제 가맹점이고,
      * "ABC MART"처럼 영문 이름 가운데에 든 "BC"는 카드사 이름이 아닙니다.
      * 가맹점이 없는 카드 문자에서 상품 이름을 가맹점으로 읽어, 같은 결제를 두 폰이 각각 기록했는데 다른 가게로 보인 일(2026-11-21 주유, D-5).
+     * 카드사 알림에만 봅니다: 은행 출금의 받는 곳 "신한카드"는 카드값(이체)을 가리는 단서라 지우면 안 됩니다(#62 리뷰).
      */
     fun cardNameOnly(merchant: String?, issuer: String?): Boolean {
         val m = merchant?.trim()?.takeIf { it.isNotEmpty() } ?: return false
-        val i = all.firstOrNull { it.name == issuer } ?: return false
+        val i = cards.firstOrNull { it.name == issuer } ?: return false
         val stems = (i.aliases + i.name.removeSuffix("카드").removeSuffix("은행")).filter { it.isNotBlank() }.sortedByDescending { it.length }
         val stem = stems.firstOrNull { s ->
             m.startsWith(s, ignoreCase = true) && !(s.last().isLatinLetter() && m.getOrNull(s.length)?.isLatinLetter() == true)

@@ -384,6 +384,11 @@ class ParserTest {
         assertFalse(Issuers.cardNameOnly("ABC MART", "BC카드"))
         assertFalse(Issuers.cardNameOnly("BCMART", "BC카드"))
         assertFalse(Issuers.cardNameOnly("BC 바로카드", "BC카드"))
+        // 은행 알림에는 쓰지 않음: 같은 이름의 카드사로 나가는 카드값 출금의 받는 곳("신한카드")이 이체를 가리는 단서(#62 리뷰)
+        assertFalse(Issuers.cardNameOnly("신한카드", "신한은행"))
+        val bill = p("[신한]11/25 10:00\n출금 523,000원\n잔액711,000원\n신한카드")!!
+        assertEquals("신한은행", bill.issuer)
+        assertEquals("신한카드", bill.cardPaymentTo)
         // 다른 카드사·모르는 카드사의 이름은 보지 않음
         assertFalse(Issuers.cardNameOnly("현대 ZERO", "신한카드"))
         assertFalse(Issuers.cardNameOnly("현대 ZERO", null))
