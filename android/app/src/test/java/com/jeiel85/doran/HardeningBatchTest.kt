@@ -8,8 +8,10 @@ import com.jeiel85.doran.logic.Twins
 import com.jeiel85.doran.model.Account
 import com.jeiel85.doran.model.AccountType
 import com.jeiel85.doran.model.AllowanceSummary
+import com.jeiel85.doran.model.Goal
 import com.jeiel85.doran.model.Kind
 import com.jeiel85.doran.model.Member
+import com.jeiel85.doran.model.Recurring
 import com.jeiel85.doran.model.Source
 import com.jeiel85.doran.model.Txn
 import org.junit.Assert.assertEquals
@@ -54,6 +56,19 @@ class HardeningBatchTest {
         ).forEach { a -> assertNull(a.toString(), Twins.leftoverAccount(LedgerState(accounts = mapOf(a.id to a)), mine)) }
         // 계좌 없는 기록
         assertNull(Twins.leftoverAccount(LedgerState(accounts = mapOf(autoCard.id to autoCard)), mine.copy(accountId = null)))
+    }
+
+    @Test fun accountsChosenByRulesGoalsOrCardsStay() {
+        // 고정 규칙·목표·다른 카드의 출금 통장이 고른 계좌는 내역이 없어도 남김(PR #69 리뷰 — 지우면 다음 고정 내역이 없는 계좌에 붙음)
+        val accounts = mapOf(autoCard.id to autoCard)
+        val rule = Recurring("rec.netflix", "넷플릭스", Kind.EXPENSE, 17_000, null, autoCard.id, null, startAt = ms(1))
+        assertNull(Twins.leftoverAccount(LedgerState(accounts = accounts, recurrings = mapOf(rule.id to rule)), mine))
+        val goal = Goal("g", "여행", 1_000_000, accountId = autoCard.id)
+        assertNull(Twins.leftoverAccount(LedgerState(accounts = accounts, goals = mapOf(goal.id to goal)), mine))
+        val bank = autoCard.copy(id = "acc.bank", name = "신한은행", type = AccountType.BANK, institution = "신한은행")
+        val card = Account("acc.card", "가족 카드", AccountType.CARD, payFromId = bank.id)
+        assertEquals(bank.id, Twins.leftoverAccount(LedgerState(accounts = mapOf(bank.id to bank)), mine.copy(accountId = bank.id))?.id)
+        assertNull(Twins.leftoverAccount(LedgerState(accounts = listOf(bank, card).associateBy { it.id }), mine.copy(accountId = bank.id)))
     }
 
     // --- 내역 탭: 앞뒤 달까지 한 번 읽고 그 달 합계는 거르기 (#67) --------------------------------------------
