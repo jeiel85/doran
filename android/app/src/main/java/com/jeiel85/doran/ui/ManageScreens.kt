@@ -220,9 +220,17 @@ fun RecurringEditScreen(rid: String?, nav: Nav) {
                 categoryId = com.jeiel85.doran.logic.Fixed.categoryFor(s, name.trim(), kind, categoryId)
             }
             Spacer(Modifier.height(14.dp))
-            Field("이름", name, { name = it }, "예: 넷플릭스, 관리비, 월급")
-            Spacer(Modifier.height(10.dp))
-            AmountField("금액", amount) { amount = it }
+            if (allowanceRule) {
+                // 이름·금액은 용돈 설정을 따라갑니다: 여기서 고쳐도 다음에 용돈을 저장할 때 되돌아가서(AllowancePlan.sync) 칸을 잠급니다(#36).
+                Text("$name · ${Fmt.won(amount.toLongOrNull() ?: 0)}", style = MaterialTheme.typography.titleMedium, color = P.c.ink)
+                Spacer(Modifier.height(4.dp))
+                Text("금액은 그 사람 폰의 '용돈'에서, 이름은 가족 화면의 이름에서 바꿔요. 여기서는 계좌·카테고리를 고를 수 있어요.",
+                    style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+            } else {
+                Field("이름", name, { name = it }, "예: 넷플릭스, 관리비, 월급")
+                Spacer(Modifier.height(10.dp))
+                AmountField("금액", amount) { amount = it }
+            }
             Spacer(Modifier.height(14.dp))
             ChipRow { listOf("m" to "매달", "w" to "매주", "y" to "매년").forEach { (k, l) -> Chip(l, period == k, { period = k }) } }
             Spacer(Modifier.height(10.dp))
@@ -424,7 +432,7 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
         item {
             Field("이름(별명)", name, { name = it }, "예: 가계부 카드, 생활비 통장")
             // 알림으로 생긴 카드·통장은 "신한카드 1234"처럼 카드사와 끝자리로 이름이 붙어 무슨 카드인지 헷갈립니다(2026-11-20 리뷰).
-            Text("내역·홈 카드에 이 이름으로 보여요. 알아보기 쉬운 별명으로 바꿔 두세요.",
+            Text("내역과 홈 카드에 이 이름으로 보여요",
                 style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft, modifier = Modifier.padding(start = 8.dp, top = 4.dp))
             Spacer(Modifier.height(14.dp))
             Text("종류", style = MaterialTheme.typography.titleSmall, color = P.c.ink)

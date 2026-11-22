@@ -64,7 +64,7 @@ fun AiCheckSection() {
             Spacer(Modifier.height(10.dp))
             Text(
                 "켜면 '최근 받은 알림'에 남는 금액 알림의 원문이 ${p.company}로 가요(계좌·카드·전화번호는 가려서). " +
-                    "보낸 사람 이름은 가려지지 않을 수 있어요. 요금은 넣은 API 키의 ${p.company} 계정으로 나가요. " +
+                    "보낸 사람 이름은 알림 형식에 따라 가려지지 않을 수 있어요. 요금은 넣은 API 키의 ${p.company} 계정으로 나가요. " +
                     "키는 이 폰에만 암호화해 두고 가족 폰이나 둥지 서버로 보내지 않아요.",
                 style = MaterialTheme.typography.bodySmall, color = P.c.apricot,
             )
@@ -97,6 +97,12 @@ fun AiCheckSection() {
             message?.let {
                 Spacer(Modifier.height(8.dp))
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = P.c.ink)
+            }
+            if (on == p) {
+                val used = remember(tick) { runCatching { Hub.ai.judgedSince()[p.code] ?: 0 }.getOrDefault(0) }
+                Spacer(Modifier.height(6.dp))
+                Text("최근 30일 ${used}건 물었어요 · 요금은 ${p.company} 계정의 사용량에서 확인해요",
+                    style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
             }
             if (on == p) Hub.ai.lastProblem?.let {
                 Spacer(Modifier.height(6.dp))

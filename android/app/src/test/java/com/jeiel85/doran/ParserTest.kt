@@ -323,6 +323,57 @@ class ParserTest {
         assertEquals("USD 12.34", p("현대카드 해외승인 홍*동 USD 12.34. 11/10 03:15 NETFLIX.COM")!!.foreign)
     }
 
+    @Test fun completedTransactionsWithANextScheduleAreRecorded() {
+        // 이미 일어난 거래에 다음 일정이 덧붙은 알림은 예정 안내가 아님(#40)
+        val cancel = p("현대카드 승인취소 홍*동 12,300원 11/17 13:00 스타벅스 취소금액은 다음 달 결제예정금액에서 차감됩니다")!!
+        assertEquals(Parsed.Type.CANCEL, cancel.type)
+        assertEquals(12_300L, cancel.amount)
+        assertNull(Parser.unspent("현대카드 승인취소 홍*동 12,300원 11/17 13:00 스타벅스 취소금액은 다음 달 결제예정금액에서 차감됩니다"))
+        val out = p("[신한] 관리비 120,000원이 출금되었습니다. 다음 출금예정일 12/25")!!
+        assertEquals(Parsed.Type.WITHDRAWAL, out.type)
+        assertEquals(120_000L, out.amount)
+        // 청구 뒤 실제로 들어온 돈
+        val claim = p("[KB] 보험금 청구 건 300,000원 입금 11/17 13:00")!!
+        assertEquals(Parsed.Type.DEPOSIT, claim.type)
+        assertEquals(300_000L, claim.amount)
+        // 그래도 청구서·납부 안내, 등록 안내에 붙은 예정 금액은 예정
+        for (text in listOf(
+            "[삼성카드] 11월 청구금액 812,000원 결제일 12/14",
+            "[삼성카드] 11월 청구금액 812,000원, 결제계좌로 입금해 주세요",
+            "[삼성카드] 11월 청구금액 812,000원, 결제계좌로 입금 바랍니다",
+            "[현대카드] 청구금액 812,000원 입금 부탁드립니다",
+            "[KB] 보험료 청구 50,000원 입금(예정)",
+            "[신한] 자동이체 신청이 처리되었습니다. 다음 출금 예정일 12/25 50,000원",
+            "[KB] 보험료 청구 예정 안내 50,000원 입금일 11/30",
+        )) assertEquals(text, Parser.Unspent.SCHEDULED, Parser.unspent(text))
+    }
+
+    @Test fun currencyCodesInOrdinaryMessagesAreNotMoney() {
+        // 통화 코드 + 정수 + '사용'만 있는 일반 알림(#40): 카드사·은행 이름이나 결제 낱말이 없으면 금액 알림 후보가 아님
+        assertFalse(Parser.looksFinancial("서버 공지: PHP 8 업그레이드 후 사용 중인 플러그인을 확인해 주세요"))
+        assertFalse(Parser.looksFinancial("JPY 100 엔화 환율 알림 · 사용자 설정"))
+        // 결제 낱말이나 카드사가 있으면 그대로
+        assertTrue(Parser.looksFinancial("Google Play USD 9.99 결제 완료"))
+        assertEquals("USD 9.99", p("현대카드 해외승인 홍*동 USD 9.99 11/10 03:15 GOOGLE")!!.foreign)
+    }
+
+    // --- 같은 금융그룹 카드사의 카드값 (#63) ----------------------------------------------------------------------
+
+    @Test fun cardBillToTheSameGroupsCardIssuerIsATransfer() {
+        val kb = p("[KB]12/14 06:30\n123456**789\nKB국민카드\n출금 523,000\n잔액711,000")!!
+        assertEquals("KB국민은행", kb.issuer)
+        assertEquals(Parsed.Type.WITHDRAWAL, kb.type)
+        assertEquals(523_000L, kb.amount)
+        assertEquals("KB국민카드", kb.cardPaymentTo)
+        val nh = p("[농협]12/14 06:30\n123-****-5678-90\nNH농협카드\n출금 210,000원\n잔액90,000원")!!
+        assertEquals("NH농협", nh.issuer)
+        assertEquals("NH농협카드", nh.cardPaymentTo)
+        // 카드사 이름이 아닌 곳에 든 은행 이름은 여전히 지워 가맹점에 남지 않음
+        val shop = p("[KB]12/14 06:30\n123456**789\nKB국민 동네마트\n출금 12,000\n잔액700,000")!!
+        assertNull(shop.cardPaymentTo)
+        assertEquals("동네마트", shop.merchant)
+    }
+
     // --- 은행 받는 분·메모 칸(적요) (2026-11-20 사용자 폰 KB스타뱅킹 앱 푸시, 이름·계좌·금액·회사 이름은 바꿈) -----------------------
 
     @Test fun kbPushMemoIsTheMerchant() {

@@ -197,6 +197,11 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 4) {
         "SELECT $captureCols FROM capture_log WHERE ai IS NULL AND status != 'dismissed' AND at >= ? ORDER BY at DESC LIMIT $limit",
         arrayOf(since.toString())).use { c -> buildList { while (c.moveToNext()) add(readCapture(c)) } }
 
+    /** AI 판정이 남은 수집 기록의 판정 JSON들(사용량 세기용). */
+    fun captureAis(): List<String> = readableDatabase.rawQuery("SELECT ai FROM capture_log WHERE ai IS NOT NULL", null).use { c ->
+        buildList { while (c.moveToNext()) add(c.getString(0)) }
+    }
+
     fun setCaptureAi(id: Long, json: String?) {
         writableDatabase.update("capture_log", ContentValues().apply { put("ai", json) }, "id = ?", arrayOf(id.toString()))
     }
@@ -233,18 +238,24 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 4) {
             "txn_id = ?", arrayOf(from))
     }
 
-    /** "최근 받은 알림" 위의 건수(30일): 묶음·실패·후보가 실제 알림에서 얼마나 생기는지 보려고(#13·#19). */
-    data class CaptureCounts(val recorded: Int, val joined: Int, val failed: Int, val candidates: Int)
+    /**
+     * "최근 받은 알림" 위의 건수(30일): 묶음·실패·후보가 실제 알림에서 얼마나 생기는지 보려고(#13·#19).
+     * 실패와 예정 안내는 따로 셉니다: 어느 규칙이 얼마나 걸리는지 봐야 오탐을 가늠할 수 있어요(#40).
+     */
+    data class CaptureCounts(val recorded: Int, val joined: Int, val failed: Int, val scheduled: Int, val candidates: Int)
 
     fun captureCounts(): CaptureCounts = readableDatabase.rawQuery(
         "SELECT " +
             "SUM(CASE WHEN status = 'done' AND txn_id IS NOT NULL AND result NOT LIKE '같은 결제%' THEN 1 ELSE 0 END), " +
             "SUM(CASE WHEN result LIKE '같은 결제%' THEN 1 ELSE 0 END), " +
-            "SUM(CASE WHEN status = '$FAILED' THEN 1 ELSE 0 END), " +
-            "SUM(CASE WHEN status = '$CANDIDATE' THEN 1 ELSE 0 END) FROM capture_log", null).use { c ->
+            "SUM(CASE WHEN status = '$FAILED' AND result NOT LIKE ? THEN 1 ELSE 0 END), " +
+            "SUM(CASE WHEN status = '$FAILED' AND result LIKE ? THEN 1 ELSE 0 END), " +
+            "SUM(CASE WHEN status = '$CANDIDATE' THEN 1 ELSE 0 END) FROM capture_log",
+        arrayOf(SCHEDULED_LIKE, SCHEDULED_LIKE)).use { c ->
         c.moveToFirst()
-        CaptureCounts(c.getInt(0), c.getInt(1), c.getInt(2), c.getInt(3))
+        CaptureCounts(c.getInt(0), c.getInt(1), c.getInt(2), c.getInt(3), c.getInt(4))
     }
+    private val SCHEDULED_LIKE = "${com.jeiel85.doran.capture.CaptureProcessor.SCHEDULED_RESULT.substringBefore(" · ")}%"
 
     fun clearCaptures() = writableDatabase.delete("capture_log", null, null)
 
