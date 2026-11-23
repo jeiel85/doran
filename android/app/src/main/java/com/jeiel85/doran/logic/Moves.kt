@@ -53,6 +53,19 @@ object Moves {
     /** 사용자가 고른 가족 돈과 이은 출금인지. */
     fun picked(t: Txn): Boolean = t.move?.startsWith(PICK) == true
 
+    /**
+     * 옮긴 돈이 간 곳(내역 목록 "→ …"·엑셀 '받는 계좌'): 받는 계좌를 고른 이체는 그 계좌, 나만 보는 통장의 출금은 짝지은 입금의
+     * 사람·통장, 가계부 통장끼리 옮긴 출금은 짝인 입금의 사람·통장. 모르면 null(2026-11-23: "입 통장"만 보여 어디로 갔는지 몰랐음).
+     */
+    fun destination(s: LedgerState, t: Txn): String? {
+        s.account(t.toAccountId)?.name?.let { return it }
+        val d = pairOf(t)?.let { s.txns[it] }
+            ?: linkOf(t)?.let { s.txns[it] }?.takeIf { t.kind == Kind.EXPENSE && it.kind == Kind.INCOME }
+            ?: return null
+        val where = s.account(d.accountId)?.name ?: d.cardLabel ?: d.issuer ?: "통장"
+        return listOfNotNull(s.member(d.memberId)?.name, where).joinToString(" ")
+    }
+
     /** 이 판정으로 옮긴 돈이 된 출금인지. */
     fun isMoved(t: Txn): Boolean = t.kind == Kind.TRANSFER && t.move != null
 
@@ -304,16 +317,37 @@ object Moves {
         if (!free(t) || !linkable(s, t)) return null
         val want = if (t.kind == Kind.EXPENSE) Kind.INCOME else Kind.EXPENSE
         return s.txns.values.asSequence()
-            .filter { o -> o.id != t.id && o.kind == want && free(o) && o.amount == t.amount && o.accountId != t.accountId &&
+            .filter { o -> o.id != t.id && o.kind == want && free(o) && o.amount == t.amount && accountsFit(t, o) &&
                 abs(o.at - t.at) <= WINDOW && linkable(s, o) }
             .minWithOrNull(compareBy<Txn>({ abs(it.at - t.at) }, { it.id }))
     }
 
+    /** 같은 은행 문자에서 본인 통장끼리 옮긴 돈으로 볼 시간: 내가 한 이체라 두 문자가 바로 붙어 옵니다. */
+    const val SAME_BANK_WINDOW = 3 * 60_000L
+
+    /**
+     * 출금·입금 한 쌍이 서로 다른 통장인지. 같은 통장으로 기록됐어도, 같은 사람의 출금 받는 분이 곧 입금 보낸 분(이름 + 메모,
+     * "홍길순" → "홍길순_축의")이고 [SAME_BANK_WINDOW] 안이면 그 사람이 같은 은행의 자기 통장끼리 옮긴 돈입니다. 은행 문자에는
+     * 계좌번호가 없어 같은 은행의 두 통장이 가계부에 통장 하나로 묶이기 때문입니다(2026-11-23 신한 통장 → 다른 신한 통장, D-34).
+     * 이름만으로는 사람과 가게를 가릴 수 없지만, 같은 통장·같은 금액·같은 이름이 몇 분 안에 나갔다 들어온 돈은 무엇이든 가계부
+     * 합계로는 0이라(곧바로 돌려받은 돈 포함) 묶어도 숫자가 틀어지지 않습니다. 아니면 내역 화면 "따로 세기"로 풉니다.
+     */
+    fun accountsFit(a: Txn, b: Txn): Boolean {
+        if (a.accountId != b.accountId) return true
+        val out = if (a.kind == Kind.EXPENSE) a else b
+        val into = if (out === a) b else a
+        if (out.kind != Kind.EXPENSE || into.kind != Kind.INCOME || out.memberId != into.memberId || abs(out.at - into.at) > SAME_BANK_WINDOW) return false
+        val name = out.merchant.trim()
+        if (name.length < 2) return false
+        val from = into.merchant.trim()
+        return from.startsWith(name) && (from.length == name.length || from[name.length].let { c -> c !in '가'..'힣' })
+    }
+
     fun link(a: Txn, b: Txn): List<Txn> = listOf(a.copy(move = LINK + b.id), b.copy(move = LINK + a.id))
 
-    /** 두 공유 내역이 옮긴 돈 한 쌍의 조건에 맞는지(짝 표시는 보지 않음): 출금 하나·입금 하나, 같은 금액, 서로 다른 통장, 앞뒤 [WINDOW]. */
+    /** 두 공유 내역이 옮긴 돈 한 쌍의 조건에 맞는지(짝 표시는 보지 않음): 출금 하나·입금 하나, 같은 금액, 서로 다른 통장([accountsFit]), 앞뒤 [WINDOW]. */
     fun pairFits(s: LedgerState, a: Txn, b: Txn): Boolean =
-        setOf(a.kind, b.kind) == setOf(Kind.EXPENSE, Kind.INCOME) && a.amount == b.amount && a.accountId != b.accountId &&
+        setOf(a.kind, b.kind) == setOf(Kind.EXPENSE, Kind.INCOME) && a.amount == b.amount && accountsFit(a, b) &&
             abs(a.at - b.at) <= WINDOW && linkable(s, a) && linkable(s, b)
 
     /** 내역 화면 "따로 세기": 두 쪽을 풀고 다시 짝짓지 않게 합니다. 다른 쪽이 없으면 이쪽만. */
@@ -343,7 +377,7 @@ object Moves {
             }
             val ins = pool.filter { it.kind == Kind.INCOME }
             val pairs = pool.filter { it.kind == Kind.EXPENSE }
-                .flatMap { e -> ins.filter { i -> i.amount == e.amount && i.accountId != e.accountId && abs(i.at - e.at) <= WINDOW }.map { e to it } }
+                .flatMap { e -> ins.filter { i -> i.amount == e.amount && accountsFit(e, i) && abs(i.at - e.at) <= WINDOW }.map { e to it } }
                 .sortedWith(compareBy<Pair<Txn, Txn>>({ abs(it.first.at - it.second.at) }, { it.first.id }, { it.second.id }))
             val used = HashSet<String>()
             for ((e, i) in pairs) {

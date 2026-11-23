@@ -166,6 +166,8 @@ object Parser {
         // 은행 거래 방식 낱말("스마트폰출금", "인터넷이체", "타행입금"): 받는 분·메모 칸(적요)이 아니라 이체한 길입니다(2026-11-20 KB 알림).
         // 낱말 하나로는 가게 이름에도 쓰여("스마트폰케이스몰") 입출금 낱말이 바로 붙을 때만 뗍니다. ATM·CD는 현금이라는 뜻이 있어 남깁니다.
         """(?:스마트폰|인터넷|모바일|폰뱅킹|오픈뱅킹|타행|당행|FB)(?=\s*(?:출금|입금|이체|지급|송금))|""" +
+        // 통장 이름 "입출금통장"은 받는 분·메모가 아닙니다. '출금'만 떼면 "입 통장"이 가맹점으로 남았습니다(2026-11-23 카카오뱅크 알림).
+        """입출금\s*통장|입출금|""" +
         """승인취소|취소승인|해외승인|승인|취소|체크카드|체크|신용|일시불|사용|결제|입금|출금|이체|지급|자동이체|전자금융|님""" +
             """|본인|해외|누적|잔액|국내|금액|이용안내|안내|일반|가맹점""" +
             // 문장형 알림("…결제되었습니다")의 끝말이 가맹점으로 뽑히지 않게
@@ -416,7 +418,7 @@ object Parser {
             val end = minOf(r.last + 1, sb.length)
             if (r.first < end) for (i in r.first until end) sb.setCharAt(i, '\n')
         }
-        fun usable(s: String) = s.length >= 2 && !s.all { c -> c.isDigit() || c == '*' || c == ' ' } && !Issuers.cardNameOnly(s, issuer)
+        fun usable(s: String) = s.length >= 2 && s != "통장" && !s.all { c -> c.isDigit() || c == '*' || c == ' ' } && !Issuers.cardNameOnly(s, issuer)
         place?.let { p -> tidy(sb.substring(0, p).split(*SEPARATORS).last()).takeIf(::usable)?.let { return it.take(40) } }
         // 괄호로는 나누지 않습니다: "씨유(CU)가산하이엔드6차점"이 "가산하이엔드6차점"만 남아 브랜드를 잃기 때문입니다.
         val chunks = sb.toString().split(*SEPARATORS).map(::tidy).filter(::usable)

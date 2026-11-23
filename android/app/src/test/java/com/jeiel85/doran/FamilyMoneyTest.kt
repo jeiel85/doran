@@ -65,6 +65,59 @@ class FamilyMoneyTest {
 
     // --- B: 가계부 통장끼리 옮긴 돈 -------------------------------------------------------------
 
+    /**
+     * 2026-11-23: 아내가 신한 통장에서 자기 다른 신한 통장으로 10만 원을 옮김. 신한 문자에는 계좌번호가 없어 두 통장이 '신한은행'
+     * 하나로 기록돼, 출금 "홍길순"는 지출·입금 "홍길순_축의"은 수입으로 둘 다 가계부 합계에 들어갔습니다(D-34).
+     */
+    @Test fun ownTransferBetweenTwoAccountsOfTheSameBankIsLinked() {
+        val out = wifeOut("w1", 100_000, ms(14, 18), merchant = "홍길순")
+        val inn = Txn("w2", Kind.INCOME, 100_000, ms(14, 18), accountId = wifeBank.id, merchant = "홍길순_축의", memberId = "w",
+            source = Source.SMS, issuer = "신한은행", categoryId = "c.income_etc", createdBy = "install-w")
+        val gift = wifeOut("w0", 100_000, ms(14, 13), merchant = "카카오페이")
+        val s = ledger(gift, out, inn)
+        val linked = s.with(Moves.linkUpdates(s, setOf("w1", "w2")))
+        assertEquals("w2", Moves.linkOf(linked.txns.getValue("w1")))
+        assertEquals("w1", Moves.linkOf(linked.txns.getValue("w2")))
+        assertNull(Moves.linkOf(linked.txns.getValue("w0")))
+        // 내역 목록·엑셀 '받는 계좌'에 옮긴 곳이 보임
+        assertEquals("아내 신한은행", Moves.destination(linked, linked.txns.getValue("w1")))
+        assertNull(Moves.destination(linked, linked.txns.getValue("w2")))
+        val e = Stats.entries(linked, p, myMemberId = "w")
+        // 축의금(카카오페이)만 쓴 돈, 통장끼리 옮긴 돈은 수입도 지출도 아님
+        assertEquals(100_000L, Stats.expense(e))
+        assertEquals(0L, Stats.income(e))
+    }
+
+    /** 나만 보는 통장(카카오뱅크)에서 가계부 통장으로 보낸 돈은 짝지은 입금의 사람·통장이 받은 곳으로 보입니다. */
+    @Test fun movedPrivateWithdrawalShowsWhereItWent() {
+        val inn = sharedIn("k1", 100_000, ms(14, 17))
+        val w = myOut("x", 100_000, ms(14, 17), issuer = "카카오뱅크", merchant = "")
+        val s = ledger(inn, w)
+        val judged = Moves.judge(s, w, husband.allowance, null)
+        assertEquals("k1", Moves.pairOf(judged))
+        assertEquals("남편 케이뱅크", Moves.destination(s.with(listOf(judged)), judged))
+        // 짝이 없으면 모름
+        assertNull(Moves.destination(s, w))
+    }
+
+    @Test fun sameAccountPairNeedsTheSamePersonOnBothEnds() {
+        fun inn(merchant: String, at: Long = ms(14, 18), member: String = "w") = Txn("i", Kind.INCOME, 100_000, at, accountId = wifeBank.id,
+            merchant = merchant, memberId = member, source = Source.SMS, issuer = "신한은행", categoryId = "c.income_etc", createdBy = "install-w")
+        fun linkedWith(o: Txn, i: Txn) = Moves.linkOf(ledger(o, i).with(Moves.linkUpdates(ledger(o, i), setOf(o.id, i.id))).txns.getValue(o.id))
+        val out = wifeOut("o", 100_000, ms(14, 18), merchant = "홍길순")
+        assertEquals("i", linkedWith(out, inn("홍길순")))
+        // 다른 사람에게 보내고 다른 사람에게 받은 같은 금액은 따로
+        assertNull(linkedWith(out, inn("박하영")))
+        // 이름이 더 긴 다른 사람("홍길순이")은 같은 사람이 아님
+        assertNull(linkedWith(out, inn("홍길순이")))
+        // 같은 통장에서 몇 분 넘게 떨어진 것은 따로
+        assertNull(linkedWith(out, inn("홍길순", at = ms(14, 25))))
+        // 받는 분 이름이 없는 출금은 같은 사람인지 알 수 없어 묶지 않음
+        assertNull(linkedWith(wifeOut("o", 100_000, ms(14, 18), merchant = ""), inn("홍길순")))
+        // 다른 사람 폰의 입금과는 같은 통장이어도 묶지 않음
+        assertNull(linkedWith(out, inn("홍길순", member = "h")))
+    }
+
     @Test fun maintenanceMoneyToMySharedAccountIsLinkedAndLeavesTotals() {
         val out = wifeOut("w1", 300_000, ms(13, 6))
         val inn = sharedIn("k1", 300_000, ms(13, 6))

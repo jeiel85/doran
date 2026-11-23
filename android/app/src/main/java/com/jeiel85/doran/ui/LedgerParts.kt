@@ -87,7 +87,7 @@ fun TxnRow(e: Entry, s: LedgerState, isNew: Boolean, showDate: Boolean = false, 
                         moves.selfIn(t) -> add("내 통장끼리 옮긴 돈 · 수입 아님")
                         !e.counted -> add("용돈 · 합계 제외")
                     }
-                    if (t.kind == Kind.TRANSFER) s.account(t.toAccountId)?.name?.let { add("→ $it") }
+                    moves.destination(s, t)?.let { add("→ $it") }
                     if (t.installment > 1) add("${t.installment}개월")
                     if (t.source == Source.RECURRING) add("고정")
                     if (!showDate) add(Fmt.time(t.at))
