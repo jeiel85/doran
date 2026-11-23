@@ -8,6 +8,8 @@ import com.jeiel85.doran.data.Ledger
 import com.jeiel85.doran.data.LedgerState
 import com.jeiel85.doran.data.LocalSettings
 import com.jeiel85.doran.data.OutLink
+import com.jeiel85.doran.logic.Gaps
+import com.jeiel85.doran.logic.Moves
 import com.jeiel85.doran.logic.Twins
 import com.jeiel85.doran.model.Account
 import com.jeiel85.doran.model.AccountType
@@ -38,8 +40,10 @@ class CaptureProcessor(
 
     private val sameMinutes = 3 * 60_000L
 
+    /** [notice]: 알림 하나를 가리키는 표시([Notices]). 같은 앱·번호가 따로 올린 같은 금액 알림을 두 거래로 셉니다(D-5). */
     @Synchronized
-    fun process(source: Source, pkg: String?, title: String?, text: String, postedAt: Long, appLabel: String? = null): Outcome? {
+    fun process(source: Source, pkg: String?, title: String?, text: String, postedAt: Long, appLabel: String? = null,
+                notice: String? = null): Outcome? {
         val body = listOfNotNull(title, text).joinToString("\n")
         val rule = settings.ruleFor(source.code, pkg)
         val custom = rule?.let { Issuer(it.issuer, it.card, listOf(it.issuer)) }
@@ -50,18 +54,19 @@ class CaptureProcessor(
                 // 결제·출금 실패, 결제·출금 예정 안내는 돈이 나가지 않았으니 기록하지도, 골라 보낼 후보로 권하지도 않고 이유만 남깁니다(D-4).
                 // 같은 알림이 앱 푸시·문자·알림 갱신으로 여러 번 와도 한 번만 남기고(#13), 오탐이면 "그래도 보내기"로 보낼 수 있습니다.
                 unspent != null -> if (!db.hasCapture(Db.FAILED, source.code, pkg, text)) {
-                    db.logCapture(postedAt, source.code, pkg, title, text, resultOf(unspent), null, status = Db.FAILED, label = appLabel ?: pkg)
+                    db.logCapture(postedAt, source.code, pkg, title, text, resultOf(unspent), null, status = Db.FAILED, label = appLabel ?: pkg,
+                        notice = notice)
                 }
                 Parser.looksFinancial(body) && !db.hasCapture(Db.CANDIDATE, source.code, pkg, text) -> {
                     // 간편결제 앱 알림이 이미 기록·보낸 카드·은행 결제와 같은 결제면 후보로 남기지 않고 그 기록에 묶습니다(D-5).
                     val app = payApp(source.code, appLabel, title, pkg)
                     val joined = Parser.payNotice(body, Fmt.dateTime(postedAt), app)?.let { joinRecorded(it, postedAt, app) }
                     if (joined != null) {
-                        db.logCapture(postedAt, source.code, pkg, title, text, joined.result, joined.txnId, label = appLabel ?: pkg)
+                        db.logCapture(postedAt, source.code, pkg, title, text, joined.result, joined.txnId, label = appLabel ?: pkg, notice = notice)
                     } else {
                         // 금액이 적힌데 형식을 몰라 못 읽은 알림은 "최근 받은 알림"에서 골라 보낼 수 있게 남깁니다(이 폰에만, 30일).
                         db.logCapture(postedAt, source.code, pkg, title, text, "기록 안 함 · 골라서 보낼 수 있어요", null, status = Db.CANDIDATE,
-                            label = appLabel ?: pkg)
+                            label = appLabel ?: pkg, notice = notice)
                         db.trimCandidates(source.code, pkg, keep = 30)
                     }
                 }
@@ -78,21 +83,22 @@ class CaptureProcessor(
             val joined = joinRecorded(parsed, at, parsed.issuer, links = false)
                 ?: if (parsed.type == Parsed.Type.CANCEL) cancelAbsorbed(parsed, at, source) else null
             if (joined != null) {
-                val sent = identity.value.outLinks.filter { sendsTo(it, parsed.issuer) }.map { forward(parsed, at, it) }
+                val route = Notices.Seen(source.code, pkg, notice)
+                val sent = identity.value.outLinks.filter { sendsTo(it, parsed.issuer) }.map { forward(parsed, at, it, route) }
                 val result = (listOf(joined.result) + sent.map { it.text }).joinToString(" · ")
-                db.logCapture(postedAt, source.code, pkg, title, text, result, joined.txnId, label = appLabel ?: pkg)
+                db.logCapture(postedAt, source.code, pkg, title, text, result, joined.txnId, label = appLabel ?: pkg, notice = notice)
                 requestSync()
                 return joined.copy(result = result, handled = true)
             }
         }
         // 같은 결제를 알린 간편결제 앱 알림이 먼저 와서 후보로 남아 있으면 그 가맹점·앱 이름을 보태 함께 묶습니다(D-5).
-        val notice = pendingNotice(parsed, txnAt(parsed, postedAt))
-        val out = deliver(notice?.let { SamePayment.enrich(parsed, it.parsed, it.app) } ?: parsed, source, pkg, title, text, postedAt,
-            appLabel, logId = null, note = notice?.let { "${it.app} 알림과 같은 결제" })
+        val payNotice = pendingNotice(parsed, txnAt(parsed, postedAt))
+        val out = deliver(payNotice?.let { SamePayment.enrich(parsed, it.parsed, it.app) } ?: parsed, source, pkg, title, text, postedAt,
+            appLabel, logId = null, note = payNotice?.let { "${it.app} 알림과 같은 결제" }, notice = notice)
         // 실제로 기록하거나 보냈을 때만 묶습니다. 보내지 않는 카드사면 간편결제 알림은 골라 보낼 수 있게 후보로 둡니다.
-        if (notice != null && out.handled) {
-            out.txnId?.let { joinStored(it, notice.parsed, notice.app) }
-            db.updateCapture(notice.row.id, "done", "같은 결제 · ${parsed.issuer} 알림과 묶음", out.txnId)
+        if (payNotice != null && out.handled) {
+            out.txnId?.let { joinStored(it, payNotice.parsed, payNotice.app) }
+            db.updateCapture(payNotice.row.id, "done", "같은 결제 · ${parsed.issuer} 알림과 묶음", out.txnId)
         }
         out.txnId?.let { absorbPayRecord(it) }
         return out
@@ -246,7 +252,7 @@ class CaptureProcessor(
         }
         // 직접 골라 보낸 것은 공유 범위와 관계없이 가계부에 올립니다.
         return deliver(parsed, Source.of(row.source), from, row.title, row.text, row.at, row.label, logId = row.id, forceShare = true,
-            note = PICKED_NOTE)
+            note = PICKED_NOTE, notice = row.notice)
     }
 
     /** 고른 알림을 지금 해석해 보여 줄 초기값. 카드사를 모르면 앱 이름(없으면 "카드")으로 둡니다. 실패로 뺀 알림도 읽어 채웁니다(#13). */
@@ -295,36 +301,44 @@ class CaptureProcessor(
     private fun resultOf(unspent: Parser.Unspent) = if (unspent == Parser.Unspent.SCHEDULED) SCHEDULED_RESULT else FAILED_RESULT
 
     private fun deliver(parsed: Parsed, source: Source, pkg: String?, title: String?, text: String, postedAt: Long,
-                        appLabel: String?, logId: Long?, forceShare: Boolean = false, note: String? = null): Outcome {
+                        appLabel: String?, logId: Long?, forceShare: Boolean = false, note: String? = null, notice: String? = null): Outcome {
         val at = txnAt(parsed, postedAt)
+        val route = Notices.Seen(source.code, pkg, notice)
         val results = ArrayList<String>()
         var txnId: String? = null
         var handled = false
         if (identity.value.inHousehold) {
             val me = ledger.value.member(identity.value.myMemberId)
-            val r = if (!forceShare && me != null && !me.shares(parsed.issuer)) recordPrivate(parsed, source, at, me.id)
-                else recordLocal(parsed, source, at)
+            val r = if (!forceShare && me != null && !me.shares(parsed.issuer)) recordPrivate(parsed, source, at, me.id, route)
+                else recordLocal(parsed, source, at, route)
             results += r.result
             txnId = r.txnId
             if (r.txnId != null) handled = true
         }
         for (link in identity.value.outLinks) {
             if (!sendsTo(link, parsed.issuer)) continue
-            val sent = forward(parsed, at, link)
+            val sent = forward(parsed, at, link, route)
             results += sent.text
             if (sent.ok) handled = true
         }
         if (results.isEmpty()) results += "가계부가 없어 기록하지 않음"
         note?.takeIf { handled }?.let { results += it }
         if (logId != null) db.updateCapture(logId, "done", results.joinToString(" · "), txnId)
-        else db.logCapture(postedAt, source.code, pkg, title, text, results.joinToString(" · "), txnId, label = appLabel)
+        else db.logCapture(postedAt, source.code, pkg, title, text, results.joinToString(" · "), txnId, label = appLabel, notice = notice)
         requestSync()
         return Outcome(results.joinToString(" · "), txnId, handled)
     }
 
     // --- 내 가구에 기록 -------------------------------------------------------------------------
 
-    private fun recordLocal(p: Parsed, source: Source, at: Long): Outcome {
+    /**
+     * 같은 금액·3분 안에 이미 기록된 거래 [txnId]가 있어도, 지금 알림([route])이 그 거래를 이미 알린 같은 앱·번호의 **다른** 알림이면
+     * 다른 거래입니다(같은 금액 자동이체 두 건 — [Notices]). 앱 푸시와 문자가 함께 알린 같은 결제는 지금처럼 한 건입니다.
+     */
+    private fun anotherNotice(txnId: String, route: Notices.Seen): Boolean =
+        route.notice != null && Notices.another(db.capturesOf(txnId).map { Notices.Seen(it.source, it.pkg, it.notice) }, route.source, route.pkg, route.notice)
+
+    private fun recordLocal(p: Parsed, source: Source, at: Long, route: Notices.Seen): Outcome {
         val me = identity.value.myMemberId
         val s = ledger.value
         val label = p.cardLabel
@@ -346,10 +360,10 @@ class CaptureProcessor(
 
         withBalance(account, p.balance, at).takeIf { it != account }?.let { ledger.saveAccount(it) }
 
-        // 같은 승인이 앱 알림과 문자로 두 번 온 경우 (DECISIONS.md D-5).
+        // 같은 승인이 앱 알림과 문자로 두 번 온 경우 (DECISIONS.md D-5). 같은 앱이 따로 올린 알림이면 다른 거래입니다(Notices).
         val dup = ledger.value.txns.values.firstOrNull {
             it.accountId == account.id && it.amount == p.amount && it.kind == kind && (it.cancelOf != null) == isCancel &&
-                abs(it.at - at) <= sameMinutes && it.source.captured
+                abs(it.at - at) <= sameMinutes && it.source.captured && !anotherNotice(it.id, route)
         }
         if (dup != null) {
             if (dup.cumulative == null && p.cumulative != null || dup.merchant.isBlank() && !p.merchant.isNullOrBlank()) {
@@ -409,9 +423,9 @@ class CaptureProcessor(
      * 공유 범위 밖 카드사·은행의 알림. 가족이 그 카드·계좌의 존재나 잔액을 알 수 없게 계좌를 만들거나 잔액을 고치지 않고,
      * 개인 키로 봉하는 용돈 거래(private)로만 남깁니다. 가족에게는 용돈 월 합계만 보입니다(D-7).
      */
-    private fun recordPrivate(p: Parsed, source: Source, at: Long, me: String): Outcome {
+    private fun recordPrivate(p: Parsed, source: Source, at: Long, me: String, route: Notices.Seen): Outcome {
         // 내 계좌에서 내 카드값이 나가는 것은 지출이 아니라 이체라, 계좌 없이 남기면 같은 돈을 두 번 센 셈이 됩니다.
-        if (p.cardPaymentTo != null) return Outcome("공유 범위 밖 카드값 출금 · 기록 안 함", null)
+        if (p.cardPaymentTo != null) return Outcome(CARD_BILL_RESULT, null)
         val isCancel = p.type == Parsed.Type.CANCEL
         val kind = if (p.type == Parsed.Type.DEPOSIT) Kind.INCOME else Kind.EXPENSE
         // 은행 출금은 쓴 돈인지 옮긴 돈인지 따로 가립니다(D-26). 카드 승인·체크카드 승인은 쓴 돈입니다.
@@ -420,7 +434,8 @@ class CaptureProcessor(
         mine.firstOrNull {
             // 먼저 온 같은 출금 알림이 옮긴 돈(이체)으로 기록됐어도 같은 출금입니다(앱 푸시와 문자가 함께 오는 경우).
             val sameKind = it.kind == kind || bankOut && com.jeiel85.doran.logic.Moves.isMoved(it)
-            it.amount == p.amount && sameKind && (it.cancelOf != null) == isCancel && abs(it.at - at) <= sameMinutes && it.source.captured
+            it.amount == p.amount && sameKind && (it.cancelOf != null) == isCancel && abs(it.at - at) <= sameMinutes && it.source.captured &&
+                !anotherNotice(it.id, route)
         }?.let { return Outcome("이미 기록됨(중복 알림)", it.id) }
         if (isCancel) {
             SamePayment.unpairedAppCancel(ledger.value, mine, p.amount, at, p.merchant, ::cardPaired)?.let { return Outcome("이미 기록됨(간편결제 알림의 같은 취소)", it.id) }
@@ -520,6 +535,71 @@ class CaptureProcessor(
             if (ledger.value.txns[before.id] != before) continue
             ledger.saveTxn(com.jeiel85.doran.logic.Moves.spent(ledger.value, before, com.jeiel85.doran.logic.Moves.KEPT))
         }
+    }
+
+    // --- 알림 없이 나간 돈 (D-31) --------------------------------------------------------------------
+
+    /**
+     * 범위 밖 통장(나만 보는 용돈)에서 알림 없이 나간 돈: 은행이 알려 준 잔액 두 개 사이에 기록된 드나듦으로 설명되지 않게 잔액이 더 준 것
+     * ([Gaps]). 답한 것(옮긴 돈·쓴 돈·아니에요)은 빼고, 같은 무렵 같은 금액이 내 다른 통장에 들어왔으면 그 입금을 함께 돌려줍니다.
+     * 알림 원문(30일)을 읽으니 IO 스레드에서.
+     */
+    fun missingOutflows(now: Long = System.currentTimeMillis()): List<Pair<Gaps.Gap, Txn?>> {
+        val me = identity.value.myMemberId ?: return emptyList()
+        val since = now - 30L * 86_400_000
+        val s = ledger.value
+        val balances = HashMap<String, Long>()
+        val bills = ArrayList<Pair<String, Gaps.Step>>()
+        for (row in db.doneCapturesSince(since)) {
+            val p = Parser.parse(listOfNotNull(row.title, row.text).joinToString("\n"), Fmt.dateTime(row.at), row.label) ?: continue
+            val bank = Gaps.bankOf(p.issuer) ?: continue
+            val id = row.txnId
+            if (id != null) {
+                // 그 거래의 통장이 알려 준 잔액만(간편결제 앱 머니 잔액처럼 다른 곳의 잔액은 아님).
+                val t = s.txns[id] ?: continue
+                if (p.balance != null && Gaps.bankOf(t.issuer) == bank) balances[id] = p.balance
+            } else if (row.result.startsWith(CARD_BILL_RESULT) && p.cardPaymentTo != null) {
+                bills += bank to Gaps.Step("row:${row.id}", txnAt(p, row.at), row.at, -p.amount, p.balance)
+            }
+        }
+        val steps = s.txns.values.filter { it.private && it.memberId == me && !it.personal && it.at >= since }
+            .mapNotNull { t -> Gaps.bankOf(t.issuer)?.let { it to Gaps.Step(t.id, t.at, t.createdAt, Gaps.delta(t), balances[t.id]) } } + bills
+        val handled = handledGaps()
+        return steps.groupBy({ it.first }, { it.second }).flatMap { (bank, st) -> Gaps.find(bank, st) }
+            .filter { g -> now - g.toAt >= Gaps.SETTLE && handled[g.key]?.let { it == DISMISSED || s.txns.containsKey(it) } != true }
+            .sortedByDescending { it.toAt }
+            .map { it to Gaps.counterpart(s, it, me) }
+    }
+
+    /**
+     * 빈틈에 답합니다: [spent]면 용돈에서 쓴 돈, 아니면 옮긴 돈으로 나만 보는 내역을 남깁니다. 옮긴 돈이고 같은 금액이 들어온 내 나만 보는
+     * 입금이 있으면 그 입금도 '내 통장끼리 옮긴 돈'으로 표시합니다(가계부 통장 입금은 가족 합계라 사람이 고르게 둡니다).
+     */
+    @Synchronized
+    fun answerGap(g: Gaps.Gap, spent: Boolean): Txn? {
+        val me = identity.value.myMemberId ?: return null
+        val s = ledger.value
+        val deposit = Gaps.counterpart(s, g, me)
+        val t = Gaps.answer(s, g, spent, me, identity.installId, deposit, System.currentTimeMillis())
+        ledger.saveTxn(t)
+        if (!spent && deposit != null && deposit.private && Moves.canMarkSelf(deposit)) ledger.saveTxn(Moves.markSelf(deposit, on = true))
+        markGap(g, t.id)
+        requestSync()
+        return t
+    }
+
+    /** "아니에요": 다시 묻지 않습니다. */
+    fun dismissGap(g: Gaps.Gap) = markGap(g, DISMISSED)
+
+    /** 답한 빈틈: 열쇠 → 남긴 거래 id(지우면 다시 물음) 또는 [DISMISSED]. 이 폰에만, 최근 300건. */
+    private fun handledGaps(): Map<String, String> =
+        db.kv(GAPS_KEY)?.let { runCatching { JSONObject(it) }.getOrNull() }?.let { o -> o.keys().asSequence().associateWith { o.getString(it) } } ?: emptyMap()
+
+    @Synchronized
+    private fun markGap(g: Gaps.Gap, value: String) {
+        val all = LinkedHashMap(handledGaps()).apply { remove(g.key); put(g.key, value) }
+        val kept = all.entries.toList().takeLast(300)
+        db.setKv(GAPS_KEY, JSONObject().apply { kept.forEach { (k, v) -> put(k, v) } }.toString())
     }
 
     /** "최근 받은 알림"의 기록 결과에 옮긴 돈 표시를 붙이거나 뗍니다. */
@@ -628,8 +708,8 @@ class CaptureProcessor(
 
     private class Sent(val text: String, val ok: Boolean)
 
-    /** [Sent.ok]: 보냈거나 이미 보낸 결제인지. */
-    private fun forward(p: Parsed, at: Long, link: OutLink): Sent {
+    /** [Sent.ok]: 보냈거나 이미 보낸 결제인지. [route]: 이 알림의 경로·표시(같은 앱이 따로 올린 알림은 다른 거래, [Notices]). */
+    private fun forward(p: Parsed, at: Long, link: OutLink, route: Notices.Seen): Sent {
         val items = sentTo(link)
         val isCancel = p.type == Parsed.Type.CANCEL
         val kind = when (p.type) {
@@ -638,7 +718,7 @@ class CaptureProcessor(
         }
         // 같은 카드사의 중복 알림, 또는 규칙으로 보낸 간편결제 앱 알림과 같은 결제의 카드·은행 알림(#18)이면 다시 보내지 않고,
         // 이 이름으로 올 취소가 원래 거래를 찾게 별칭만 남깁니다(#21 리뷰).
-        (SentLog.sameSent(items, p, at) ?: SentLog.sameCancelSent(items, p, at))?.let { hit ->
+        (SentLog.sameSent(items, p, at, route) ?: SentLog.sameCancelSent(items, p, at))?.let { hit ->
             SentLog.withAlias(items, hit, p.issuer)?.let { saveSent(link, it) }
             return Sent("${link.label}: 이미 보냄", true)
         }
@@ -661,12 +741,14 @@ class CaptureProcessor(
             val op = sync.seal(link.spaceId, link.key, type, id, h, false, json)
             db.addForward(link.spaceId, op.ek, op.h, op.env)
         }
-        saveSent(link, items + SentLog.entry(txn.id, p, at, kind, original?.optString("id")))
+        saveSent(link, items + SentLog.entry(txn.id, p, at, kind, original?.optString("id"), route))
         return Sent("${link.label}에 보냄", true)
     }
 
     companion object {
         const val FAILED_RESULT = "결제·출금 실패 알림 · 기록 안 함"
+        /** 범위 밖 통장의 카드값 출금: 기록하지 않지만 통장에서는 나간 돈이라, 알림 없이 나간 돈을 찾을 때 흐름에 넣습니다(D-31). 바꾸면 예전 행을 못 찾습니다. */
+        const val CARD_BILL_RESULT = "공유 범위 밖 카드값 출금 · 기록 안 함"
         const val SCHEDULED_RESULT = "결제·출금 예정 안내 · 기록 안 함"
         private const val PRIVATE_RESULT = "나만 보는 용돈으로 기록"
         /** 옮긴 돈으로 본 은행 출금의 수집 기록 표시(D-26). */
@@ -677,6 +759,8 @@ class CaptureProcessor(
         private const val KEPT_NOTE = "실패 알림이지만 그대로 둠"
         private const val KEPT_SCHEDULED_NOTE = "예정 안내지만 그대로 둠"
         private val KEPT_NOTES = listOf(KEPT_NOTE, KEPT_SCHEDULED_NOTE)
+        private const val GAPS_KEY = "gaps.handled"
+        private const val DISMISSED = "-"
 
         /** 이 링크로 보낼 카드사·은행인지. 비어 있으면 전부, 표기가 달라도 같은 곳이면 보냅니다(#10). */
         fun sendsTo(link: OutLink, issuer: String): Boolean = link.issuers.isEmpty() || link.issuers.any { Issuers.same(it, issuer) }

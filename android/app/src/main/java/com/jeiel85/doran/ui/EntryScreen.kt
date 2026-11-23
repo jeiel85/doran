@@ -305,6 +305,16 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                         Spacer(Modifier.height(10.dp))
                         FundCard(s, o, id.myMemberId) { nav.back() }
                     }
+                    // 입금: 출금 알림이 없는 내 통장(토스뱅크의 내 이체)에서 옮겨 온 돈이면 수입에서 뺍니다(D-31). 나만 보는 입금은 내 폰에서만.
+                    if ((Moves.canMarkSelf(o) || Moves.selfIn(o)) && (!o.private || o.memberId == id.myMemberId)) {
+                        Spacer(Modifier.height(10.dp))
+                        SelfCard(o) {
+                            // 먼저 고친 내용·메모·날짜가 있으면 함께 저장하고 표시만 바꿉니다(출금 판정 버튼과 같은 방식, #50).
+                            if (valid && kind == o.kind) persist()
+                            Hub.ledger.value.txns[o.id]?.let { cur -> Hub.ledger.saveTxn(Moves.markSelf(cur, on = !Moves.selfIn(o))) }
+                            nav.back()
+                        }
+                    }
                 }
             }
             Spacer(Modifier.height(14.dp))
@@ -566,6 +576,26 @@ private fun LinkCard(s: com.jeiel85.doran.data.LedgerState, o: Txn, onDone: () -
                 Moves.relink(s, o).forEach { Hub.ledger.saveTxn(it) }
                 onDone()
             }
+        }
+    }
+}
+
+/** 입금(D-31): 수입으로 셀지, 내 다른 통장에서 옮겨 온 돈으로 볼지. */
+@Composable
+private fun SelfCard(o: Txn, onToggle: () -> Unit) {
+    val self = Moves.selfIn(o)
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (self) P.c.pineSoft else P.c.surface2)
+        .padding(horizontal = 14.dp, vertical = 12.dp)) {
+        Text(if (self) "내 통장끼리 옮긴 돈이에요 · 수입에서 빠졌어요" else "수입으로 적었어요", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
+        Text(when {
+            self -> "내 다른 통장에서 옮겨 온 돈으로 봤어요. 통장 잔액에는 그대로 들어가요."
+            o.private -> "토스뱅크처럼 출금 알림이 없는 내 다른 통장에서 옮겨 온 돈이면 바꿔 주세요. 내역에 옮긴 돈으로 표시돼요."
+            else -> "토스뱅크처럼 출금 알림이 없는 내 다른 통장에서 옮겨 온 돈이면 바꿔 주세요. 수입과 가계부 합계에서 빠져요."
+        }, style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.weight(1f))
+            SmallButton(if (self) "수입이 맞아요" else "내 통장끼리 옮긴 돈이에요", color = if (self) P.c.apricot else P.c.pine) { onToggle() }
         }
     }
 }

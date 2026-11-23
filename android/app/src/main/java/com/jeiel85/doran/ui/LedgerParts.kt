@@ -84,6 +84,7 @@ fun TxnRow(e: Entry, s: LedgerState, isNew: Boolean, showDate: Boolean = false, 
                         t.private && moves.isMoved(t) -> add("옮긴 돈 · 용돈에서 안 뺌")
                         t.private && moves.fundOf(t) != null -> add("가족 돈")
                         moves.linked(t) -> add("옮긴 돈 · 합계 제외")
+                        moves.selfIn(t) -> add("내 통장끼리 옮긴 돈 · 수입 아님")
                         !e.counted -> add("용돈 · 합계 제외")
                     }
                     if (t.kind == Kind.TRANSFER) s.account(t.toAccountId)?.name?.let { add("→ $it") }

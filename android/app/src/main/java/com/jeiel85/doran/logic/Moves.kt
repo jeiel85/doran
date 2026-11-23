@@ -136,6 +136,7 @@ object Moves {
             t.move == AUTO -> "용돈에서 쓴 돈으로 셌어요"
             t.move == KEPT -> "용돈에서 쓴 돈으로 바꿨어요"
             t.move == RULE_KEPT -> "기억해 둔 규칙으로 용돈에서 쓴 돈으로 셌어요"
+            selfIn(t) -> "내 다른 통장에서 옮겨 온 돈으로 바꿨어요"
             else -> null
         }
     }
@@ -214,6 +215,26 @@ object Moves {
         }
     }
 
+    // --- 내 통장끼리 옮겨 온 입금 (D-31) -------------------------------------------------------------
+
+    /**
+     * 입금: 사용자가 "내 통장끼리 옮긴 돈"으로 고른 것. 보낸 쪽 통장이 출금 알림을 주지 않아(토스뱅크의 내 이체) 짝이 없는 입금입니다.
+     * 수입이 아니라 가계부 합계·수입에서 빠지고(`Stats.counts`) 통장 잔액에는 그대로 들어갑니다. 받는 쪽 기록이라 나중에 보낸 쪽 출금이
+     * 오면 그 출금의 짝([counterpart])이 될 수 있습니다.
+     */
+    const val SELF = "self"
+
+    fun selfIn(t: Txn): Boolean = t.kind == Kind.INCOME && t.move == SELF
+
+    /** "내 통장끼리 옮긴 돈"으로 고칠 수 있는 입금: 알림·문자로 기록된 은행 입금 중 짝·가족 돈 표시가 없는 것. */
+    fun canMarkSelf(t: Txn): Boolean = isDeposit(t) && (t.move == null || t.move == APART)
+
+    /** [on]이면 내 통장끼리 옮긴 돈으로, 아니면 표시를 지워 처음처럼(가족 돈·짝 찾기가 다시 볼 수 있게) 둡니다. */
+    fun markSelf(t: Txn, on: Boolean): Txn = t.copy(move = if (on) SELF else null)
+
+    /** 짝(D-28 B)을 찾을 수 있는 표시: 표시 없음, 또는 짝 없이 '내 통장끼리'로 고른 입금(나중에 온 출금과 짝지으면 둘 다 합계에서 빠짐). */
+    private fun linkFree(t: Txn) = t.move == null || t.move == SELF
+
     // --- 가계부 통장끼리 옮긴 돈 (D-28 B) --------------------------------------------------------------
 
     /** 공유 내역: 짝지은 다른 쪽 id가 뒤에 붙습니다. 둘 다 가계부 합계(쓴 돈·수입)에서 빠지고 통장 잔액은 그대로입니다. */
@@ -235,7 +256,7 @@ object Moves {
      * 두 폰이 각자 찾아도 같은 짝이 되게 시각 차이, 그다음 id로 고릅니다. [again]이면 "따로 세기"한 것도 봅니다(다시 묶기).
      */
     fun linkPartner(s: LedgerState, t: Txn, again: Boolean = false): Txn? {
-        fun free(o: Txn) = o.move == null || again && o.move == APART
+        fun free(o: Txn) = linkFree(o) || again && o.move == APART
         if (!free(t) || !linkable(s, t)) return null
         val want = if (t.kind == Kind.EXPENSE) Kind.INCOME else Kind.EXPENSE
         return s.txns.values.asSequence()
@@ -271,10 +292,10 @@ object Moves {
             if (linkOf(t) != null && (t.private || other == null || linkOf(other) != t.id || !pairFits(s, t, other))) out[t.id] = t.copy(move = null)
         }
         val st = if (out.isEmpty()) s else s.copy(txns = s.txns + out)
-        val seeds = (changedIds + out.keys).mapNotNull { st.txns[it] }.filter { it.move == null && linkable(st, it) }
+        val seeds = (changedIds + out.keys).mapNotNull { st.txns[it] }.filter { linkFree(it) && linkable(st, it) }
         if (seeds.isNotEmpty()) {
             val pool = st.txns.values.filter { o ->
-                o.move == null && seeds.any { it.amount == o.amount && abs(it.at - o.at) <= 2 * WINDOW } && linkable(st, o)
+                linkFree(o) && seeds.any { it.amount == o.amount && abs(it.at - o.at) <= 2 * WINDOW } && linkable(st, o)
             }
             val ins = pool.filter { it.kind == Kind.INCOME }
             val pairs = pool.filter { it.kind == Kind.EXPENSE }
