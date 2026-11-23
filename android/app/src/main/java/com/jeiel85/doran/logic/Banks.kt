@@ -71,11 +71,18 @@ object Banks {
      */
     fun countsOnBank(t: Txn): Boolean = !t.private
 
-    /** 통장·카드 화면의 입출금 목록: 이 계좌의 거래와 이 계좌로 들어온 이체, 통장이면 이은 체크카드의 결제까지. 취소 엔티티는 원거래에 묶여 빠짐. */
+    /**
+     * 통장·카드 화면의 입출금 목록: 이 계좌의 거래와 이 계좌로 들어온 이체, 통장이면 이은 체크카드의 결제까지. 취소 엔티티는 원거래에 묶여 빠짐.
+     * 가족 카드에서 용돈으로 옮긴 결제는 금액 자리(personal)가 대신 들어가므로 본인 폰의 용돈 원본은 빼서 두 번 보이지 않게 합니다
+     * (잔액·카드값과 같은 규칙 [Stats.onAccount], #77 리뷰).
+     */
     fun flow(s: LedgerState, a: Account): List<Txn> {
         val cards = if (a.type == AccountType.BANK) linkedCards(s, a).mapTo(HashSet()) { it.id } else emptySet()
         return s.txns.values.filter { t ->
-            t.cancelOf == null && (t.accountId == a.id || t.toAccountId == a.id || t.accountId in cards && countsOnBank(t))
+            t.cancelOf == null && (
+                (t.accountId == a.id || t.toAccountId == a.id) && Stats.onAccount(a, t) ||
+                    t.accountId in cards && countsOnBank(t)
+                )
         }.sortedByDescending { it.at }
     }
 
@@ -98,4 +105,61 @@ object Banks {
 
     /** 나만 보는 통장 하나: [bank] 이름, 마지막 잔액 알림, 계산한 지금 잔액, 그 통장의 드나듦(최근 것 먼저). */
     data class Private(val bank: String, val balance: Long?, val balanceAt: Long?, val txns: List<Txn>)
+
+    /** 체크카드 알림으로 기록된 나만 보는 거래(그 은행 통장에서 나간 돈). */
+    data class Check(val id: String, val bank: String, val at: Long)
+
+    /** 기록하지 않은 범위 밖 카드값 출금(D-19 — 지출이 아니지만 통장에서는 나간 돈). [to]: 카드사. */
+    data class Bill(val bank: String, val at: Long, val amount: Long, val to: String) {
+        /** 알림 원문 줄과 이 폰에 남긴 것이 같은 출금이면 같은 열쇠(받은 시각·금액). */
+        val key: String get() = "bill:$bank:$at:$amount"
+        fun txn(me: String) = Txn(id = key, kind = Kind.TRANSFER, amount = amount, at = at, memberId = me, merchant = "$to 카드값",
+            issuer = bank, private = true)
+    }
+
+    /**
+     * 나만 보는 통장 계산에 쓰려고 이 폰에 남겨 두는 것(kv): 알림 원문은 30일 뒤 지워지는데, 그 뒤에 마지막 잔액 알림보다 늦은
+     * 체크카드 결제·카드값 출금이 흐름에서 빠지면 잔액이 예전 값으로 돌아가고 통장 화면 목록에서도 사라져서입니다(#77 리뷰).
+     * 최근 [MAX_KEPT]건씩만 둡니다(그만큼 쌓이는 동안 잔액 알림이 한 번도 없을 일은 드묾).
+     */
+    data class Kept(val checks: List<Check> = emptyList(), val bills: List<Bill> = emptyList()) {
+        fun pruned(): Kept = Kept(checks.distinctBy { it.id }.takeLast(MAX_KEPT), bills.distinctBy { it.key }.takeLast(MAX_KEPT))
+
+        fun json(): String = org.json.JSONObject()
+            .put("checks", org.json.JSONArray(checks.map { org.json.JSONObject().put("id", it.id).put("bank", it.bank).put("at", it.at) }))
+            .put("bills", org.json.JSONArray(bills.map { org.json.JSONObject().put("bank", it.bank).put("at", it.at).put("amount", it.amount).put("to", it.to) }))
+            .toString()
+
+        companion object {
+            fun from(json: String?): Kept {
+                val o = json?.let { runCatching { org.json.JSONObject(it) }.getOrNull() } ?: return Kept()
+                fun list(k: String) = o.optJSONArray(k)?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } }.orEmpty()
+                return Kept(
+                    list("checks").mapNotNull { c -> c.optString("id").takeIf { it.isNotEmpty() }?.let { Check(it, c.optString("bank"), c.optLong("at")) } },
+                    list("bills").map { b -> Bill(b.optString("bank"), b.optLong("at"), b.optLong("amount"), b.optString("to")) },
+                )
+            }
+        }
+    }
+
+    /** [Kept]에 남기는 최대 건수(은행 잔액 알림이 오래 없을 때의 상한). */
+    const val MAX_KEPT = 500
+
+    /**
+     * 나만 보는 통장 목록(D-33): 공유 범위 밖에 둔 은행마다 마지막 잔액 알림([anchors], 은행 → 잔액·시각) + 그 뒤의 드나듦.
+     * 드나듦은 알림 없이 나간 돈 찾기(D-31)의 흐름([Gaps.collects])에 기록하지 않은 카드값 출금([bills])을 더한 것입니다.
+     * 같은 금융그룹 카드사의 결제는 체크카드인 것만: 알림 원문이나 이 폰에 남긴 것([checkCards])으로, 또는 체크카드 계좌의 결제로 압니다.
+     */
+    fun privateBanks(s: LedgerState, me: String, installId: String, anchors: Map<String, Pair<Long, Long>>, checkCards: Set<String>,
+                     bills: List<Bill>): List<Private> {
+        val checks = checkCards + s.txns.values.filter { s.account(it.accountId)?.type == AccountType.CHECK }.map { it.id }
+        val flows = (s.txns.values.filter { Gaps.collects(it, me, installId, checks) }.mapNotNull { t -> Gaps.bankOf(t.issuer)?.let { it to t } } +
+            bills.distinctBy { it.key }.map { it.bank to it.txn(me) })
+            .groupBy({ it.first }, { it.second })
+        return (anchors.keys + flows.keys).distinct().filter { Gaps.eligible(s, me, it) }.sorted().map { bank ->
+            val list = flows[bank].orEmpty().sortedByDescending { it.at }
+            val a = anchors[bank]
+            Private(bank, privateBalance(a?.first, a?.second, list), a?.second, list)
+        }
+    }
 }

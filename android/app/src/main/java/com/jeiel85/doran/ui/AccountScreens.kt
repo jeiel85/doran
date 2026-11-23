@@ -180,7 +180,7 @@ fun PrivateBankScreen(bank: String, nav: Nav) {
             Text("아직 없어요.", style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft, modifier = Modifier.padding(8.dp))
         }
         items(shown.take(SHOWN), key = { it.id }) { t ->
-            // 기록하지 않은 카드값 출금(알림 원문 줄)은 열 내역이 없습니다.
+            // 기록하지 않은 카드값 출금(Banks.Bill)은 열 내역이 없습니다.
             val real = s.txns.containsKey(t.id)
             TxnRow(entryOf(s, t), s, false, showDate = true, onClick = if (real) ({ nav.go(Route.Entry(txnId = t.id)) }) else null)
         }

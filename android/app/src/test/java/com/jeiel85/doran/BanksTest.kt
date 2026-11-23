@@ -8,6 +8,7 @@ import com.jeiel85.doran.model.Account
 import com.jeiel85.doran.model.AccountType
 import com.jeiel85.doran.model.Household
 import com.jeiel85.doran.model.Kind
+import com.jeiel85.doran.model.Member
 import com.jeiel85.doran.model.Source
 import com.jeiel85.doran.model.Txn
 import org.junit.Assert.assertEquals
@@ -161,7 +162,53 @@ class BanksTest {
         assertEquals(listOf("mv"), Banks.flow(s, b).map { it.id })
     }
 
+    @Test fun aPurchaseMovedToAllowanceShowsOnceOnTheFamilyCard() {
+        // 가족 카드 결제를 용돈으로 옮기면 원본은 나만 보는 것(private)이 되고, 공유되는 금액 자리(personal)가 대신 들어감(D-20)
+        val family = check("fc").copy(family = true)
+        val s = state(listOf(family), listOf(
+            txn("orig", "fc", 15_000, 0, private = true),
+            txn("seat", "fc", 15_000, 0).copy(personal = true),
+            txn("other", "fc", 4_000, 5),
+        ))
+        assertEquals(listOf("other", "seat"), Banks.flow(s, family).map { it.id }) // #77 리뷰: 원본과 자리가 함께 보이면 두 번
+    }
+
     // --- 나만 보는 통장 ---------------------------------------------------------------------------------------
+
+    private val husband = Member(me, "남편", share = Member.SHARE_PICKED, shareIssuers = listOf("현대카드", "KB국민카드"))
+
+    @Test fun privateBankKeepsItsFlowAfterNoticeTextExpires() {
+        // 범위 밖 KB국민은행: 잔액 알림(0분) 뒤 체크카드 결제(나만 보는 것), 기록하지 않은 카드값 출금, 공유한 KB국민카드 체크카드 결제
+        val sharedCheck = check("kbc") // 카드만 공유 → 공유 거래로 기록된 체크카드 계좌
+        val s = LedgerState(members = mapOf(me to husband), accounts = mapOf("kbc" to sharedCheck), txns = listOf(
+            txn("p1", null, 12_000, 10, private = true, issuer = "KB국민카드").copy(createdBy = "i1"),
+            txn("p2", "kbc", 8_000, 20, issuer = "KB국민카드").copy(createdBy = "i1"),
+            txn("credit", null, 50_000, 30, private = true, issuer = "현대카드").copy(createdBy = "i1"), // 통장 밖
+        ).associateBy { it.id })
+        val bill = Banks.Bill(kb, at(40), 100_000, "현대카드")
+        // 알림 원문(30일)이 지워진 뒤: 이 폰에 남긴 체크카드 결제 id와 카드값 출금만으로
+        val kept = Banks.Kept(listOf(Banks.Check("p1", kb, at(10))), listOf(bill))
+        val one = Banks.privateBanks(s, me, "i1", mapOf(kb to (500_000L to at(0))), kept.checks.mapTo(HashSet()) { it.id }, kept.bills).single()
+        assertEquals(kb, one.bank)
+        assertEquals(500_000L - 12_000 - 8_000 - 100_000, one.balance)
+        assertEquals(listOf("bill:$kb:${at(40)}:100000", "p2", "p1"), one.txns.map { it.id })
+        // 알림 원문에서 읽은 같은 카드값 출금이 함께 와도 한 번만
+        val twice = Banks.privateBanks(s, me, "i1", mapOf(kb to (500_000L to at(0))), setOf("p1"), listOf(bill, bill.copy())).single()
+        assertEquals(one.balance, twice.balance)
+        // 체크카드였는지 모르면(남기지 않았고 원문도 없음) 그 결제는 통장 흐름 밖
+        val unknown = Banks.privateBanks(s, me, "i1", mapOf(kb to (500_000L to at(0))), emptySet(), emptyList()).single()
+        assertEquals(500_000L - 8_000, unknown.balance)
+    }
+
+    @Test fun keptFlowsSurviveASaveAndStayBounded() {
+        val k = Banks.Kept(listOf(Banks.Check("p1", kb, at(1)), Banks.Check("p1", kb, at(1))), listOf(Banks.Bill(kb, at(2), 3_000, "현대카드")))
+        assertEquals(Banks.Kept(listOf(Banks.Check("p1", kb, at(1))), k.bills), Banks.Kept.from(k.pruned().json()))
+        val many = Banks.Kept((1..Banks.MAX_KEPT + 20).map { Banks.Check("c$it", kb, at(it)) }).pruned()
+        assertEquals(Banks.MAX_KEPT, many.checks.size)
+        assertEquals("c21", many.checks.first().id) // 가장 오래된 것부터 버림
+        assertEquals(Banks.Kept(), Banks.Kept.from("{깨진"))
+    }
+
 
     @Test fun privateBalanceAddsTheFlowAfterTheLastBalanceNotice() {
         val flows = listOf(

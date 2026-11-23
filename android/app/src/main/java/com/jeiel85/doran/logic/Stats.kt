@@ -139,7 +139,7 @@ object Stats {
      * 카드·계좌 금액에 넣는 거래. 가족 카드에서 용돈으로 옮긴 결제는 금액 자리(personal)가 대신 들어가므로
      * 본인 폰의 용돈 원본은 빼서 두 번 세지 않습니다(DECISIONS.md D-20).
      */
-    private fun onAccount(a: Account, t: Txn) = !(t.private && a.family)
+    fun onAccount(a: Account, t: Txn) = !(t.private && a.family)
 
     /** 사람별 지출에서 가족 카드 결제를 묶는 칸의 키. */
     const val FAMILY = "family"
