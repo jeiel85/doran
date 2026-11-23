@@ -273,9 +273,29 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                             Moves.reason(s, o, id.myMemberId)?.takeIf { moved || o.move != Moves.AUTO }?.let {
                                 Text(it, style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
                             }
-                            Text(if (moved) "실제로 쓴 돈이면 바꿔 주세요. 남은 용돈과 가족에게 가는 용돈 합계에 들어가요."
+                            // 이 통장 내역은 판정과 관계없이 가계부 합계에 들어가지 않습니다. "이체가 아니라 지출이어야 하지 않나"를 미리 풀어 줍니다(D-32).
+                            Text(Moves.householdNote(s, o, id.myMemberId), style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                            Text(if (moved) "용돈으로 실제로 쓴 돈이면 바꿔 주세요. 남은 용돈과 가족에게 가는 용돈 합계에 들어가요."
                                 else "급여를 다른 통장으로 보냈거나 적금처럼 옮긴 돈, 가족이 보내 준 돈으로 낸 관리비·대출이면 바꿔 주세요. 남은 용돈과 가족에게 가는 용돈 합계에서 빠져요.",
                                 style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                            // 금액이 달라 앱이 잇지 못한 가족 돈(D-32): 받은 돈으로 낸 출금이면 골라서 잇습니다.
+                            val choices = if (Moves.fromOf(o) == null) Moves.fundChoices(s, o) else emptyList()
+                            if (choices.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                Text("가족이 보내 준 돈으로 냈으면 골라 주세요", style = MaterialTheme.typography.bodySmall, color = P.c.ink)
+                                Spacer(Modifier.height(6.dp))
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    choices.take(3).forEach { d ->
+                                        val src = Moves.fundOf(d)?.let { s.txns[it] }
+                                        val who = src?.let { if (it.memberId == id.myMemberId) "내" else s.member(it.memberId)?.name } ?: "가족"
+                                        Chip("${Fmt.date(d.at).let { "${it.monthValue}/${it.dayOfMonth}" }} $who ${Fmt.won(d.amount)}", false, {
+                                            if (valid && kind == o.kind) persist()
+                                            Hub.capture.pickFund(o, d)
+                                            nav.back()
+                                        })
+                                    }
+                                }
+                            }
                             if (Moves.ruleKey(o.issuer, o.merchant) != null) {
                                 Spacer(Modifier.height(8.dp))
                                 Chip("${listOfNotNull(o.issuer, o.merchant.ifBlank { null }).joinToString(" · ")} 출금은 앞으로도 이렇게", rememberMove,
@@ -610,7 +630,7 @@ private fun FundCard(s: com.jeiel85.doran.data.LedgerState, o: Txn, me: String?,
         val who = src?.let { listOfNotNull(if (it.memberId == me) "내" else s.member(it.memberId)?.name, s.account(it.accountId)?.name).joinToString(" ") }
         Text("${who ?: "가족 통장"} 출금${src?.let { "(${Fmt.time(it.at)})" } ?: ""}과 같은 돈이라 가족이 보내 준 돈으로 봤어요. " +
             (spentBy?.let { "${Fmt.date(it.at).let { d -> "${d.monthValue}/${d.dayOfMonth}" }} ${it.merchant.ifBlank { "출금" }}이 이 돈으로 나가 용돈에서 뺐어요." }
-                ?: "${Moves.FUND_DAYS}일 안에 이 통장에서 같은 금액이 나가면 용돈에서 빼요."),
+                ?: "${Moves.FUND_DAYS}일 안에 이 통장에서 같은 금액이 나가면 용돈에서 빼요. 금액이 다르면 그 출금 화면에서 이 돈을 골라 이어 주세요."),
             style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {

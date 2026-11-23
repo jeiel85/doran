@@ -500,6 +500,23 @@ class CaptureProcessor(
     fun setNotFund(t: Txn) {
         val cur = ledger.value.txns[t.id]?.takeIf { it.private && it.memberId == identity.value.myMemberId && it.kind == Kind.INCOME } ?: return
         ledger.saveTxn(cur.copy(move = com.jeiel85.doran.logic.Moves.APART))
+        // 이 돈으로 냈다고 손으로 이은 출금은 옮긴 돈으로 남기고 이음만 풉니다(같은 금액이라 앱이 이은 것은 다시 판정이 풉니다).
+        ledger.value.txns.values.filter { com.jeiel85.doran.logic.Moves.picked(it) && com.jeiel85.doran.logic.Moves.fromOf(it) == cur.id }
+            .forEach { ledger.saveTxn(com.jeiel85.doran.logic.Moves.moved(it, com.jeiel85.doran.logic.Moves.USER)) }
+    }
+
+    /**
+     * 내역 화면 "이 가족 돈으로 냈어요"(D-32): 내 은행 출금 [t]를 가족 돈 입금 [fund]와 잇습니다. 금액이 달라도 되고, 용돈에서 빠집니다.
+     * 그사이 다른 출금이 그 가족 돈을 가져갔으면 하지 않습니다.
+     */
+    @Synchronized
+    fun pickFund(t: Txn, fund: Txn) {
+        val s = ledger.value
+        val cur = s.txns[t.id]?.takeIf { it.private && it.memberId == identity.value.myMemberId && it.kind != Kind.INCOME } ?: return
+        val d = com.jeiel85.doran.logic.Moves.fundChoices(s, cur).firstOrNull { it.id == fund.id } ?: return
+        val next = com.jeiel85.doran.logic.Moves.pick(cur, d)
+        ledger.saveTxn(next)
+        noteMove(next)
     }
 
     /** 예전 기록 정리(D-28): 판정 전에 기록된 내 은행 출금 중 지금 기준이면 옮긴 돈인 것. 알림 원문(30일)을 읽으니 IO 스레드에서. */
