@@ -10,6 +10,7 @@
 //        host-wife (가짜 아내가 가구를 만들고 초대 링크 출력 — 에뮬레이터가 남편으로 합류)
 //        share <구성원 이름> <카드사,은행|all> (가짜 아내가 그 구성원의 공유 범위를 바꿈 — DECISIONS.md D-19)
 //        allowance <구성원 이름> <금액> (가짜 아내가 월 용돈을 정함) | push-deposit <금액> [몇 분 전] (가짜 아내 폰의 은행 입금, D-26)
+//        push-withdrawal <금액> [몇 분 전] (가짜 아내 폰의 가계부 통장 출금 = 남편에게 보낸 가족 돈, D-28 C)
 // 환경 변수: RELAY(기본 로컬 8787), PEER_STATE(상태 파일)
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -233,6 +234,20 @@ if (cmd === "join") {
     }],
   ]);
   console.log("pushed wife deposit", id, Number(arg), new Date(at).toISOString(), JSON.stringify(r));
+} else if (cmd === "push-withdrawal") {
+  // 가짜 아내 폰이 가계부 통장 출금 문자를 올림: push-withdrawal <금액> [몇 분 전] — 남편 범위 밖 통장으로 보낸 가족 돈(D-28 C, D-32)
+  const key = unb64(st.hk);
+  const id = "wifeWithdraw" + Date.now().toString().slice(-10).padStart(10, "0");
+  const at = Date.now() - Number(arg2 ?? 0) * 60000;
+  const r = await push(st, key, [
+    ["account", "wifeBank00000000000000", { name: "신한은행", type: "bank", ownerId: st.memberId, institution: "신한은행" }],
+    ["txn", id, {
+      kind: "e", amount: Number(arg), at, accountId: "wifeBank00000000000000", categoryId: "c.etc", merchant: "남편",
+      memo: "", memberId: st.memberId, source: "sms", installment: 0, issuer: "신한은행", cardLabel: "신한은행",
+      needsReview: false, receiptIds: [], private: false, createdBy: "wife-" + st.deviceId, createdAt: Date.now(),
+    }],
+  ]);
+  console.log("pushed wife withdrawal", id, Number(arg), new Date(at).toISOString(), JSON.stringify(r));
 } else if (cmd === "push-hyundai") {
   const key = unb64(st.hk);
   const id = "husbandTxn" + Date.now().toString().slice(-12).padStart(12, "0");

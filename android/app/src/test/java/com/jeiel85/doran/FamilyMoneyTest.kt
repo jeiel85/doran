@@ -197,7 +197,7 @@ class FamilyMoneyTest {
         val got = Moves.asFund(myIn("i1", 200_000, ms(13, 13)), sent)
         val s = ledger(sent, got)
         assertNull(Moves.fundFor(s, myOut("o1", 200_000, ms(9, 0, d = 25), issuer = "토스뱅크"))) // 다른 은행
-        assertNull(Moves.fundFor(s, myOut("o2", 190_000, ms(9, 0, d = 25)))) // 다른 금액
+        assertNull(Moves.fundFor(s, myOut("o2", 150_000, ms(9, 0, d = 25)))) // 다른 금액
         assertNull(Moves.fundFor(s, myOut("o3", 200_000, ms(14, 0, d = 26, mo = 12)))) // 36일 뒤
         assertNull(Moves.fundFor(s, myOut("o4", 200_000, ms(9, 0, d = 19)))) // 받기 전날
         assertEquals("i1", Moves.fundFor(s, myOut("o5", 200_000, ms(9, 0, d = 24, mo = 12)))?.id) // 34일 뒤
@@ -301,5 +301,43 @@ class FamilyMoneyTest {
         assertTrue(Moves.withdrawalMarked(myOut("o1", 20_000, ms(14, 0)).copy(move = Moves.AUTO)))
         assertTrue(Moves.withdrawalMarked(Moves.moved(myOut("o2", 900_000, ms(14, 0)), Moves.LARGE)))
         assertEquals(false, Moves.withdrawalMarked(myOut("o3", 20_000, ms(14, 0))))
+    }
+    // --- D-32: 금액이 다른 가족 돈을 손으로 잇기 -------------------------------------------------------
+
+    /** 아내가 대출 돈을 보냈고 사흘 뒤 KB에서 그보다 적은 대출이 나감: 금액이 달라 앱이 잇지 못하니 사용자가 고름. */
+    @Test fun differentAmountPaymentCanBePickedAndStaysPicked() {
+        val sent = wifeOut("w1", 150_000, ms(13, 13))
+        val got = Moves.asFund(myIn("i1", 150_000, ms(13, 13)), sent)
+        val loan = Moves.judge(ledger(sent, got), myOut("o1", 143_520, ms(10, 11, d = 23)), 350_000, null)
+        assertEquals(Moves.AUTO, loan.move)
+        val s = ledger(sent, got, loan)
+        assertEquals("나만 보는 통장 내역이라 가계부 합계(쓴 돈)에는 원래 들어가지 않아요.", Moves.householdNote(s, loan, "h"))
+        assertEquals(listOf("i1"), Moves.fundChoices(s, loan).map { it.id })
+        val picked = Moves.pick(loan, got)
+        assertEquals(Kind.TRANSFER, picked.kind)
+        assertEquals("i1", Moves.fromOf(picked))
+        assertTrue(Moves.picked(picked))
+        val after = s.with(listOf(picked))
+        assertEquals(0L, Stats.allowanceSpent(after, "h", p))
+        assertEquals("아내 통장에서 보낸 가족 돈(11/20 150,000원)으로 냈다고 이어서 용돈에서 뺐어요", Moves.reason(after, picked, "h"))
+        assertEquals("가계부에는 이 돈이 아내 신한은행 출금(11/20 150,000원)으로 이미 쓴 돈에 들어가 있어요. 여기서 또 쓴 돈으로 세면 두 번 들어가요.",
+            Moves.householdNote(after, picked, "h"))
+        // 가계부는 아내 출금 150,000원 한 번만
+        assertEquals(150_000L, Stats.expense(Stats.entries(after, p, "w")))
+        // 사용자가 이은 것은 장부가 바뀌어도 다시 판정하지 않고, 그 가족 돈은 다른 같은 금액 출금이 가져가지 않음
+        assertTrue(Moves.affected(after, listOf(null to got), "h", install).isEmpty())
+        assertNull(Moves.fundFor(after, myOut("o2", 150_000, ms(9, 0, d = 25))))
+        assertTrue(Moves.fundChoices(after, myOut("o3", 5_000, ms(9, 0, d = 26))).isEmpty())
+    }
+
+    @Test fun fundChoicesNeedSameBankAndFiveWeeks() {
+        val sent = wifeOut("w1", 150_000, ms(13, 13))
+        val got = Moves.asFund(myIn("i1", 150_000, ms(13, 13)), sent)
+        val plain = myIn("i2", 50_000, ms(8, 20, d = 23)) // 가족 돈 표시가 없는 입금
+        val s = ledger(sent, got, plain)
+        assertTrue(Moves.fundChoices(s, myOut("o1", 143_520, ms(10, 0, d = 23), issuer = "토스뱅크")).isEmpty())
+        assertTrue(Moves.fundChoices(s, myOut("o2", 143_520, ms(10, 0, d = 26, mo = 12))).isEmpty())
+        assertTrue(Moves.fundChoices(s, myOut("o3", 143_520, ms(10, 0, d = 19))).isEmpty())
+        assertEquals(listOf("i1"), Moves.fundChoices(s, myOut("o4", 143_520, ms(10, 0, d = 23))).map { it.id })
     }
 }

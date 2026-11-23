@@ -38,9 +38,20 @@ object Moves {
     private const val PAIR = "pair:"
     /** 옮긴 돈: 가족 돈(아래 [fundOf]) 입금과 같은 금액이라 그 돈에서 나간 것(D-28). 그 입금 id가 뒤에 붙습니다. */
     private const val FROM = "from:"
+    /** 옮긴 돈: 사용자가 가족 돈 입금을 골라 "이 돈으로 냈어요"라고 이음(금액이 달라도 됨, D-32). 그 입금 id가 뒤에 붙습니다. 다시 판정하지 않습니다. */
+    private const val PICK = "pick:"
 
     fun pairOf(t: Txn): String? = t.move?.takeIf { it.startsWith(PAIR) }?.removePrefix(PAIR)
-    fun fromOf(t: Txn): String? = t.move?.takeIf { it.startsWith(FROM) }?.removePrefix(FROM)
+    /** 이 출금을 낸 가족 돈 입금 id: 같은 금액이라 앱이 이은 것(`from:`)이든 사용자가 고른 것(`pick:`)이든. */
+    fun fromOf(t: Txn): String? = t.move?.let { m ->
+        when {
+            m.startsWith(FROM) -> m.removePrefix(FROM)
+            m.startsWith(PICK) -> m.removePrefix(PICK)
+            else -> null
+        }
+    }
+    /** 사용자가 고른 가족 돈과 이은 출금인지. */
+    fun picked(t: Txn): Boolean = t.move?.startsWith(PICK) == true
 
     /** 이 판정으로 옮긴 돈이 된 출금인지. */
     fun isMoved(t: Txn): Boolean = t.kind == Kind.TRANSFER && t.move != null
@@ -128,8 +139,9 @@ object Moves {
             fromOf(t) != null -> s.txns[fromOf(t)]?.let { d ->
                 val src = fundOf(d)?.let { s.txns[it] }
                 val who = src?.let { if (it.memberId == me) "내" else s.member(it.memberId)?.name } ?: "가족"
-                "$who 통장에서 보낸 가족 돈(${Fmt.date(d.at).let { "${it.monthValue}/${it.dayOfMonth}" }} ${Fmt.won(d.amount)})으로 나간 돈이라 용돈에서 뺐어요"
-            } ?: "가족 돈과 같은 금액이라 용돈에서 뺐어요"
+                val fund = "$who 통장에서 보낸 가족 돈(${md(d.at)} ${Fmt.won(d.amount)})"
+                if (picked(t)) "${fund}으로 냈다고 이어서 용돈에서 뺐어요" else "${fund}으로 나간 돈이라 용돈에서 뺐어요"
+            } ?: if (picked(t)) "가족 돈으로 냈다고 이어서 용돈에서 뺐어요" else "가족 돈과 같은 금액이라 용돈에서 뺐어요"
             t.move == LARGE -> "월 용돈${s.member(t.memberId)?.allowance?.takeIf { it > 0 }?.let { "(${Fmt.won(it)})" } ?: ""}보다 큰 출금이라 옮긴 돈으로 봤어요"
             t.move == RULE -> "기억해 둔 규칙으로 옮긴 돈으로 봤어요"
             t.move == USER -> "옮긴 돈으로 바꿨어요"
@@ -139,6 +151,21 @@ object Moves {
             selfIn(t) -> "내 다른 통장에서 옮겨 온 돈으로 바꿨어요"
             else -> null
         }
+    }
+
+    private fun md(at: Long) = Fmt.date(at).let { "${it.monthValue}/${it.dayOfMonth}" }
+
+    /**
+     * 나만 보는 통장의 은행 출금 [t]가 가계부 합계와 어떤 관계인지 내역 화면에 적을 말(D-32). 이 통장 내역은 판정과 관계없이 가계부
+     * 합계에 들어가지 않습니다. 가족 돈으로 나간 출금이면, 그 돈은 가족이 가계부 통장에서 보낼 때 이미 지출로 셌다는 것도 알려
+     * "이체가 아니라 지출이어야 하지 않나"(같은 돈을 두 번 세는 것)로 가지 않게 합니다.
+     */
+    fun householdNote(s: LedgerState, t: Txn, me: String?): String {
+        val src = fromOf(t)?.let { s.txns[it] }?.let { d -> fundOf(d)?.let { s.txns[it] } }
+            ?: return "나만 보는 통장 내역이라 가계부 합계(쓴 돈)에는 원래 들어가지 않아요."
+        val who = listOfNotNull(if (src.memberId == me) "내" else s.member(src.memberId)?.name, s.account(src.accountId)?.name).joinToString(" ")
+        return "가계부에는 이 돈이 ${who.ifBlank { "가족 통장" }} 출금(${md(src.at)} ${Fmt.won(src.amount)})으로 이미 쓴 돈에 들어가 있어요. " +
+            "여기서 또 쓴 돈으로 세면 두 번 들어가요."
     }
 
     /** 기억할 규칙의 열쇠: 은행 + 받는 분·메모 칸. 메모가 비면 기억하지 않습니다. */
@@ -191,6 +218,23 @@ object Moves {
         val b = w.issuer ?: return false
         return Issuers.canonical(a) == Issuers.canonical(b) && w.at - d.at in -WINDOW..FUND_DAYS * 86_400_000
     }
+
+    /**
+     * 출금 [w]와 사용자가 이을 수 있는 가족 돈 입금(D-32): 같은 사람·같은 은행, 입금 직전 [WINDOW]부터 [FUND_DAYS]일 뒤까지, 다른
+     * 출금이 아직 쓰지 않은 것. 금액은 보지 않습니다(받은 돈보다 적은 대출이 나가는 것처럼 남는 돈이 있을 수 있음).
+     * 금액이 가까운 것, 그다음 최근 것부터.
+     */
+    fun fundChoices(s: LedgerState, w: Txn): List<Txn> {
+        val used = s.txns.values.mapNotNullTo(HashSet()) { o -> if (o.id == w.id) null else fromOf(o) }
+        val b = w.issuer?.let(Issuers::canonical) ?: return emptyList()
+        return s.txns.values.filter { d ->
+            d.id !in used && fundOf(d) != null && d.private && d.memberId == w.memberId &&
+                d.issuer?.let(Issuers::canonical) == b && w.at - d.at in -WINDOW..FUND_DAYS * 86_400_000
+        }.sortedWith(compareBy<Txn>({ abs(it.amount - w.amount) }, { -it.at }, { it.id }))
+    }
+
+    /** 사용자가 출금 [w]를 가족 돈 [d]로 냈다고 이은 것. */
+    fun pick(w: Txn, d: Txn): Txn = moved(w, PICK + d.id)
 
     /** 출금 [w]를 낸 가족 돈: 맞는 것 중 아직 다른 출금이 쓰지 않은, 가장 먼저 받은 것(가족 돈 하나는 출금 하나와만). */
     fun fundFor(s: LedgerState, w: Txn): Txn? {
