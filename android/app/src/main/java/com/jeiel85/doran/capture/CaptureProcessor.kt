@@ -564,9 +564,12 @@ class CaptureProcessor(
                 bills += bank to Gaps.Step("row:${row.id}", txnAt(p, row.at), row.at, -p.amount, p.balance)
             }
         }
+        // 범위 밖 은행만 보되, 그 통장의 돈은 공유 범위와 관계없이 모읍니다: 같은 금융그룹의 체크카드는 공유할 수 있어서(#72 리뷰).
         // 신용카드 결제·취소는 통장 흐름이 아니라 빼고, 같은 금융그룹 카드사는 체크카드 알림으로 기록된 것만 넣습니다(#72 리뷰).
-        val steps = s.txns.values.filter { it.private && it.memberId == me && !it.personal && it.at >= since && Gaps.inPot(it, checkCards) }
-            .mapNotNull { t -> Gaps.bankOf(t.issuer)?.let { it to Gaps.Step(t.id, t.at, t.createdAt, Gaps.delta(t), balances[t.id]) } } + bills
+        val steps = s.txns.values.filter { it.at >= since && Gaps.collects(it, me, identity.installId, checkCards) }
+            .mapNotNull { t ->
+                Gaps.bankOf(t.issuer)?.takeIf { Gaps.eligible(s, me, it) }?.let { it to Gaps.Step(t.id, t.at, t.createdAt, Gaps.delta(t), balances[t.id]) }
+            } + bills.filter { Gaps.eligible(s, me, it.first) }
         val handled = handledGaps()
         return steps.groupBy({ it.first }, { it.second }).flatMap { (bank, st) -> Gaps.find(bank, st) }
             .filter { g -> now - g.toAt >= Gaps.SETTLE && handled[g.key]?.let { it == DISMISSED || s.txns.containsKey(it) } != true }

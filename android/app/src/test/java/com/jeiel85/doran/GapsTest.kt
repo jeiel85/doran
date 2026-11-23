@@ -114,6 +114,22 @@ class GapsTest {
         assertTrue(Gaps.find("KB국민은행", bank).isEmpty()) // inPot이 빼면 맞음
     }
 
+    @Test fun aPrivateBankCollectsItsSharedCheckCardToo() {
+        // KB국민카드(체크)만 공유하고 KB국민은행은 범위 밖: 체크카드 결제는 공유 거래로 기록되지만 통장에서는 나간 돈(#72 리뷰)
+        val m = Member("h", "남편", share = Member.SHARE_PICKED, shareIssuers = listOf("KB국민카드"))
+        val s = LedgerState(members = mapOf(m.id to m))
+        assertTrue(Gaps.eligible(s, "h", "KB국민은행"))
+        assertFalse(Gaps.eligible(LedgerState(members = mapOf("w" to Member("w", "아내"))), "w", "신한은행")) // 함께 관리: 보지 않음
+        val sharedCheck = Txn("k", Kind.EXPENSE, 40_000, at(10), issuer = "KB국민카드", memberId = "h", createdBy = "me", createdAt = at(10))
+        assertTrue(Gaps.collects(sharedCheck, "h", "me", setOf("k")))
+        assertFalse(Gaps.collects(sharedCheck.copy(createdBy = "wife-phone"), "h", "me", setOf("k"))) // 가족 폰이 기록한 것
+        assertFalse(Gaps.collects(sharedCheck.copy(personal = true), "h", "me", setOf("k"))) // 용돈 금액 자리
+        // 리뷰의 예: 통장 잔액 200,000 → 공유된 체크카드 40,000 → 통장 출금 3,000(잔액 157,000) — 모으면 빈틈 없음
+        val steps = listOf(Step("b1", at(0), 0, -1_000, balance = 200_000), Step("k", at(10), 0, Gaps.delta(sharedCheck)),
+            Step("b2", at(20), 0, -3_000, balance = 157_000))
+        assertTrue(Gaps.find("KB국민은행", steps).isEmpty())
+    }
+
     @Test fun deltaFollowsTheMoney() {
         fun t(kind: Kind, amount: Long = 10_000, cancelOf: String? = null, foreign: String? = null) =
             Txn("t", kind, amount, t0, cancelOf = cancelOf, foreign = foreign)

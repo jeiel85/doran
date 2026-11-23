@@ -66,6 +66,17 @@ object Gaps {
         val key: String get() = "$bank|$toKey"
     }
 
+    /** 빈틈을 볼 통장: [me]가 공유 범위 밖에 둔 은행(나만 보는 용돈 통장). 함께 관리하는 사람이나 공유하는 은행은 보지 않습니다. */
+    fun eligible(s: LedgerState, me: String, bank: String): Boolean = s.member(me)?.shares(bank) == false
+
+    /**
+     * 통장 흐름에 모을 거래: [me]의 거래 중 나만 보는 것과, 이 폰([installId])이 기록한 공유 거래. 은행은 범위 밖이어도 같은 금융그룹의
+     * 체크카드는 공유할 수 있어서(KB국민카드만 공유) 그 결제는 공유 거래로 기록되지만 통장에서는 나간 돈입니다(#72 리뷰).
+     * 가족 폰이 기록한 거래는 그 사람의 통장일 수 있어 넣지 않습니다. 가족 카드의 용돈 금액 자리(personal)는 뺍니다.
+     */
+    fun collects(t: Txn, me: String, installId: String, checkCards: Set<String>): Boolean =
+        t.memberId == me && (t.private || t.createdBy == installId) && !t.personal && inPot(t, checkCards)
+
     /** 거래 [t]가 그 통장에 주는 흐름: 결제·출금·옮긴 돈은 나감, 입금과 결제 취소(돌아온 돈)는 들어옴. */
     fun delta(t: Txn): Long? = when {
         t.amount == 0L && t.foreign != null -> null
