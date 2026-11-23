@@ -160,6 +160,7 @@ fun CaptureScreen(nav: Nav) {
                                 com.jeiel85.doran.capture.Parsed.Type.WITHDRAWAL -> if (r.cardPaymentTo != null) "카드값 출금(이체)" else "출금(지출)"
                             },
                             "카드사·은행" to r.issuer + (r.last4?.let { " ($it)" } ?: ""),
+                            r.acct?.let { "계좌 끝자리" to "…$it" },
                             "금액" to (if (r.amount > 0) Fmt.won(r.amount) else r.foreign ?: "-"),
                             (if (r.type == com.jeiel85.doran.capture.Parsed.Type.DEPOSIT) "보낸 곳" else "가맹점") to (r.merchant ?: "-"),
                             "시각" to (r.at?.toString()?.replace('T', ' ') ?: "알림 받은 시각"),

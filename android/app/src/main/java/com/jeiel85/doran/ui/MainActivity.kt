@@ -81,6 +81,10 @@ sealed interface Route {
     data object Goals : Route
     data class GoalEdit(val id: String?) : Route
     data class AccountEdit(val id: String?) : Route
+    /** 계좌·카드 한 곳의 입출금과 잔액(D-33). */
+    data class AccountDetail(val id: String) : Route
+    /** 나만 보는 통장(공유 범위 밖 은행, 이 폰에만, D-33). */
+    data class PrivateBank(val bank: String) : Route
     data object Allowance : Route
     data object Categories : Route
     data object Search : Route
@@ -257,6 +261,8 @@ private fun Root(nav: Nav) {
             Route.Goals -> GoalsScreen(nav)
             is Route.GoalEdit -> GoalEditScreen(route.id, nav)
             is Route.AccountEdit -> AccountEditScreen(route.id, nav)
+            is Route.AccountDetail -> AccountDetailScreen(route.id, nav)
+            is Route.PrivateBank -> PrivateBankScreen(route.bank, nav)
             Route.Allowance -> AllowanceScreen(nav)
             Route.Categories -> CategoriesScreen(nav)
             Route.Search -> SearchScreen(nav)

@@ -26,6 +26,11 @@ data class Parsed(
     val via: String? = null,
     /** 간편결제 알림의 결제 수단 문구("결제 수단: 카드 간편결제"). 머니·포인트로 냈는지 가리는 데 씁니다(D-5). */
     val payMethod: String? = null,
+    /**
+     * 은행 알림에 보인 계좌번호 끝 숫자("123456**789" → "789"). 같은 은행 통장이 둘 이상일 때 끝자리를 적어 둔 통장으로 나누는 데 씁니다
+     * (DECISIONS.md D-33). 카드사 알림과, 은행이 낸 카드의 승인·취소(카드번호일 수 있음)에는 없습니다.
+     */
+    val acct: String? = null,
 ) {
     enum class Type { APPROVAL, CANCEL, DEPOSIT, WITHDRAWAL }
 
@@ -336,7 +341,10 @@ object Parser {
         }
         val cardNo = take(CARD_NO.find(text))
         val last4 = cardNo?.groupValues?.drop(1)?.firstOrNull { it.isNotEmpty() }
-        take(ACCOUNT_NO.find(text))
+        val acctNo = take(ACCOUNT_NO.find(text))
+        // 통장 끝자리: 가린 계좌번호의 마지막 '*' 뒤 숫자. 없으면 입출금 알림에 한해 괄호·별표 끝자리("(1234)", "***789").
+        val acct = if (issuer.card) null else acctNo?.value?.let(::acctTail)
+            ?: last4.takeIf { type == Parsed.Type.DEPOSIT || type == Parsed.Type.WITHDRAWAL }
         // 은행 이름을 지울 때 카드사 이름 안에 든 것은 남깁니다: "KB국민카드"의 "KB국민", "NH농협카드"의 "NH농협"·"농협"을 지우면
         // "카드"만 남아 같은 금융그룹 카드사로 나간 카드값을 지출로 기록했어요(#63, D-5 카드대금 출금).
         val cardNames = if (issuer.card) emptyList() else Issuers.cards.flatMap { c ->
@@ -352,10 +360,15 @@ object Parser {
             type = type, issuer = issuer.name, isCard = issuer.card, amount = amount, last4 = last4,
             installment = installment, merchant = merchant, at = at, cumulative = cumulative, balance = balance,
             foreign = foreign, checkCard = CHECK_CARD.containsMatchIn(text) || !issuer.card && type == Parsed.Type.APPROVAL, payMethod = payMethod,
+            acct = acct,
         )
     }
 
     private fun toLong(s: String): Long = s.replace(",", "").toLongOrNull() ?: 0
+
+    /** 가린 계좌번호의 마지막 '*' 뒤 숫자(최대 6자리, 2자리 미만이면 없음): "110-***-123456" → "123456", "123-****-5678-90" → "567890". */
+    internal fun acctTail(masked: String): String? =
+        masked.substringAfterLast('*').filter(Char::isDigit).takeLast(6).takeIf { it.length >= 2 }
 
     /**
      * 본문에 되풀이된 같은 금액("4,044,525", "4044525", 뒤의 '원' 포함). 더 긴 숫자의 일부나, "1000원샵"처럼 '원'에 글자가 바로 붙은

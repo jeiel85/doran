@@ -79,7 +79,8 @@ fun HomeScreen(nav: Nav) {
     val captureOn = remember(tick) { CaptureService.isEnabled(context) }
 
     val today = LocalDate.now(Fmt.zone)
-    val p = remember(s.household.monthStartDay, today) { Stats.current(s, today) }
+    val start = Stats.viewStart(s, settings.monthStartDay)
+    val p = remember(start, today) { Stats.current(s, today, start) }
     val entries = remember(s.version, p, id.myMemberId, settings.showSenders) { Stats.entries(s, p, id.myMemberId, settings.showSenders) }
     val spent = Stats.expense(entries)
     val income = Stats.income(entries)
@@ -253,7 +254,7 @@ fun HomeScreen(nav: Nav) {
             item { Spacer(Modifier.height(20.dp)); SectionTitle("카드", action = "자산", onAction = { nav.tab = Tab.ASSETS }) }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(cards, key = { it.account.id }) { c -> CardTile(c, s.member(c.account.ownerId)) { nav.go(Route.AccountEdit(c.account.id)) } }
+                    items(cards, key = { it.account.id }) { c -> CardTile(c, s.member(c.account.ownerId)) { nav.go(Route.AccountDetail(c.account.id)) } }
                 }
             }
         }

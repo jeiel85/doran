@@ -31,7 +31,7 @@ class SummaryWidget : AppWidgetProvider() {
 
         private fun views(context: Context): RemoteViews {
             val s = Hub.ledger.value
-            val p = Stats.current(s)
+            val p = Stats.current(s, startDay = Stats.viewStart(s, Hub.settings.value.monthStartDay))
             val e = Stats.entries(s, p, Hub.identity.value.myMemberId)
             val spent = Stats.expense(e)
             val budget = s.household.budget

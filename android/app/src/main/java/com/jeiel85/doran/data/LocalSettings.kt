@@ -51,6 +51,8 @@ data class Settings(
     val aiProvider: String = "",
     /** 비어 있으면 그 회사의 기본 모델. */
     val aiModel: String = "",
+    /** 이 폰에서 보는 한 달 시작일(1~28). 0이면 가족 공통 한 달 시작일을 따릅니다(DECISIONS.md D-33, `Stats.viewStart`). */
+    val monthStartDay: Int = 0,
 )
 
 class LocalSettings(context: Context) {
@@ -74,6 +76,7 @@ class LocalSettings(context: Context) {
         showSenders = prefs.getBoolean("showSenders", true),
         aiProvider = prefs.getString("aiProvider", "") ?: "",
         aiModel = prefs.getString("aiModel", "") ?: "",
+        monthStartDay = prefs.getInt("monthStartDay", 0).takeIf { it in 1..28 } ?: 0,
     )
 
     fun update(f: (Settings) -> Settings) {
@@ -86,6 +89,7 @@ class LocalSettings(context: Context) {
             .putBoolean("notifyBudget", s.notifyBudget).putBoolean("notifyRecurring", s.notifyRecurring)
             .putLong("lastBackupAt", s.lastBackupAt).putBoolean("showSenders", s.showSenders)
             .putString("aiProvider", s.aiProvider).putString("aiModel", s.aiModel)
+            .putInt("monthStartDay", s.monthStartDay)
             .apply()
         _state.value = s
     }

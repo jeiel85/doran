@@ -359,6 +359,13 @@ class CaptureProcessor(
         val account = existing ?: newAccount(s, p, me)
 
         withBalance(account, p.balance, at).takeIf { it != account }?.let { ledger.saveAccount(it) }
+        // 체크카드 알림의 '잔액'은 돈이 나가는 통장의 잔액이라, 그 통장을 이었으면 그 통장을 맞춥니다(D-33). 카드에는 적지 않습니다(D-29).
+        // 잔액을 따로 세는 예전 체크카드(D-29)는 위에서 그 카드에 적었으니 통장에는 또 적지 않습니다(#77 리뷰).
+        if (account.type == AccountType.CHECK && !com.jeiel85.doran.logic.Stats.keepsBalance(account)) account.payFromId?.let { ledger.value.accounts[it] }?.let { bank ->
+            withBalance(bank, p.balance, at).takeIf { it != bank }?.let { ledger.saveAccount(it) }
+        }
+        // 카드만 공유하고 은행은 범위 밖이면, 공유로 기록되는 체크카드 알림의 잔액이 그 나만 보는 통장의 잔액입니다(#77 리뷰).
+        notePrivateBalance(p, at)
 
         // 같은 승인이 앱 알림과 문자로 두 번 온 경우 (DECISIONS.md D-5). 같은 앱이 따로 올린 알림이면 다른 거래입니다(Notices).
         val dup = ledger.value.txns.values.firstOrNull {
@@ -424,8 +431,13 @@ class CaptureProcessor(
      * 개인 키로 봉하는 용돈 거래(private)로만 남깁니다. 가족에게는 용돈 월 합계만 보입니다(D-7).
      */
     private fun recordPrivate(p: Parsed, source: Source, at: Long, me: String, route: Notices.Seen): Outcome {
+        notePrivateBalance(p, at)
         // 내 계좌에서 내 카드값이 나가는 것은 지출이 아니라 이체라, 계좌 없이 남기면 같은 돈을 두 번 센 셈이 됩니다.
-        if (p.cardPaymentTo != null) return Outcome(CARD_BILL_RESULT, null)
+        // 통장에서는 나간 돈이라 나만 보는 통장 계산에 쓰려고 이 폰에 남깁니다(D-33).
+        p.cardPaymentTo?.let { to ->
+            Gaps.bankOf(p.issuer)?.let { bank -> keepPrivate { it.copy(bills = it.bills + com.jeiel85.doran.logic.Banks.Bill(bank, at, p.amount, to)) } }
+            return Outcome(CARD_BILL_RESULT, null)
+        }
         val isCancel = p.type == Parsed.Type.CANCEL
         val kind = if (p.type == Parsed.Type.DEPOSIT) Kind.INCOME else Kind.EXPENSE
         // 은행 출금은 쓴 돈인지 옮긴 돈인지 따로 가립니다(D-26). 카드 승인·체크카드 승인은 쓴 돈입니다.
@@ -461,6 +473,10 @@ class CaptureProcessor(
         }
         ledger.saveTxn(saved)
         settings.markUnseen(listOf(saved.id))
+        // 같은 금융그룹 카드사의 체크카드 결제는 그 은행 통장에서 나간 돈입니다. 알림 원문(30일)이 지워져도 알 수 있게 남깁니다(D-33).
+        if (p.isCard && p.checkCard) Gaps.bankOf(p.issuer)?.let { bank ->
+            keepPrivate { it.copy(checks = it.checks + com.jeiel85.doran.logic.Banks.Check(saved.id, bank, at)) }
+        }
         return Outcome("$PRIVATE_RESULT(공유 범위 밖)" + if (com.jeiel85.doran.logic.Moves.isMoved(saved)) " · $MOVED_NOTE" else "", saved.id)
     }
 
@@ -614,6 +630,70 @@ class CaptureProcessor(
     /** "아니에요": 다시 묻지 않습니다. */
     fun dismissGap(g: Gaps.Gap) = markGap(g, DISMISSED)
 
+    // --- 나만 보는 통장 (D-33): 공유 범위 밖 은행의 잔액·드나듦을 이 폰에서만 ----------------------------------------
+
+    /**
+     * 공유 범위 밖 은행 알림이 알려 준 거래 뒤 잔액을 이 폰에만 기억합니다(은행마다 가장 늦은 것 하나). 그 통장은 가족이 존재도 모르게
+     * 계좌를 만들지 않으므로(D-19) 잔액을 둘 곳이 이 폰뿐입니다. 알림 원문은 30일 뒤 지워져도 마지막 잔액은 남습니다.
+     * 체크카드 알림의 잔액은 같은 금융그룹 은행(돈이 나가는 통장)의 잔액으로 보고, 신용카드 알림은 통장 잔액이 아니라 넘깁니다.
+     */
+    @Synchronized
+    private fun notePrivateBalance(p: Parsed, at: Long) {
+        val balance = p.balance ?: return
+        if (p.isCard && !p.checkCard) return
+        val bank = Gaps.bankOf(p.issuer) ?: return
+        // 이 사람이 공유하는 은행은 가계부 계좌가 잔액을 맡습니다.
+        val me = identity.value.myMemberId ?: return
+        if (!Gaps.eligible(ledger.value, me, bank)) return
+        val all = privateAnchors().toMutableMap()
+        if ((all[bank]?.second ?: Long.MIN_VALUE) > at) return
+        all[bank] = balance to at
+        db.setKv(PRIVATE_BALANCES_KEY, JSONObject().apply { all.forEach { (k, v) -> put(k, JSONObject().put("b", v.first).put("at", v.second)) } }.toString())
+    }
+
+    /** 나만 보는 통장 계산에 남겨 둔 체크카드 결제·카드값 출금(D-33, [com.jeiel85.doran.logic.Banks.Kept])을 고쳐 저장합니다. */
+    @Synchronized
+    private fun keepPrivate(f: (com.jeiel85.doran.logic.Banks.Kept) -> com.jeiel85.doran.logic.Banks.Kept) {
+        val next = f(com.jeiel85.doran.logic.Banks.Kept.from(db.kv(PRIVATE_KEPT_KEY))).pruned()
+        db.setKv(PRIVATE_KEPT_KEY, next.json())
+    }
+
+    private fun privateAnchors(): Map<String, Pair<Long, Long>> =
+        db.kv(PRIVATE_BALANCES_KEY)?.let { runCatching { JSONObject(it) }.getOrNull() }?.let { o ->
+            o.keys().asSequence().mapNotNull { k -> o.optJSONObject(k)?.let { v -> k to (v.optLong("b") to v.optLong("at")) } }.toMap()
+        } ?: emptyMap()
+
+    /**
+     * 나만 보는 통장 목록(자산 화면, 이 폰에만): 공유 범위 밖에 둔 은행마다 마지막 잔액 알림 + 그 뒤의 드나듦으로 지금 잔액을 셉니다.
+     * 드나듦은 알림 없이 나간 돈 찾기(D-31)와 같은 흐름이라, 알림 원문(30일)으로 체크카드 결제와 기록하지 않은 카드값 출금을 가립니다.
+     * 알림 원문을 읽으니 IO 스레드에서.
+     */
+    fun privateBanks(now: Long = System.currentTimeMillis()): List<com.jeiel85.doran.logic.Banks.Private> {
+        val me = identity.value.myMemberId ?: return emptyList()
+        val s = ledger.value
+        val anchors = privateAnchors().toMutableMap()
+        // 이 폰에 남긴 것(원문이 지워진 뒤에도)과 알림 원문(30일, 0.3.9 전에 받은 것)을 함께 봅니다.
+        val kept = com.jeiel85.doran.logic.Banks.Kept.from(db.kv(PRIVATE_KEPT_KEY))
+        val checkCards = kept.checks.mapTo(HashSet()) { it.id }
+        val bills = ArrayList(kept.bills)
+        for (row in db.doneCapturesSince(now - 30L * 86_400_000)) {
+            val p = Parser.parse(listOfNotNull(row.title, row.text).joinToString("\n"), Fmt.dateTime(row.at), row.label) ?: continue
+            val bank = Gaps.bankOf(p.issuer) ?: continue
+            val id = row.txnId
+            if (id != null && p.checkCard) checkCards += id
+            val at = txnAt(p, row.at)
+            val t = id?.let { s.txns[it] }
+            // 이 폰이 잔액을 기억하기 전(0.3.9 전)에 받은 알림의 잔액도 씁니다. 그 거래의 통장이 알려 준 잔액만(간편결제 머니 잔액 등은 아님).
+            val own = if (t != null) Gaps.bankOf(t.issuer) == bank else row.result.startsWith(CARD_BILL_RESULT)
+            if (p.balance != null && own && (anchors[bank]?.second ?: Long.MIN_VALUE) < at) anchors[bank] = p.balance to at
+            // 기록하지 않은 카드값 출금도 통장에서는 나간 돈입니다.
+            p.cardPaymentTo?.takeIf { id == null && row.result.startsWith(CARD_BILL_RESULT) }?.let { to ->
+                bills += com.jeiel85.doran.logic.Banks.Bill(bank, at, p.amount, to)
+            }
+        }
+        return com.jeiel85.doran.logic.Banks.privateBanks(s, me, identity.installId, anchors, checkCards, bills)
+    }
+
     /** 답한 빈틈: 열쇠 → 남긴 거래 id(지우면 다시 물음) 또는 [DISMISSED]. 이 폰에만, 최근 300건. */
     private fun handledGaps(): Map<String, String> =
         db.kv(GAPS_KEY)?.let { runCatching { JSONObject(it) }.getOrNull() }?.let { o -> o.keys().asSequence().associateWith { o.getString(it) } } ?: emptyMap()
@@ -687,19 +767,25 @@ class CaptureProcessor(
             .firstOrNull()
     }
 
-    /** 알림의 카드사·은행으로 계좌를 찾고, 없으면 만들어 둡니다(자산 화면에 바로 보이게). */
-    /** 이 알림의 카드·통장 중 이 폰 사람(또는 주인 없는) 것. 카드면 알림이 알려 준 끝자리·체크카드 여부를 채워 저장합니다. 없으면 null. */
+    /**
+     * 이 알림의 카드·통장 중 이 폰 사람(또는 주인 없는) 것. 카드면 알림이 알려 준 끝자리·체크카드 여부와, 체크카드면 돈이 나가는 통장을
+     * 채워 저장합니다. 통장은 계좌번호 끝자리를 적어 둔 통장끼리 나눕니다(D-33, [com.jeiel85.doran.logic.Banks.pick]). 없으면 null.
+     */
     private fun existingAccount(s: LedgerState, p: Parsed, me: String?): Account? =
         if (p.isCard) pickCard(s.accounts.values, p.issuer, p.last4, me, p.checkCard)?.let { a ->
-            refreshCard(a, p.last4, p.checkCard).also { if (it != a) ledger.saveAccount(it) }
+            com.jeiel85.doran.logic.Banks.autoPayFrom(s.accounts.values, refreshCard(a, p.last4, p.checkCard)).also { if (it != a) ledger.saveAccount(it) }
         }
-        else s.accounts.values.firstOrNull { it.institution == p.issuer && it.type == AccountType.BANK && (it.ownerId == me || it.ownerId == null) }
+        else com.jeiel85.doran.logic.Banks.pick(s.accounts.values, p.issuer, p.acct, me)
 
     /** 알림으로 처음 보는 카드·통장을 만듭니다. 기준 시각은 0: 알림의 거래 시각이 계좌를 만든 순간보다 조금 이를 수 있어서. */
     private fun newAccount(s: LedgerState, p: Parsed, me: String?): Account =
         if (p.isCard) newCard(s, p.issuer, p.last4, me, p.checkCard)
-        else Account(id = newId(), name = p.issuer, type = AccountType.BANK, ownerId = me, institution = p.issuer,
-            openingAt = 0, order = s.accounts.size).also { ledger.saveAccount(it) }
+        else {
+            // 끝자리를 적어 나눈 은행에서 적어 둔 어느 통장과도 끝자리가 다르면, 그 끝자리로 통장을 하나 더 만듭니다(D-33).
+            val tail = com.jeiel85.doran.logic.Banks.newTail(s.accounts.values, p.issuer, p.acct, me)
+            Account(id = newId(), name = p.issuer + (tail?.let { " $it" } ?: ""), type = AccountType.BANK, ownerId = me, institution = p.issuer,
+                last4 = tail, openingAt = 0, order = s.accounts.size).also { ledger.saveAccount(it) }
+        }
 
     private fun cardAccount(s: LedgerState, issuer: String, last4: String?, me: String?, check: Boolean): Account {
         pickCard(s.accounts.values, issuer, last4, me, check)?.let { a ->
@@ -713,9 +799,9 @@ class CaptureProcessor(
     private fun newCard(s: LedgerState, issuer: String, last4: String?, me: String?, check: Boolean): Account {
         // 정한 결제만 보내는 사람의 보내는 카드는 가족이 함께 쓰는 카드라 처음부터 가족 카드로(D-20).
         val family = s.member(me)?.let { it.sharesPicked && it.shares(issuer) } == true
-        return Account(id = newId(), name = issuer + (last4?.let { " $it" } ?: ""), type = if (check) AccountType.CHECK else AccountType.CARD,
+        val card = Account(id = newId(), name = issuer + (last4?.let { " $it" } ?: ""), type = if (check) AccountType.CHECK else AccountType.CARD,
             ownerId = me, institution = issuer, last4 = last4, cycleStartDay = 1, openingAt = 0, order = s.accounts.size, family = family)
-            .also { ledger.saveAccount(it) }
+        return com.jeiel85.doran.logic.Banks.autoPayFrom(s.accounts.values, card).also { ledger.saveAccount(it) }
     }
 
     // --- 다른 가구로 보내기 (부모님 폰 → 우리 가구) ----------------------------------------------
@@ -786,6 +872,10 @@ class CaptureProcessor(
         private const val KEPT_SCHEDULED_NOTE = "예정 안내지만 그대로 둠"
         private val KEPT_NOTES = listOf(KEPT_NOTE, KEPT_SCHEDULED_NOTE)
         private const val GAPS_KEY = "gaps.handled"
+        /** 나만 보는 통장의 마지막 잔액(은행 → {b, at}, D-33). 바꾸면 기억한 잔액을 잃습니다. */
+        private const val PRIVATE_BALANCES_KEY = "private.balances"
+        /** 나만 보는 통장 계산에 남겨 둔 체크카드 결제·카드값 출금(D-33, `Banks.Kept`). */
+        private const val PRIVATE_KEPT_KEY = "private.kept"
         private const val DISMISSED = "-"
 
         /** 이 링크로 보낼 카드사·은행인지. 비어 있으면 전부, 표기가 달라도 같은 곳이면 보냅니다(#10). */

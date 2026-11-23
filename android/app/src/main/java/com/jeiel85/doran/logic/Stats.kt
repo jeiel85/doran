@@ -59,7 +59,14 @@ object Stats {
         return if (date.dayOfMonth >= startDay.coerceIn(1, 28)) period(ym, startDay) else period(ym.minusMonths(1), startDay)
     }
 
-    fun current(s: LedgerState, today: LocalDate = LocalDate.now(Fmt.zone)) = periodOf(today, s.household.monthStartDay)
+    fun current(s: LedgerState, today: LocalDate = LocalDate.now(Fmt.zone), startDay: Int = s.household.monthStartDay) = periodOf(today, startDay)
+
+    /**
+     * 이 폰 화면(홈·통계·예산·위젯·엑셀)이 쓰는 한 달 시작일(DECISIONS.md D-33): 폰 설정 [mine](1~28)이 있으면 그것, 없으면(0)
+     * 가족 공통 한 달 시작일. 아내는 1일, 남편은 월급날처럼 사람마다 보고 싶은 한 달이 달라서 폰마다 고를 수 있게 했습니다.
+     * 고정지출 날짜·용돈 날·가족에게 올리는 용돈 월 합계(D-7)는 두 폰이 같아야 해서 늘 가족 공통 날짜를 씁니다.
+     */
+    fun viewStart(s: LedgerState, mine: Int): Int = if (mine in 1..28) mine else s.household.monthStartDay
 
     /**
      * 수입·지출 합계에 들어가는 줄. 취소 엔티티는 원거래를 상쇄하고 자기는 빠지며, 원화 확정 전 해외 결제는 0이라
@@ -132,7 +139,7 @@ object Stats {
      * 카드·계좌 금액에 넣는 거래. 가족 카드에서 용돈으로 옮긴 결제는 금액 자리(personal)가 대신 들어가므로
      * 본인 폰의 용돈 원본은 빼서 두 번 세지 않습니다(DECISIONS.md D-20).
      */
-    private fun onAccount(a: Account, t: Txn) = !(t.private && a.family)
+    fun onAccount(a: Account, t: Txn) = !(t.private && a.family)
 
     /** 사람별 지출에서 가족 카드 결제를 묶는 칸의 키. */
     const val FAMILY = "family"
@@ -248,10 +255,19 @@ object Stats {
         if (!keepsBalance(a)) return 0
         val baseAt = a.anchorAt ?: a.openingAt
         var bal = a.anchor ?: a.opening
+        // 이 통장에 이은 체크카드의 결제도 이 통장에서 나간 돈입니다(D-33, `Account.payFromId`).
+        val cards = if (a.type == AccountType.BANK) Banks.linkedCards(s, a).mapTo(HashSet()) { it.id } else emptySet()
+        fun covered(at: Long) = at <= baseAt && a.anchorAt != null || at < baseAt
+        // 이은 카드는 결제와 취소를 각자의 시각으로 셉니다: 잔액 알림 전에 결제하고 뒤에 취소되면 돌아온 돈만 더해야 해서(#77 리뷰).
+        // 아래 live(s)는 취소를 원래 결제에 접어 결제 시각 하나로만 보므로 쓰지 않습니다.
+        if (cards.isNotEmpty()) for (t in s.txns.values) {
+            if (t.accountId == null || t.accountId !in cards || !Banks.countsOnBank(t) || covered(t.at)) continue
+            bal += Gaps.delta(t) ?: 0L
+        }
         for ((t, net) in live(s)) {
+            if (covered(t.at)) continue
+            if (t.accountId != null && t.accountId in cards) continue
             if (!onAccount(a, t)) continue
-            if (t.at <= baseAt && a.anchorAt != null) continue
-            if (t.at < baseAt) continue
             when (t.kind) {
                 Kind.EXPENSE -> if (t.accountId == a.id) bal -= net
                 Kind.INCOME -> if (t.accountId == a.id) bal += net
