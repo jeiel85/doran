@@ -360,7 +360,8 @@ class CaptureProcessor(
 
         withBalance(account, p.balance, at).takeIf { it != account }?.let { ledger.saveAccount(it) }
         // 체크카드 알림의 '잔액'은 돈이 나가는 통장의 잔액이라, 그 통장을 이었으면 그 통장을 맞춥니다(D-33). 카드에는 적지 않습니다(D-29).
-        if (account.type == AccountType.CHECK) account.payFromId?.let { ledger.value.accounts[it] }?.let { bank ->
+        // 잔액을 따로 세는 예전 체크카드(D-29)는 위에서 그 카드에 적었으니 통장에는 또 적지 않습니다(#77 리뷰).
+        if (account.type == AccountType.CHECK && !com.jeiel85.doran.logic.Stats.keepsBalance(account)) account.payFromId?.let { ledger.value.accounts[it] }?.let { bank ->
             withBalance(bank, p.balance, at).takeIf { it != bank }?.let { ledger.saveAccount(it) }
         }
         // 카드만 공유하고 은행은 범위 밖이면, 공유로 기록되는 체크카드 알림의 잔액이 그 나만 보는 통장의 잔액입니다(#77 리뷰).

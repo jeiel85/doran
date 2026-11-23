@@ -145,12 +145,26 @@ class BanksTest {
         assertEquals(-1, Banks.sign(a, s.txns.getValue("pay")))
     }
 
+    @Test fun aRefundAfterTheBalanceNoticeComesBackToTheBank() {
+        // 결제(−10분) → 은행 잔액 알림(0분, 결제가 이미 빠진 잔액) → 취소(+10분, 잔액 없는 알림): 돌아온 돈만 더함(#77 리뷰)
+        val a = bank("a", anchor = 100_000, anchorAt = at(0))
+        val card = check("c", payFrom = "a")
+        val s = state(listOf(a, card), listOf(
+            txn("pay", "c", 30_000, -10),
+            txn("refund", "c", 10_000, 10, cancelOf = "pay"),
+        ))
+        assertEquals(110_000L, Stats.balance(s, a))
+    }
+
     @Test fun aCheckCardThatKeepsItsOwnBalanceIsNotSubtractedTwice() {
         val a = bank("a", anchor = 500_000, anchorAt = at(0))
         val old = check("c", payFrom = "a").copy(anchor = 80_000, anchorAt = at(0)) // 예전에 통장처럼 잔액을 적은 체크카드(D-29)
         val s = state(listOf(a, old), listOf(txn("pay", "c", 12_000, 10)))
         assertTrue(Banks.linkedCards(s, a).isEmpty())
         assertEquals(500_000L, Stats.balance(s, a))
+        // 저절로 잇지도 않음: 그 카드 알림의 잔액이 통장에도 적혀 같은 돈이 두 자산에 들어가지 않게(#77 리뷰)
+        val unlinked = old.copy(payFromId = null)
+        assertSame(unlinked, Banks.autoPayFrom(listOf(a, unlinked), unlinked))
     }
 
     @Test fun transfersShowOnBothAccounts() {

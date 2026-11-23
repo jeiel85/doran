@@ -52,7 +52,8 @@ object Banks {
      * 통장으로 잇습니다. 둘 이상이면 어느 통장인지 몰라 잇지 않고 사람이 계좌 화면에서 고릅니다. 바꿀 것이 없으면 [card] 그대로.
      */
     fun autoPayFrom(accounts: Collection<Account>, card: Account): Account {
-        if (card.type != AccountType.CHECK || card.payFromId != null) return card
+        // 잔액을 따로 세는 예전 체크카드(D-29)는 그 카드가 잔액을 맡으니 잇지 않습니다(이으면 같은 잔액이 두 자산에 들어감, #77 리뷰).
+        if (card.type != AccountType.CHECK || card.payFromId != null || Stats.keepsBalance(card)) return card
         val bank = Gaps.bankOf(card.institution) ?: return card
         val one = accounts.filter {
             it.type == AccountType.BANK && !it.hidden && Gaps.bankOf(it.institution) == bank && (it.ownerId == card.ownerId || it.ownerId == null)

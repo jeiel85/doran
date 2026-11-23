@@ -257,13 +257,16 @@ object Stats {
         var bal = a.anchor ?: a.opening
         // 이 통장에 이은 체크카드의 결제도 이 통장에서 나간 돈입니다(D-33, `Account.payFromId`).
         val cards = if (a.type == AccountType.BANK) Banks.linkedCards(s, a).mapTo(HashSet()) { it.id } else emptySet()
+        fun covered(at: Long) = at <= baseAt && a.anchorAt != null || at < baseAt
+        // 이은 카드는 결제와 취소를 각자의 시각으로 셉니다: 잔액 알림 전에 결제하고 뒤에 취소되면 돌아온 돈만 더해야 해서(#77 리뷰).
+        // 아래 live(s)는 취소를 원래 결제에 접어 결제 시각 하나로만 보므로 쓰지 않습니다.
+        if (cards.isNotEmpty()) for (t in s.txns.values) {
+            if (t.accountId == null || t.accountId !in cards || !Banks.countsOnBank(t) || covered(t.at)) continue
+            bal += Gaps.delta(t) ?: 0L
+        }
         for ((t, net) in live(s)) {
-            if (t.at <= baseAt && a.anchorAt != null) continue
-            if (t.at < baseAt) continue
-            if (t.accountId != null && t.accountId in cards) {
-                if (Banks.countsOnBank(t)) bal += Banks.sign(a, t) * net
-                continue
-            }
+            if (covered(t.at)) continue
+            if (t.accountId != null && t.accountId in cards) continue
             if (!onAccount(a, t)) continue
             when (t.kind) {
                 Kind.EXPENSE -> if (t.accountId == a.id) bal -= net
