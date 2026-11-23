@@ -1,6 +1,7 @@
 package com.jeiel85.doran.capture
 
 import com.jeiel85.doran.model.Kind
+import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.abs
 
@@ -10,7 +11,8 @@ import kotlin.math.abs
  *
  * 항목: id(보낸 거래) · issuer · amount · at · cancel · merchant · kind · balance(머니·포인트 결제) · of(취소의 원래 거래)
  * · alias(같은 결제를 다른 카드사·앱 이름으로 가리키는 별칭 — 그 이름으로 오는 취소가 원래 거래를 찾게, #18)
- * · src·pkg·nid(보낸 알림의 경로·표시 — 같은 앱이 따로 올린 같은 금액 알림을 다른 거래로 보내게, [Notices]. 0.3.8 전 항목엔 없음).
+ * · seen(이 결제를 알린 알림들의 경로·표시 [{src, pkg, nid}] — 같은 앱이 따로 올린 같은 금액 알림을 다른 거래로 보내게, [Notices].
+ *   보낸 알림과, 이미 보낸 것으로 본 다른 경로의 알림까지 모두. 0.3.8 전 항목엔 없음).
  */
 object SentLog {
     private const val WINDOW = 3 * 60_000L
@@ -21,11 +23,31 @@ object SentLog {
         .put("id", id).put("issuer", p.issuer).put("amount", p.amount).put("at", at).put("cancel", p.type == Parsed.Type.CANCEL)
         .put("merchant", p.merchant ?: "").put("kind", kind.code).put("balance", p.paidFromBalance).apply {
             if (of != null) put("of", of)
-            if (route?.notice != null) put("src", route.source).put("pkg", route.pkg ?: "").put("nid", route.notice)
+            if (route?.notice != null) put("seen", JSONArray().put(routeJson(route)))
         }
 
-    private fun routeOf(e: JSONObject): Notices.Seen =
-        Notices.Seen(e.optString("src"), e.optString("pkg").ifEmpty { null }, e.optString("nid").ifEmpty { null })
+    private fun routeJson(r: Notices.Seen) = JSONObject().put("src", r.source).put("pkg", r.pkg ?: "").put("nid", r.notice)
+
+    private fun routesOf(e: JSONObject): List<Notices.Seen> {
+        val a = e.optJSONArray("seen") ?: return emptyList()
+        return (0 until a.length()).map { a.getJSONObject(it) }
+            .map { Notices.Seen(it.optString("src"), it.optString("pkg").ifEmpty { null }, it.optString("nid").ifEmpty { null }) }
+    }
+
+    /**
+     * 이미 보낸 결제 [hit]를 지금 알림 [route]도 알렸다고 남깁니다(그 결제의 항목 모두 — 별칭 포함). 문자로 먼저 보낸 결제에 같은 결제의
+     * 앱 푸시가 오면 그 푸시도 기억해야, 같은 앱이 따로 올린 다른 결제의 푸시를 이 결제와 다른 것으로 봅니다(#72 리뷰).
+     * 남길 것이 없으면 null.
+     */
+    fun withRoute(items: List<JSONObject>, hit: JSONObject, route: Notices.Seen?): List<JSONObject>? {
+        if (route?.notice == null) return null
+        val id = hit.optString("id")
+        if (items.none { it.optString("id") == id && route !in routesOf(it) }) return null
+        return items.map { e ->
+            if (e.optString("id") != id || route in routesOf(e)) e
+            else JSONObject(e.toString()).put("seen", JSONArray((e.optJSONArray("seen") ?: JSONArray()).toString()).put(routeJson(route)))
+        }
+    }
 
     /**
      * 이미 보낸 같은 결제: 같은 카드사의 중복 알림(앱 푸시와 문자 등), 또는 이름이 다른 같은 결제 —
@@ -41,7 +63,7 @@ object SentLog {
             it.optLong("amount") == p.amount && it.optBoolean("cancel") == isCancel && abs(it.optLong("at") - at) <= WINDOW &&
                 (sent == p.issuer || crossable && it.optString("kind") == Kind.EXPENSE.code && !it.optBoolean("balance") &&
                     Issuers.listed(sent) != Issuers.listed(p.issuer)) &&
-                !Notices.another(listOf(routeOf(it)), route?.source, route?.pkg, route?.notice)
+                !Notices.another(routesOf(it), route?.source, route?.pkg, route?.notice)
         }
     }
 

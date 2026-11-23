@@ -32,13 +32,25 @@ object Gaps {
 
     /**
      * 이 카드사·은행의 돈이 드나드는 통장 이름. 은행은 그대로, 같은 금융그룹의 카드사는 그 은행으로 봅니다(체크카드 결제는 통장에서 바로
-     * 나가서). 신용카드 결제도 함께 들어가지만 통장에서 나가지 않은 돈이라 빈틈을 키우는 쪽이 아니라(잔액이 예상보다 많음) 틀린 질문을
-     * 만들지 않습니다. 다른 카드사(현대·삼성 등)는 통장이 없어 null.
+     * 나가서). 다른 카드사(현대·삼성 등)는 통장이 없어 null. 카드사 거래를 실제로 흐름에 넣을지는 [inPot]이 정합니다.
      */
     fun bankOf(issuer: String?): String? {
         val c = issuer?.takeIf { it.isNotBlank() }?.let(Issuers::canonical) ?: return null
         if (Issuers.banks.any { it.name == c }) return c
         return CARD_BANK[c]
+    }
+
+    /**
+     * 거래 [t]를 그 통장 흐름에 넣을지: 은행 이름의 거래(통장 입출금, 토스뱅크 체크카드처럼 은행이 낸 카드)는 넣고, 카드사 이름의 거래는
+     * 체크카드 알림으로 기록된 것과 그 결제의 취소만 넣습니다. 신용카드 결제·취소는 통장이 아니라 카드값을 바꿔서, 넣으면 신용카드 취소가
+     * 통장에 들어온 돈으로 보여 없는 빈틈을 만들고 "쓴 돈"으로 답하면 없던 지출이 생깁니다(#72 리뷰). [checkCards]: 체크카드 알림으로
+     * 기록된 거래 id(알림 원문 30일).
+     */
+    fun inPot(t: Txn, checkCards: Set<String>): Boolean {
+        val c = t.issuer?.takeIf { it.isNotBlank() }?.let(Issuers::canonical) ?: return false
+        if (Issuers.banks.any { it.name == c }) return true
+        if (CARD_BANK[c] == null) return false
+        return t.id in checkCards || t.cancelOf?.let { it in checkCards } == true
     }
 
     /**

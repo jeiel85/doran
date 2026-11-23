@@ -549,11 +549,13 @@ class CaptureProcessor(
         val since = now - 30L * 86_400_000
         val s = ledger.value
         val balances = HashMap<String, Long>()
+        val checkCards = HashSet<String>()
         val bills = ArrayList<Pair<String, Gaps.Step>>()
         for (row in db.doneCapturesSince(since)) {
             val p = Parser.parse(listOfNotNull(row.title, row.text).joinToString("\n"), Fmt.dateTime(row.at), row.label) ?: continue
             val bank = Gaps.bankOf(p.issuer) ?: continue
             val id = row.txnId
+            if (id != null && p.checkCard) checkCards += id
             if (id != null) {
                 // 그 거래의 통장이 알려 준 잔액만(간편결제 앱 머니 잔액처럼 다른 곳의 잔액은 아님).
                 val t = s.txns[id] ?: continue
@@ -562,7 +564,8 @@ class CaptureProcessor(
                 bills += bank to Gaps.Step("row:${row.id}", txnAt(p, row.at), row.at, -p.amount, p.balance)
             }
         }
-        val steps = s.txns.values.filter { it.private && it.memberId == me && !it.personal && it.at >= since }
+        // 신용카드 결제·취소는 통장 흐름이 아니라 빼고, 같은 금융그룹 카드사는 체크카드 알림으로 기록된 것만 넣습니다(#72 리뷰).
+        val steps = s.txns.values.filter { it.private && it.memberId == me && !it.personal && it.at >= since && Gaps.inPot(it, checkCards) }
             .mapNotNull { t -> Gaps.bankOf(t.issuer)?.let { it to Gaps.Step(t.id, t.at, t.createdAt, Gaps.delta(t), balances[t.id]) } } + bills
         val handled = handledGaps()
         return steps.groupBy({ it.first }, { it.second }).flatMap { (bank, st) -> Gaps.find(bank, st) }
@@ -718,8 +721,11 @@ class CaptureProcessor(
         }
         // 같은 카드사의 중복 알림, 또는 규칙으로 보낸 간편결제 앱 알림과 같은 결제의 카드·은행 알림(#18)이면 다시 보내지 않고,
         // 이 이름으로 올 취소가 원래 거래를 찾게 별칭만 남깁니다(#21 리뷰).
+        // 이 알림의 경로·표시도 그 결제에 남깁니다: 문자로 먼저 보낸 결제에 앱 푸시가 오면, 그 앱의 다음 같은 금액 푸시를 다른 결제로 보내게(#72 리뷰).
         (SentLog.sameSent(items, p, at, route) ?: SentLog.sameCancelSent(items, p, at))?.let { hit ->
-            SentLog.withAlias(items, hit, p.issuer)?.let { saveSent(link, it) }
+            val aliased = SentLog.withAlias(items, hit, p.issuer) ?: items
+            val routed = SentLog.withRoute(aliased, hit, route) ?: aliased
+            if (routed !== items) saveSent(link, routed)
             return Sent("${link.label}: 이미 보냄", true)
         }
         val accountId = "acc.${link.memberId}.${Categorizer.normalize(p.issuer)}"

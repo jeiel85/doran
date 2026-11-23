@@ -94,6 +94,26 @@ class GapsTest {
         assertTrue(Gaps.find(toss, steps).isEmpty())
     }
 
+    @Test fun creditCardMovesStayOutOfTheBankFlow() {
+        // 같은 금융그룹이라도 신용카드 결제·취소는 통장이 아니라 카드값을 바꿈 — 체크카드 알림으로 기록된 것과 그 취소만 통장 흐름에(#72 리뷰)
+        val credit = Txn("c", Kind.EXPENSE, 40_000, t0, issuer = "KB국민카드", private = true, memberId = "h")
+        val creditCancel = Txn("x", Kind.EXPENSE, 40_000, t0 + 1, cancelOf = "c", issuer = "KB국민카드", private = true, memberId = "h")
+        val check = credit.copy(id = "k")
+        val checkCancel = creditCancel.copy(id = "y", cancelOf = "k")
+        val checks = setOf("k")
+        assertFalse(Gaps.inPot(credit, checks))
+        assertFalse(Gaps.inPot(creditCancel, checks))
+        assertTrue(Gaps.inPot(check, checks))
+        assertTrue(Gaps.inPot(checkCancel, checks))
+        assertTrue(Gaps.inPot(Txn("b", Kind.EXPENSE, 1, t0, issuer = "KB국민은행"), emptySet())) // 통장 출금
+        assertTrue(Gaps.inPot(Txn("t", Kind.EXPENSE, 1, t0, issuer = "토스뱅크"), emptySet())) // 은행이 낸 체크카드
+        assertFalse(Gaps.inPot(Txn("h", Kind.EXPENSE, 1, t0, issuer = "현대카드"), setOf("h"))) // 통장 없는 카드사
+        // 리뷰의 예: 통장 잔액 200,000 → 신용카드 취소 40,000 → 체크카드 결제 3,000(잔액 197,000).
+        val bank = listOf(Step("b1", at(0), 0, -1_000, balance = 200_000), Step("k2", at(20), 0, -3_000, balance = 197_000))
+        assertEquals(40_000L, Gaps.find("KB국민은행", bank + Step("x", at(10), 0, Gaps.delta(creditCancel))).single().amount) // 넣으면 없는 빈틈
+        assertTrue(Gaps.find("KB국민은행", bank).isEmpty()) // inPot이 빼면 맞음
+    }
+
     @Test fun deltaFollowsTheMoney() {
         fun t(kind: Kind, amount: Long = 10_000, cancelOf: String? = null, foreign: String? = null) =
             Txn("t", kind, amount, t0, cancelOf = cancelOf, foreign = foreign)

@@ -80,6 +80,25 @@ class NoticesTest {
         assertNull(a.balance)
     }
 
+    @Test fun senderPhoneRemembersEveryRouteOfASentPayment() {
+        // 문자로 먼저 보낸 결제에 같은 결제의 앱 푸시가 오면 그 푸시도 기억해, 그 앱의 다음 같은 금액 푸시는 다른 결제로 보냄(#72 리뷰)
+        val now = LocalDateTime.of(2026, 11, 23, 9, 0)
+        val p = Parser.parse("12,000원 출금\n토스뱅크 통장 → ○○회비", now, hint = "토스")!!
+        val ms = 1_795_392_000_000L
+        val smsRoute = Seen(sms, "16617654", kbSms1)
+        val push1 = Seen(push, toss, tossKey1)
+        var sent = listOf(SentLog.entry("x", p, ms, Kind.EXPENSE, null, smsRoute))
+        val hit = SentLog.sameSent(sent, p, ms + 2_000, push1)!! // 같은 결제의 앱 푸시: 이미 보낸 것
+        sent = SentLog.withRoute(sent, hit, push1)!!
+        assertNull(SentLog.withRoute(sent, hit, push1)) // 이미 기억함
+        assertNull(SentLog.sameSent(sent, p, ms + 4_000, Seen(push, toss, tossKey2))) // 다른 결제의 푸시
+        assertNotNull(SentLog.sameSent(sent, p, ms + 4_000, push1)) // 같은 푸시가 다시 옴
+        // 별칭 항목(같은 결제의 다른 이름)도 함께 기억
+        val aliased = SentLog.withAlias(listOf(SentLog.entry("y", p, ms, Kind.EXPENSE, null, smsRoute)), SentLog.entry("y", p, ms, Kind.EXPENSE, null, smsRoute), "네이버페이")!!
+        val routed = SentLog.withRoute(aliased, aliased.first(), push1)!!
+        assertEquals(2, routed.count { it.optJSONArray("seen")?.length() == 2 })
+    }
+
     @Test fun senderPhoneSendsTheSecondNoticeOfTheSameApp() {
         // 보내는 가족 폰(부모님 폰)도 같은 앱이 따로 올린 알림은 따로 보냅니다.
         val now = LocalDateTime.of(2026, 11, 23, 9, 0)
