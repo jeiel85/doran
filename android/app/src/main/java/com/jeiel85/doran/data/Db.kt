@@ -9,7 +9,7 @@ import android.database.sqlite.SQLiteOpenHelper
  * 로컬 저장소. 장부 엔티티는 동기화 op와 같은 JSON으로 한 테이블에 둡니다 (DECISIONS.md D-2).
  * 앱 데이터 백업은 꺼져 있고(manifest), 복구는 암호 백업 파일로만 합니다 (D-11).
  */
-class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 4) {
+class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 5) {
 
     override fun onConfigure(db: SQLiteDatabase) {
         db.enableWriteAheadLogging()
@@ -30,7 +30,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 4) {
         db.execSQL(
             """CREATE TABLE capture_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, source TEXT NOT NULL,
                  pkg TEXT, title TEXT, text TEXT NOT NULL, result TEXT NOT NULL, txn_id TEXT,
-                 status TEXT NOT NULL DEFAULT 'done', label TEXT, ai TEXT)""")
+                 status TEXT NOT NULL DEFAULT 'done', label TEXT, ai TEXT, notice TEXT)""")
         db.execSQL("CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT NOT NULL)")
     }
 
@@ -48,6 +48,11 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 4) {
         // v4(0.3.0): "AI로 한 번 더 보기"의 판정(JSON, DECISIONS.md D-25). 원문과 같이 이 폰에만, 30일.
         if (oldVersion < 4) {
             db.execSQL("ALTER TABLE capture_log ADD COLUMN ai TEXT")
+        }
+        // v5(0.3.8): 알림 하나를 가리키는 표시(앱 알림 키·문자 받은 시각, capture.Notices). 같은 앱이 따로 올린 두 알림을 두 거래로
+        // 세는 데 씁니다(D-5). 예전 행은 비어 있어 지금처럼 같은 거래로 봅니다.
+        if (oldVersion < 5) {
+            db.execSQL("ALTER TABLE capture_log ADD COLUMN notice TEXT")
         }
     }
 
@@ -141,6 +146,8 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 4) {
         val result: String, val txnId: String?, val status: String = "done", val label: String? = null,
         /** AI 판정(JSON, [com.jeiel85.doran.ai.AiVerdict]). 아직 묻지 않았으면 null. */
         val ai: String? = null,
+        /** 알림 하나를 가리키는 표시([com.jeiel85.doran.capture.Notices]). 0.3.8 전 기록은 null. */
+        val notice: String? = null,
     ) {
         val isCandidate get() = status == CANDIDATE
         /** 결제·출금 실패·예정 알림이라 기록하지 않은 것(D-4). 오탐이면 "그래도 보내기"로 보낼 수 있습니다. */
@@ -148,10 +155,10 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 4) {
     }
 
     fun logCapture(at: Long, source: String, pkg: String?, title: String?, text: String, result: String, txnId: String?,
-                   status: String = "done", label: String? = null): Long {
+                   status: String = "done", label: String? = null, notice: String? = null): Long {
         val id = writableDatabase.insert("capture_log", null, ContentValues().apply {
             put("at", at); put("source", source); put("pkg", pkg); put("title", title); put("text", text); put("result", result)
-            put("txn_id", txnId); put("status", status); put("label", label)
+            put("txn_id", txnId); put("status", status); put("label", label); put("notice", notice)
         })
         writableDatabase.delete("capture_log", "at < ?", arrayOf((at - 30L * 86_400_000).toString()))
         return id
@@ -188,9 +195,9 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 4) {
             "id = ?", arrayOf(id.toString()))
     }
 
-    private val captureCols = "id, at, source, pkg, title, text, result, txn_id, status, label, ai"
+    private val captureCols = "id, at, source, pkg, title, text, result, txn_id, status, label, ai, notice"
     private fun readCapture(c: android.database.Cursor) = CaptureRow(c.getLong(0), c.getLong(1), c.getString(2), c.getString(3),
-        c.getString(4), c.getString(5), c.getString(6), c.getString(7), c.getString(8), c.getString(9), c.getString(10))
+        c.getString(4), c.getString(5), c.getString(6), c.getString(7), c.getString(8), c.getString(9), c.getString(10), c.getString(11))
 
     /** 아직 AI에게 묻지 않은 수집 기록(숨긴 것 빼고), 최근 것부터. */
     fun capturesWithoutAi(since: Long, limit: Int): List<CaptureRow> = readableDatabase.rawQuery(
@@ -225,6 +232,12 @@ class Db(context: Context) : SQLiteOpenHelper(context, "doran.db", null, 4) {
     /** 거래와 이어진 수집 기록(기록함·용돈·이미 기록됨 등). 지금 기준으로 실패·예정 알림인 것을 찾는 데 씁니다(#13). */
     fun recordedCaptures(): List<CaptureRow> = readableDatabase.rawQuery(
         "SELECT $captureCols FROM capture_log WHERE status = 'done' AND txn_id IS NOT NULL ORDER BY at DESC", null).use { c ->
+        buildList { while (c.moveToNext()) add(readCapture(c)) }
+    }
+
+    /** [since] 뒤에 받아 처리한(기록함·이미 기록됨·기록 안 함 등) 수집 기록. 알림 없이 나간 돈을 잔액으로 찾는 데 씁니다(D-31). */
+    fun doneCapturesSince(since: Long): List<CaptureRow> = readableDatabase.rawQuery(
+        "SELECT $captureCols FROM capture_log WHERE status = 'done' AND at >= ? ORDER BY at", arrayOf(since.toString())).use { c ->
         buildList { while (c.moveToNext()) add(readCapture(c)) }
     }
 

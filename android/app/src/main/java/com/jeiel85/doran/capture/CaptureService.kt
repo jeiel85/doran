@@ -45,17 +45,23 @@ class CaptureService : NotificationListenerService() {
             if (SmsReceiver.isPersonalNumber(from)) return
             // 문자 앱은 한 대화방의 여러 문자를 한 알림(MessagingStyle)으로 다시 올립니다. 문자마다 나눠 읽고,
             // 이미 읽은 문자(보낸 곳·시각·내용)는 건너뜁니다.
+            // 문자마다 그 문자를 가리키는 표시도 함께 둡니다(Notices). 나눠 읽지 못한 알림은 알림 키로(같은 대화방이면 한 건).
             val messages = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n)?.messages
-                ?.mapNotNull { m -> m.text?.toString()?.takeIf { it.isNotBlank() }?.let { it to (m.timestamp.takeIf { t -> t > 0 } ?: sbn.postTime) } }
+                ?.mapNotNull { m ->
+                    m.text?.toString()?.takeIf { it.isNotBlank() }?.let { body ->
+                        val at = m.timestamp.takeIf { t -> t > 0 } ?: sbn.postTime
+                        Triple(body, at, if (m.timestamp > 0) Notices.sms(at, body) else Notices.push(sbn.key))
+                    }
+                }
                 ?.takeIf { it.isNotEmpty() }
-                ?: listOfNotNull(text?.let { it to sbn.postTime })
+                ?: listOfNotNull(text?.let { Triple(it, sbn.postTime, Notices.push(sbn.key)) })
             if (messages.isEmpty()) return
             scope.launch {
                 Hub.init(applicationContext)
                 if (!Hub.settings.value.captureSms) return@launch
-                for ((body, at) in messages) {
+                for ((body, at, notice) in messages) {
                     if (!Hub.db.markSeenSms(from, at, body)) continue
-                    runCatching { Hub.capture.process(Source.SMS, from, null, body, at, appLabel = "문자 $from") }
+                    runCatching { Hub.capture.process(Source.SMS, from, null, body, at, appLabel = "문자 $from", notice = notice) }
                         .onFailure { Log.w("Capture", "sms notification failed", it) }
                 }
                 // 기록은 규칙이 이미 끝냈고, AI 판정은 비교용으로 뒤에 붙입니다(D-25, 켠 경우만).
@@ -69,7 +75,7 @@ class CaptureService : NotificationListenerService() {
             val s = Hub.settings.value
             if (!s.capturePush || pkg in s.mutedPackages) return@launch
             val label = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrNull()
-            runCatching { Hub.capture.process(Source.PUSH, pkg, title, text, sbn.postTime, label) }
+            runCatching { Hub.capture.process(Source.PUSH, pkg, title, text, sbn.postTime, label, notice = Notices.push(sbn.key)) }
                 .onFailure { Log.w("Capture", "process failed", it) }
             Hub.ai.afterCapture()
         }
@@ -106,7 +112,7 @@ class SmsReceiver : BroadcastReceiver() {
             try {
                 Hub.init(context.applicationContext)
                 if (Hub.settings.value.captureSms) {
-                    Hub.capture.process(Source.SMS, from, null, body, at, appLabel = "문자 $from")
+                    Hub.capture.process(Source.SMS, from, null, body, at, appLabel = "문자 $from", notice = Notices.sms(at, body))
                     // 방송 수신은 몇 초 안에 끝내야 해서, AI 판정(D-25)은 앱 범위에서 따로 돕니다.
                     Hub.scope.launch { Hub.ai.afterCapture() }
                 }

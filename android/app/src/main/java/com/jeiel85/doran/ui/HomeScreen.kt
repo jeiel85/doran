@@ -189,6 +189,7 @@ fun HomeScreen(nav: Nav) {
 
         item { FailedRecordsCard(nav) }
         item { StaleMovesCard(nav) }
+        item { GapsCard(nav) }
         item { CandidatesCard(nav) }
 
         if (!captureOn) item {

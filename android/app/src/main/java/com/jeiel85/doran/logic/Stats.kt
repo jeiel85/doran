@@ -96,10 +96,10 @@ object Stats {
 
     /**
      * 이 거래를 가계부 합계에 더하는지: 월 용돈이 정해진 사람의 용돈 내역은 빼요. 가계부 통장끼리 옮긴 돈(출금·입금 한 쌍)도
-     * 쓴 돈·수입이 아니라 빼요(D-28, 통장 잔액에는 그대로 들어감).
+     * 쓴 돈·수입이 아니라 빼요(D-28, 통장 잔액에는 그대로 들어감). 짝 없이 '내 통장끼리 옮긴 돈'으로 고른 입금도 수입이 아니에요(D-31).
      */
     fun counts(s: LedgerState, t: Txn): Boolean =
-        !t.personal && !(t.private && hasFixedAllowance(s, t.memberId)) && !Moves.linked(t)
+        !t.personal && !(t.private && hasFixedAllowance(s, t.memberId)) && !Moves.linked(t) && !Moves.selfIn(t)
 
     /**
      * 이 기간에 [memberId]가 용돈으로 쓴 결제(본인 폰에만 있음, D-7). 용돈 계좌로 들어온 입금(내 다른 통장에서 옮긴 돈 등)은

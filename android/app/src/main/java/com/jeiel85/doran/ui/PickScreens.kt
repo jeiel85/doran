@@ -401,3 +401,58 @@ fun StaleMovesCard(nav: Nav) {
             scope.launch { withContext(Dispatchers.IO) { Hub.capture.keepStaleMoves(picked) }; done++ }
         }) { Text("그대로 두기", color = P.c.inkSoft) } })
 }
+
+/**
+ * 홈의 "알림 없이 나간 돈" 카드(D-31): 범위 밖 통장이 알려 준 잔액이 기록보다 더 줄었으면 옮긴 돈인지 쓴 돈인지 묻습니다(토스뱅크는
+ * 내가 한 이체·송금에 출금 알림이 없어서). 답하면 사라지고, 쓴 돈은 어디에 썼는지 적을 수 있게 그 내역을 엽니다.
+ */
+@Composable
+fun GapsCard(nav: Nav) {
+    val tick = rememberResumeTick()
+    var done by remember { mutableIntStateOf(0) }
+    val items by produceState(emptyList<Pair<com.jeiel85.doran.logic.Gaps.Gap, Txn?>>(), tick, done) {
+        value = withContext(Dispatchers.IO) { Hub.capture.missingOutflows() }
+    }
+    val scope = rememberCoroutineScope()
+    if (items.isEmpty()) return
+    fun whenText(ms: Long) = Fmt.date(ms).let { "${it.monthValue}/${it.dayOfMonth}" } + " " + Fmt.time(ms)
+    Spacer(Modifier.height(14.dp))
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(P.c.apricotSoft).padding(16.dp)) {
+        Text("알림 없이 나간 돈이 있어요", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
+        Text("통장이 알려 준 잔액이 기록보다 더 줄었어요. 옮긴 돈인지 쓴 돈인지 알려 주세요",
+            style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+        items.take(3).forEach { (g, deposit) ->
+            Spacer(Modifier.height(12.dp))
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(P.c.surface).padding(12.dp)) {
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Text("${g.bank}에서", style = MaterialTheme.typography.titleSmall, color = P.c.ink, modifier = Modifier.weight(1f))
+                    Text(Fmt.won(g.amount), style = MaterialTheme.typography.titleSmall.merge(Money), color = P.c.expense)
+                }
+                Text("${whenText(g.fromAt)} ~ ${whenText(g.toAt)} 사이", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                deposit?.let { d ->
+                    Text("같은 금액이 ${d.issuer ?: "다른 통장"}에 들어왔어요(${whenText(d.at)})", style = MaterialTheme.typography.bodySmall, color = P.c.pine)
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, androidx.compose.ui.Alignment.End)) {
+                    SmallButton("아니에요", color = P.c.inkSoft) {
+                        scope.launch { withContext(Dispatchers.IO) { Hub.capture.dismissGap(g) }; done++ }
+                    }
+                    SmallButton("쓴 돈", color = P.c.apricot) {
+                        scope.launch {
+                            val t = withContext(Dispatchers.IO) { Hub.capture.answerGap(g, spent = true) }
+                            done++
+                            t?.let { nav.go(Route.Entry(txnId = it.id)) }
+                        }
+                    }
+                    SmallButton("옮긴 돈", color = P.c.pine) {
+                        scope.launch { withContext(Dispatchers.IO) { Hub.capture.answerGap(g, spent = false) }; done++ }
+                    }
+                }
+            }
+        }
+        if (items.size > 3) {
+            Spacer(Modifier.height(8.dp))
+            Text("${items.size - 3}건 더 있어요. 위에서 답하면 이어서 보여요", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+        }
+    }
+}
