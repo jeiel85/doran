@@ -36,7 +36,7 @@ object Xlsx {
                 if (t.kind == Kind.TRANSFER) e.net else if (t.kind == Kind.EXPENSE) -e.net else e.net,
                 if (e.canceled) "취소됨" else if (e.net != t.amount) "부분취소" else "",
                 s.account(t.accountId)?.name ?: t.cardLabel ?: "",
-                s.account(t.toAccountId)?.name ?: "",
+                com.jeiel85.doran.logic.Moves.destination(s, t) ?: "",
                 s.member(t.memberId)?.name ?: "",
                 if (t.installment > 1) "${t.installment}개월" else "",
                 t.memo,

@@ -90,6 +90,20 @@ class ParserTest {
         assertEquals("현대카드", r.cardPaymentTo)
     }
 
+    /** 2026-11-23: 카카오뱅크 출금 알림의 통장 이름 "입출금통장"에서 '출금'만 떼어 가맹점이 "입 통장"이 됐습니다. */
+    @Test fun accountNameIsNotMerchant() {
+        val withName = p("[카카오뱅크] 입출금통장(1234) 11/23 14:17 출금 100,000원 홍길순")!!
+        assertEquals(Parsed.Type.WITHDRAWAL, withName.type)
+        assertEquals(100_000L, withName.amount)
+        assertEquals("홍길순", withName.merchant)
+        val spaced = p("[카카오뱅크] 입출금 통장(1234) 출금 100,000원 홍길순")!!
+        assertEquals("홍길순", spaced.merchant)
+        // 받는 분이 없는 알림은 가맹점을 비웁니다("입 통장"·"통장"을 받는 곳처럼 보이지 않게).
+        val bare = p("[카카오뱅크] 입출금통장(1234) 출금 100,000원")!!
+        assertEquals(100_000L, bare.amount)
+        assertTrue(bare.merchant.isNullOrEmpty())
+    }
+
     @Test fun checkCardApprovalFromBank() {
         val r = p("[카카오뱅크] 체크카드 승인 9,500원 11/17 12:10 김밥천국")!!
         assertEquals(Parsed.Type.APPROVAL, r.type)
