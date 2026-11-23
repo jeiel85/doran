@@ -71,7 +71,8 @@ private fun AmountField(label: String, value: String, onChange: (String) -> Unit
 fun BudgetScreen(nav: Nav) {
     val s by Hub.ledger.state.collectAsStateWithLifecycle()
     val id by Hub.identity.state.collectAsStateWithLifecycle()
-    val p = Stats.current(s)
+    val settings by Hub.settings.collectAsStateWithLifecycle()
+    val p = Stats.current(s, startDay = Stats.viewStart(s, settings.monthStartDay))
     val entries = Stats.entries(s, p, id.myMemberId)
     val spent = Stats.byCategory(entries, Kind.EXPENSE).toMap()
     var total by remember { mutableStateOf(s.household.budget.takeIf { it > 0 }?.toString() ?: "") }
@@ -402,6 +403,8 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
     var allowanceCard by remember { mutableStateOf(o?.allowanceCard ?: false) }
     var family by remember { mutableStateOf(o?.family ?: false) }
     var hidden by remember { mutableStateOf(o?.hidden ?: false) }
+    var tail by remember { mutableStateOf(o?.last4 ?: "") }
+    var payFrom by remember { mutableStateOf(o?.payFromId) }
     var confirmDelete by remember { mutableStateOf(false) }
     val used = o != null && s.txns.values.any { it.accountId == o.id || it.toAccountId == o.id }
     // 체크카드는 예전부터 잔액을 세던 체크카드(통장처럼 쓰던 것)일 때만 잔액 칸을 보여 줍니다(D-29). 다른 종류에서 체크카드로 바꾸면
@@ -422,6 +425,9 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
                 name = name.trim(), type = type, ownerId = ownerId, institution = institution.trim().ifEmpty { null },
                 billingDay = billingDay.toIntOrNull()?.coerceIn(1, 31), cycleStartDay = cycleStart.toIntOrNull()?.coerceIn(1, 28),
                 allowanceCard = allowanceCard && !family, family = family, hidden = hidden,
+                // 끝자리는 통장·카드에만(같은 은행·카드사 둘 이상 나누기), 돈이 나가는 통장은 체크카드에만(D-33).
+                last4 = if (type == AccountType.BANK || type == AccountType.CARD || type == AccountType.CHECK) tail.filter(Char::isDigit).ifEmpty { null } else base.last4,
+                payFromId = if (type == AccountType.CHECK) payFrom?.takeIf { s.accounts.containsKey(it) } else null,
                 anchor = if (type == AccountType.CHECK && noBalance) null else if (changed) bal else base.anchor,
                 anchorAt = if (type == AccountType.CHECK && noBalance) null else if (changed) now else base.anchorAt,
                 opening = if (type == AccountType.CHECK && noBalance) 0 else base.opening,
@@ -455,6 +461,28 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
             }
             Spacer(Modifier.height(10.dp))
             Field("카드사·은행 (알림 연결용)", institution, { institution = it }, "예: 현대카드, KB국민은행")
+            if (type == AccountType.BANK || type == AccountType.CARD || type == AccountType.CHECK) {
+                Spacer(Modifier.height(10.dp))
+                val bank = type == AccountType.BANK
+                Field(if (bank) "계좌번호 끝자리" else "카드번호 끝자리", tail, { tail = digits(it).take(6) }, if (bank) "예: 789" else "예: 1234", number = true)
+                // 같은 은행 통장이 둘 이상이면 끝자리로 나눕니다(D-33). 알림마다 가리는 자리가 달라 "알림에 보이는 마지막 숫자"로 안내합니다.
+                Text(if (bank) "같은 은행 통장이 둘 이상이면 통장마다 알림에 보이는 마지막 숫자(예: 123456**789 → 789)를 적어 나눠요. 비워 두면 끝자리가 맞는 통장이 없는 이 은행 알림이 이 통장으로 와요."
+                    else "같은 카드사 카드가 둘 이상이면 카드 알림의 끝자리로 나눠요.",
+                    style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft, modifier = Modifier.padding(start = 8.dp, top = 4.dp))
+            }
+            if (type == AccountType.CHECK) {
+                val banks = s.accounts.values.filter { it.type == AccountType.BANK && !it.hidden && (it.ownerId == ownerId || it.ownerId == null) }.sortedBy { it.order }
+                Spacer(Modifier.height(14.dp))
+                Text("돈이 나가는 통장", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
+                Text("고르면 이 카드로 쓴 돈이 그 통장 잔액에서 바로 빠지고, 이 카드 알림에 잔액이 오면 그 통장 잔액을 맞춰요.",
+                    style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp))
+                if (banks.isEmpty()) Text("고를 통장이 아직 없어요. 자산 화면의 +로 통장을 먼저 더해 주세요.",
+                    style = MaterialTheme.typography.bodySmall, color = P.c.apricot)
+                else ChipRow {
+                    Chip("모름", payFrom == null || banks.none { it.id == payFrom }, { payFrom = null })
+                    banks.forEach { b -> Chip(b.name, payFrom == b.id, { payFrom = b.id }) }
+                }
+            }
             if (type == AccountType.CARD) {
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -629,7 +657,9 @@ fun SearchScreen(nav: Nav) {
 fun CategoryTxnsScreen(categoryId: String, month: String, nav: Nav) {
     val s by Hub.ledger.state.collectAsStateWithLifecycle()
     val id by Hub.identity.state.collectAsStateWithLifecycle()
-    val p = remember(month, s.household.monthStartDay) { Stats.period(java.time.YearMonth.parse(month), s.household.monthStartDay) }
+    val settings by Hub.settings.collectAsStateWithLifecycle()
+    val start = Stats.viewStart(s, settings.monthStartDay)
+    val p = remember(month, start) { Stats.period(java.time.YearMonth.parse(month), start) }
     val cat = s.category(categoryId)
     val list = remember(s.version, p, categoryId) {
         Stats.entries(s, p, id.myMemberId).filter { it.txn.kind != Kind.TRANSFER && (it.txn.categoryId ?: Defaults.EXPENSE_FALLBACK) == categoryId }

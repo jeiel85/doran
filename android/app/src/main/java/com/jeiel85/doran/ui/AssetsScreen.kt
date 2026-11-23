@@ -24,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +35,8 @@ import com.jeiel85.doran.core.Fmt
 import com.jeiel85.doran.core.Hub
 import com.jeiel85.doran.logic.Stats
 import com.jeiel85.doran.model.AccountType
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** 자산 탭: 순자산, 계좌·카드·저축·대출 묶음, 저축 목표. */
 @Composable
@@ -53,6 +56,11 @@ fun AssetsScreen(nav: Nav) {
         ).filter { it.second.isNotEmpty() }
     }
     val goals = s.goals.values.filter { !it.done }.sortedBy { it.order }
+    // 나만 보는 통장(공유 범위 밖 은행, D-33): 계좌를 만들지 않으니 이 폰의 알림·기록으로 셉니다(알림 원문을 읽어 IO에서).
+    val tick = rememberResumeTick()
+    val privates by produceState(emptyList<com.jeiel85.doran.logic.Banks.Private>(), tick, s.version) {
+        value = withContext(Dispatchers.IO) { Hub.capture.privateBanks() }
+    }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 120.dp)) {
         item {
@@ -92,7 +100,9 @@ fun AssetsScreen(nav: Nav) {
                                 add("이번 달 ${Fmt.compact(c.monthSpent)}")
                                 c.dueDate?.let { add("${it.monthValue}/${it.dayOfMonth} 결제 ${Fmt.compact(c.dueAmount)}") }
                             }
-                            if (checkOnly) add("통장에서 바로 나가요")
+                            val links = accountLinks(s, a)
+                            if (checkOnly && links.isEmpty()) add("통장에서 바로 나가요")
+                            addAll(links)
                             if (a.anchorAt != null) add("잔액 알림 ${Fmt.relative(a.anchorAt)}")
                         }.joinToString(" · ")
                         ListRow(a.name, sub, leading = {
@@ -101,7 +111,7 @@ fun AssetsScreen(nav: Nav) {
                                 AccountType.SAVINGS -> "savings"; AccountType.INVEST -> "invest"; AccountType.LOAN -> "tax"
                                 AccountType.POINT -> "income_etc"; AccountType.BANK -> "bank"
                             }, 42.dp)
-                        }, onClick = { nav.go(Route.AccountEdit(a.id)) }) {
+                        }, onClick = { nav.go(Route.AccountDetail(a.id)) }) {
                             if (checkOnly) Column(horizontalAlignment = Alignment.End) {
                                 Text("이번 달", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
                                 Text(Fmt.won(Stats.card(s, a).monthSpent), style = MaterialTheme.typography.titleSmall.merge(Money), color = P.c.ink)
@@ -111,6 +121,20 @@ fun AssetsScreen(nav: Nav) {
                     }
                 }
             }
+        }
+        if (privates.isNotEmpty()) item(key = "private") {
+            Spacer(Modifier.height(20.dp))
+            SectionTitle("나만 보는 통장")
+            SoftCard(padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
+                privates.forEach { pb ->
+                    ListRow(pb.bank, privateBankSub(pb), leading = { CatTile("bank", 42.dp) }, onClick = { nav.go(Route.PrivateBank(pb.bank)) }) {
+                        Text(pb.balance?.let(Fmt::won) ?: "잔액 모름", style = MaterialTheme.typography.titleSmall.merge(Money),
+                            color = if (pb.balance == null) P.c.inkSoft else P.c.ink)
+                    }
+                }
+            }
+            Text("가족과 나누지 않는 은행이라 이 폰에서만 보이고, 순자산에는 넣지 않아요.", style = MaterialTheme.typography.bodySmall,
+                color = P.c.inkSoft, modifier = Modifier.padding(start = 8.dp, top = 6.dp))
         }
         item {
             Spacer(Modifier.height(20.dp))

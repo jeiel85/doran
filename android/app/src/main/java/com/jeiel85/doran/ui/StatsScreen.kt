@@ -48,22 +48,24 @@ import kotlin.math.roundToInt
 fun StatsScreen(nav: Nav) {
     val s by Hub.ledger.state.collectAsStateWithLifecycle()
     val id by Hub.identity.state.collectAsStateWithLifecycle()
-    val cur = remember(s.household.monthStartDay) { Stats.current(s) }
+    val settings by Hub.settings.collectAsStateWithLifecycle()
+    val start = Stats.viewStart(s, settings.monthStartDay)
+    val cur = remember(start) { Stats.current(s, startDay = start) }
     var offset by rememberSaveable { mutableIntStateOf(0) }
     var mode by rememberSaveable { mutableStateOf(0) } // 0 지출, 1 수입
-    val p = remember(cur, offset, s.household.monthStartDay) { Stats.period(cur.label.minusMonths(offset.toLong()), s.household.monthStartDay) }
+    val p = remember(cur, offset, start) { Stats.period(cur.label.minusMonths(offset.toLong()), start) }
     val entries = remember(s.version, p, id.myMemberId) { Stats.entries(s, p, id.myMemberId) }
     val kind = if (mode == 0) Kind.EXPENSE else Kind.INCOME
     val cats = remember(entries, kind) { Stats.byCategory(entries, kind) }
     val total = cats.sumOf { it.second }
     val prev = remember(s.version, p, id.myMemberId) {
-        Stats.entries(s, Stats.period(p.label.minusMonths(1), s.household.monthStartDay), id.myMemberId)
+        Stats.entries(s, Stats.period(p.label.minusMonths(1), start), id.myMemberId)
     }
     val prevTotal = if (kind == Kind.EXPENSE) Stats.expense(prev) else Stats.income(prev)
     val trend = remember(s.version, p) {
-        val now = Stats.current(s)
+        val now = Stats.current(s, startDay = start)
         (5 downTo 0).map { back ->
-            val pp = Stats.period(p.label.minusMonths(back.toLong()), s.household.monthStartDay)
+            val pp = Stats.period(p.label.minusMonths(back.toLong()), start)
             if (pp.label.isAfter(now.label)) pp to 0L
             else pp to Stats.entries(s, pp, id.myMemberId).let { if (kind == Kind.EXPENSE) Stats.expense(it) else Stats.income(it) }
         }

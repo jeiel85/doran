@@ -59,7 +59,14 @@ object Stats {
         return if (date.dayOfMonth >= startDay.coerceIn(1, 28)) period(ym, startDay) else period(ym.minusMonths(1), startDay)
     }
 
-    fun current(s: LedgerState, today: LocalDate = LocalDate.now(Fmt.zone)) = periodOf(today, s.household.monthStartDay)
+    fun current(s: LedgerState, today: LocalDate = LocalDate.now(Fmt.zone), startDay: Int = s.household.monthStartDay) = periodOf(today, startDay)
+
+    /**
+     * 이 폰 화면(홈·통계·예산·위젯·엑셀)이 쓰는 한 달 시작일(DECISIONS.md D-33): 폰 설정 [mine](1~28)이 있으면 그것, 없으면(0)
+     * 가족 공통 한 달 시작일. 아내는 1일, 남편은 월급날처럼 사람마다 보고 싶은 한 달이 달라서 폰마다 고를 수 있게 했습니다.
+     * 고정지출 날짜·용돈 날·가족에게 올리는 용돈 월 합계(D-7)는 두 폰이 같아야 해서 늘 가족 공통 날짜를 씁니다.
+     */
+    fun viewStart(s: LedgerState, mine: Int): Int = if (mine in 1..28) mine else s.household.monthStartDay
 
     /**
      * 수입·지출 합계에 들어가는 줄. 취소 엔티티는 원거래를 상쇄하고 자기는 빠지며, 원화 확정 전 해외 결제는 0이라
@@ -248,10 +255,16 @@ object Stats {
         if (!keepsBalance(a)) return 0
         val baseAt = a.anchorAt ?: a.openingAt
         var bal = a.anchor ?: a.opening
+        // 이 통장에 이은 체크카드의 결제도 이 통장에서 나간 돈입니다(D-33, `Account.payFromId`).
+        val cards = if (a.type == AccountType.BANK) Banks.linkedCards(s, a).mapTo(HashSet()) { it.id } else emptySet()
         for ((t, net) in live(s)) {
-            if (!onAccount(a, t)) continue
             if (t.at <= baseAt && a.anchorAt != null) continue
             if (t.at < baseAt) continue
+            if (t.accountId != null && t.accountId in cards) {
+                if (Banks.countsOnBank(t)) bal += Banks.sign(a, t) * net
+                continue
+            }
+            if (!onAccount(a, t)) continue
             when (t.kind) {
                 Kind.EXPENSE -> if (t.accountId == a.id) bal -= net
                 Kind.INCOME -> if (t.accountId == a.id) bal += net

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Backup
+import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Category
 import androidx.compose.material.icons.rounded.DarkMode
@@ -86,14 +87,16 @@ fun SettingsScreen(nav: Nav) {
     val exportTo = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")) { uri ->
         if (uri != null) scope.launch {
             SelfUpdate.busy(true)
-            val cur = Stats.current(s)
+            // 엑셀 기간도 이 폰이 보는 한 달(D-33): 홈·통계에서 본 숫자와 같은 기간으로 나옵니다.
+            val start = Stats.viewStart(s, settings.monthStartDay)
+            val cur = Stats.current(s, startDay = start)
             val periods = when (exportRange) {
                 0 -> listOf(cur)
-                1 -> (0 until 12).map { Stats.period(cur.label.minusMonths(it.toLong()), s.household.monthStartDay) }.reversed()
+                1 -> (0 until 12).map { Stats.period(cur.label.minusMonths(it.toLong()), start) }.reversed()
                 else -> {
                     val first = s.txns.values.minOfOrNull { it.at }?.let { Fmt.date(it) } ?: LocalDate.now(Fmt.zone)
-                    var p = Stats.periodOf(first, s.household.monthStartDay)
-                    buildList { while (!p.label.isAfter(cur.label)) { add(p); p = Stats.period(p.label.plusMonths(1), s.household.monthStartDay) } }
+                    var p = Stats.periodOf(first, start)
+                    buildList { while (!p.label.isAfter(cur.label)) { add(p); p = Stats.period(p.label.plusMonths(1), start) } }
                 }
             }
             message = runCatching { Xlsx.exportLedger(context, uri, periods); "엑셀 파일을 저장했어요" }.getOrElse { "저장하지 못했어요: ${it.message}" }
@@ -108,9 +111,12 @@ fun SettingsScreen(nav: Nav) {
                 SoftCard(padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
                     ListRow("내 이름", (s.member(id.myMemberId)?.name ?: "") + " · 가족 알림에 이 이름이 나와요", Icons.Rounded.Face, onClick = { dialog = "myName" })
                     ListRow("가계부 이름", s.household.name, Icons.Rounded.Home, onClick = { dialog = "name" })
-                    ListRow("한 달 시작일", "매달 ${s.household.monthStartDay}일부터 · 월급날에 맞추면 편해요", Icons.Rounded.CalendarMonth, onClick = { dialog = "startDay" })
+                    ListRow("한 달 시작일", startDaySummary(s.household.monthStartDay, settings.monthStartDay), Icons.Rounded.CalendarMonth, onClick = { dialog = "startDay" })
                     ListRow("예산", if (s.household.budget > 0) "가족 가계부 전체 · 월 ${Fmt.won(s.household.budget)}" else "정하지 않음", Icons.Rounded.Wallet, onClick = { nav.go(Route.Budget) })
                     ListRow(com.jeiel85.doran.logic.Fixed.title(s.recurrings.values), "${s.recurrings.size}개", Icons.Rounded.EventRepeat, onClick = { nav.go(Route.Recurring) })
+                    // 통장 관리(D-33): 계좌번호 끝자리로 같은 은행 통장 나누기, 체크카드 → 돈이 나가는 통장. 계좌는 자산 화면에서 고칩니다.
+                    ListRow("계좌·카드 관리", "끝자리로 같은 은행 통장 나누기 · 체크카드와 통장 잇기", Icons.Rounded.AccountBalanceWallet,
+                        onClick = { nav.home(); nav.tab = Tab.ASSETS })
                     ListRow("저축 목표", "${s.goals.values.count { !it.done }}개 진행 중", Icons.Rounded.Flag, onClick = { nav.go(Route.Goals) })
                     ListRow("내 용돈", s.member(id.myMemberId)?.allowance?.takeIf { it > 0 }?.let { "월 ${Fmt.won(it)}" } ?: "쓰지 않음",
                         Icons.Rounded.Savings, P.c.apricot, onClick = { nav.go(Route.Allowance) })
@@ -214,18 +220,31 @@ fun SettingsScreen(nav: Nav) {
             Hub.ledger.saveHousehold(s.household.copy(name = n.trim())); dialog = null
         }
         "startDay" -> {
+            // 가족 공통 날짜(가구 설정, 두 폰이 같음)와 이 폰에서만 보는 날짜(D-33). 아내는 1일, 남편은 월급날처럼 서로 달라도 됩니다.
             var day by remember { mutableStateOf(s.household.monthStartDay.toString()) }
+            var own by remember { mutableStateOf(settings.monthStartDay in 1..28) }
+            var mine by remember { mutableStateOf(settings.monthStartDay.takeIf { it in 1..28 }?.toString() ?: "") }
+            val dayOk = day.toIntOrNull() in 1..28
+            val mineOk = !own || mine.toIntOrNull() in 1..28
             AlertDialog(onDismissRequest = { dialog = null }, containerColor = P.c.bg,
                 title = { Text("한 달 시작일") },
                 text = { Column {
                     Text("월급날이 25일이면 25로 두세요. 그러면 '11월'은 11월 25일 ~ 12월 24일이에요.", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
                     Spacer(Modifier.height(10.dp))
-                    Field("날짜 (1~28)", day, { day = it.filter(Char::isDigit).take(2) }, "1", number = true)
+                    Field("가족 공통 (1~28)", day, { day = it.filter(Char::isDigit).take(2) }, "1", number = true)
+                    Text("고정지출 날짜와 가족에게 가는 용돈 합계도 이 날짜로 나눠요.", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft,
+                        modifier = Modifier.padding(start = 8.dp, top = 4.dp))
+                    Spacer(Modifier.height(6.dp))
+                    ToggleRow("이 폰에서만 다르게 보기", "홈·통계·예산·위젯·엑셀의 '이번 달'만 바뀌어요. 가족 폰은 그대로예요",
+                        Icons.Rounded.CalendarMonth, P.c.pine, own) { own = it }
+                    if (own) Field("이 폰의 시작일 (1~28)", mine, { mine = it.filter(Char::isDigit).take(2) }, "25", number = true)
                 } },
                 confirmButton = { TextButton({
-                    day.toIntOrNull()?.takeIf { it in 1..28 }?.let { Hub.ledger.saveHousehold(s.household.copy(monthStartDay = it)) }
+                    day.toIntOrNull()?.takeIf { it in 1..28 && it != s.household.monthStartDay }?.let { Hub.ledger.saveHousehold(s.household.copy(monthStartDay = it)) }
+                    val next = if (own) mine.toIntOrNull()?.takeIf { it in 1..28 } ?: 0 else 0
+                    if (next != settings.monthStartDay) Hub.local.update { it.copy(monthStartDay = next) }
                     dialog = null
-                }) { Text("저장") } },
+                }, enabled = dayOk && mineOk) { Text("저장") } },
                 dismissButton = { TextButton({ dialog = null }) { Text("취소") } })
         }
         "export" -> AlertDialog(onDismissRequest = { dialog = null }, containerColor = P.c.bg,
@@ -296,3 +315,8 @@ private fun PwField(label: String, value: String, onChange: (String) -> Unit) {
     OutlinedTextField(value, onChange, label = { Text(label) }, singleLine = true, visualTransformation = PasswordVisualTransformation(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
 }
+
+/** 설정 줄의 한 달 시작일 설명: 가족 공통 날짜와, 이 폰만 다르게 보면 그 날짜(D-33). */
+internal fun startDaySummary(household: Int, mine: Int): String =
+    if (mine in 1..28 && mine != household) "가족 공통 매달 ${household}일 · 이 폰은 ${mine}일부터"
+    else "매달 ${household}일부터 · 월급날에 맞추면 편해요"
