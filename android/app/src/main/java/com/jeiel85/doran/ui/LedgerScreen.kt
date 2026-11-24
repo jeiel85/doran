@@ -122,7 +122,7 @@ fun LedgerScreen(nav: Nav) {
         if (calendar) {
             val sel = selected?.let(LocalDate::parse)?.takeIf { YearMonth.from(it) == ym }
             val dayEntries = filtered.filter { !it.allowanceSummary && sel != null && Fmt.date(it.txn.at) == sel }
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 120.dp)) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = navBarBottom(120.dp))) {
                 item {
                     // 옆으로 밀어 앞뒤 달로 넘깁니다(화살표와 같음).
                     val swipe = with(LocalDensity.current) { 56.dp.toPx() }
@@ -167,7 +167,7 @@ fun LedgerScreen(nav: Nav) {
             }
         } else {
             val days = filtered.groupBy { Fmt.date(it.txn.at) }.toSortedMap(compareByDescending { it })
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 120.dp)) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = navBarBottom(120.dp))) {
                 if (days.isEmpty()) item { EmptyState(R.drawable.art_empty, "${Fmt.month(ym)} 내역이 없어요", "가운데 + 버튼으로 기록해 보세요") }
                 days.forEach { (d, list) ->
                     item(key = "h$d") {

@@ -17,10 +17,13 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -475,6 +478,10 @@ fun EmptyState(@DrawableRes art: Int, title: String, sub: String, modifier: Modi
     }
 }
 
+/** 폰 하단 내비게이션 바(3버튼·제스처 막대) 높이에 [extra]를 더한 값. 스크롤 목록의 아래 여백에 씁니다. */
+@Composable
+fun navBarBottom(extra: Dp): Dp = extra + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
 /** 하위 화면 틀: 뒤로 가기 + 제목 + 스크롤 목록. */
 @Composable
 fun SubScreen(
@@ -490,7 +497,9 @@ fun SubScreen(
             Text(title, style = MaterialTheme.typography.titleLarge, color = P.c.ink, modifier = Modifier.weight(1f))
             actions()
         }
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 32.dp), content = content)
+        // 아래 버튼 칸이 없으면 목록 끝이 폰의 뒤로·홈·최근 앱 버튼 뒤로 숨지 않게 그 높이만큼 더 띄웁니다.
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp,
+            bottom = if (bottom == null) navBarBottom(32.dp) else 32.dp), content = content)
         if (bottom != null) Box(Modifier.fillMaxWidth().background(P.c.bg).navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) { bottom() }
     }
 }
