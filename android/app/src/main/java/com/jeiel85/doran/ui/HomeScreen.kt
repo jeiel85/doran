@@ -107,7 +107,7 @@ fun HomeScreen(nav: Nav) {
     val refreshScope = rememberCoroutineScope()
     val update by com.jeiel85.doran.update.SelfUpdate.state.collectAsStateWithLifecycle()
     PullToRefreshBox(isRefreshing = sync.running, onRefresh = { refreshScope.launch { Hub.sync.sync() } }, modifier = Modifier.fillMaxSize()) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 120.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = navBarBottom(120.dp))) {
         item {
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 8.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -460,7 +460,7 @@ private fun SenderHome(nav: Nav) {
     val context = LocalContext.current
     val tick = rememberResumeTick()
     val captureOn = remember(tick) { CaptureService.isEnabled(context) }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 120.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = navBarBottom(120.dp))) {
         item {
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 8.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("둥지 · 보내기", style = MaterialTheme.typography.headlineSmall, color = P.c.ink, modifier = Modifier.weight(1f))

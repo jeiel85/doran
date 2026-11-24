@@ -73,7 +73,7 @@ fun StatsScreen(nav: Nav) {
     val byMember = Stats.byMember(entries, kind, s)
     val top = Stats.topMerchants(entries)
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 120.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = navBarBottom(120.dp))) {
         item {
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { offset++ }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "이전", tint = P.c.ink) }

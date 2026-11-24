@@ -24,13 +24,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -143,6 +148,10 @@ class MainActivity : FragmentActivity() {
                         !id.onboarded -> Onboarding(pendingInvite)
                         else -> Root(nav)
                     }
+                    // 화면은 시스템 바 밑까지 그려지므로(edge-to-edge) 스크롤한 내용이 위 상태 표시줄·아래 뒤로/홈/최근 앱 버튼과
+                    // 겹쳐 보이지 않게 그 자리에 배경색 띠를 덮습니다. 제스처 탐색이면 아래 띠는 얇은 막대 높이만큼만 생깁니다.
+                    Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(P.c.bg))
+                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().windowInsetsBottomHeight(WindowInsets.navigationBars).background(P.c.bg))
                 }
             }
         }
