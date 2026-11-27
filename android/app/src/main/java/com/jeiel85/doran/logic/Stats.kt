@@ -445,6 +445,49 @@ object Stats {
         return Period(prev.label, prev.start, end)
     }
 
+    /**
+     * 이번 달 페이스(DECISIONS.md D-35, 비주얼 가계부 예산 보고서): 지금 속도면 이 달에 얼마를 쓰게 되고 언제 예산을 넘는지.
+     *
+     * 월말 예상 = 쓴 돈 + 아직 안 나간 고정지출([ahead]) + 평소 하루 평균 × 내일부터 남은 날.
+     * '평소'는 고정 규칙에 이어지지 않은 지출이라, 월세·보험·용돈처럼 초순에 몰려 나가는 돈이 월초 예상을 부풀리지 않습니다.
+     * 한 달의 첫 3일은 평균이 크게 흔들려 셈하지 않습니다(null). [budget]이 0이면 [overDay]는 없습니다.
+     */
+    data class Pace(val projected: Long, val dailyVariable: Long, val overDay: LocalDate?, val elapsedDays: Int)
+
+    const val PACE_MIN_DAYS = 3
+
+    fun pace(e: List<Entry>, ahead: List<Pair<Recurring, LocalDate>>, p: Period, today: LocalDate, budget: Long): Pace? {
+        val elapsed = (ChronoUnit.DAYS.between(p.start, today) + 1).toInt()
+        if (elapsed < PACE_MIN_DAYS || !today.isBefore(p.end)) return null
+        val spent = expense(e)
+        val variable = e.filter { it.counted && it.txn.kind == Kind.EXPENSE && it.txn.recurringId == null }.sumOf { it.net }
+        val daily = variable / elapsed
+        val restDays = ChronoUnit.DAYS.between(today, p.end).toInt() - 1 // 내일부터 이 달 끝까지
+        val fixedBy = ahead.groupBy({ it.second }, { it.first.amount }).mapValues { it.value.sum() }
+        val projected = spent + ahead.sumOf { it.first.amount } + daily * restDays.coerceAtLeast(0)
+        // 이미 넘었으면 넘는 날을 따로 칠하지 않습니다(홈이 "예산보다 ○원 더 썼어요"라고 말함).
+        // 오늘 아직 안 나간 고정지출이 있으면 오늘부터 더해 봅니다.
+        var overDay: LocalDate? = null
+        if (budget > 0 && spent <= budget) {
+            var cum = spent + (fixedBy[today] ?: 0)
+            if (cum > budget) overDay = today
+            var d = today.plusDays(1)
+            while (overDay == null && d.isBefore(p.end)) {
+                cum += daily + (fixedBy[d] ?: 0)
+                if (cum > budget) overDay = d
+                d = d.plusDays(1)
+            }
+        }
+        return Pace(projected, daily, overDay, elapsed)
+    }
+
+    /** 홈과 같은 기준(이 폰의 한 달, 보내는 가족 포함 여부)으로 지금 페이스. 내역 달력의 예상 초과일에 씁니다. */
+    fun paceNow(s: LedgerState, today: LocalDate, startDay: Int, myMemberId: String?, includeSenders: Boolean): Pace? {
+        val p = current(s, today, startDay)
+        val e = entries(s, p, myMemberId, includeSenders)
+        return pace(e, ahead(s, today, p.end.minusDays(1)), p, today, budgets(s, e).first?.budget ?: 0)
+    }
+
     fun upcoming(s: LedgerState, days: Int, today: LocalDate = LocalDate.now(Fmt.zone)): List<Pair<Recurring, LocalDate>> =
         s.recurrings.values.flatMap { r -> dueDates(r, today.plusDays(1), today.plusDays(days.toLong()), s.household.monthStartDay).map { r to it } }
             .sortedBy { it.second }

@@ -47,6 +47,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -106,6 +109,11 @@ fun LedgerScreen(nav: Nav) {
     fun keep(e: Entry) = (memberFilter == null || e.txn.memberId == memberFilter) && (kindFilter == null || e.txn.kind.code == kindFilter)
     val filtered = all.filter(::keep)
     val byDay = remember(gridAll, memberFilter, kindFilter) { Stats.byDay(gridAll.filter(::keep)) }
+    // 이대로면 예산을 넘을 날(D-35): 홈 첫 카드와 같은 셈. 사람·종류로 거른 화면이어도 가족 전체 예산 기준입니다.
+    val settings by Hub.settings.collectAsStateWithLifecycle()
+    val overDay = remember(s.version, LocalDate.now(Fmt.zone), settings.monthStartDay, settings.showSenders, id.myMemberId) {
+        Stats.paceNow(s, LocalDate.now(Fmt.zone), Stats.viewStart(s, settings.monthStartDay), id.myMemberId, settings.showSenders)?.overDay
+    }
     // 앞으로 나갈 고정지출(정기결제)을 그날 칸에 흐리게(머니차곡 '예정 표시'). 수입만 보거나 이체만 볼 때는 감춥니다.
     val today = LocalDate.now(Fmt.zone)
     val planned = remember(s.version, grid, today, memberFilter, kindFilter) {
@@ -164,7 +172,7 @@ fun LedgerScreen(nav: Nav) {
                         },
                         padding = PaddingValues(start = 6.dp, end = 6.dp, top = 12.dp, bottom = 6.dp),
                     ) {
-                        CalendarGrid(ym, byDay, sel, oneKind = kindFilter != null, planned = planned.mapValues { (_, l) -> l.sumOf { it.amount } }) { d -> month = YearMonth.from(d).toString(); selected = d.toString() }
+                        CalendarGrid(ym, byDay, sel, oneKind = kindFilter != null, planned = planned.mapValues { (_, l) -> l.sumOf { it.amount } }, overDay = overDay) { d -> month = YearMonth.from(d).toString(); selected = d.toString() }
                     }
                 }
                 if (sel != null) {
@@ -174,6 +182,7 @@ fun LedgerScreen(nav: Nav) {
                         Row(Modifier.fillMaxWidth().padding(top = 18.dp, start = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(Fmt.dayLabel(sel), style = MaterialTheme.typography.titleMedium, color = P.c.ink)
+                                if (sel == overDay) Text("지금 속도면 이날 이 달 예산을 넘어요", style = MaterialTheme.typography.bodySmall, color = P.c.expense)
                                 Text(listOfNotNull(if (ex > 0) "지출 ${Fmt.won(ex)}" else null, if (inc > 0) "수입 ${Fmt.won(inc)}" else null)
                                     .joinToString(" · ").ifEmpty { "지출·수입 없음" }, style = MaterialTheme.typography.bodySmall.merge(Money), color = P.c.inkSoft)
                                 // 그 주(달력 한 줄) 합계: 하루하루보다 한 주 단위로 씀씀이를 보는 경우가 많아서.
@@ -250,7 +259,7 @@ fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
  */
 @Composable
 fun CalendarGrid(ym: YearMonth, byDay: Map<LocalDate, Pair<Long, Long>>, selected: LocalDate?, oneKind: Boolean = false,
-                 planned: Map<LocalDate, Long> = emptyMap(), onSelect: (LocalDate) -> Unit) {
+                 planned: Map<LocalDate, Long> = emptyMap(), overDay: LocalDate? = null, onSelect: (LocalDate) -> Unit) {
     val (start, end) = Stats.calendarRange(ym)
     val rows = (java.time.temporal.ChronoUnit.DAYS.between(start, end) / 7).toInt()
     val today = LocalDate.now(Fmt.zone)
@@ -269,7 +278,7 @@ fun CalendarGrid(ym: YearMonth, byDay: Map<LocalDate, Pair<Long, Long>>, selecte
             Row(Modifier.fillMaxWidth().height(dims.row.dp)) {
                 for (c in 0 until 7) {
                     val d = start.plusDays((r * 7 + c).toLong())
-                    DayCell(d, YearMonth.from(d) == ym, byDay[d], planned[d] ?: 0, d == selected, d == today, oneKind, dims, Modifier.weight(1f).fillMaxHeight()) { onSelect(d) }
+                    DayCell(d, YearMonth.from(d) == ym, byDay[d], planned[d] ?: 0, d == overDay, d == selected, d == today, oneKind, dims, Modifier.weight(1f).fillMaxHeight()) { onSelect(d) }
                 }
             }
         }
@@ -300,7 +309,7 @@ private val CellMoneyBig = Money.copy(fontSize = 12.5.sp, lineHeight = CalendarS
 
 @Composable
 private fun DayCell(
-    d: LocalDate, inMonth: Boolean, sums: Pair<Long, Long>?, planned: Long, isSel: Boolean, isToday: Boolean, oneKind: Boolean,
+    d: LocalDate, inMonth: Boolean, sums: Pair<Long, Long>?, planned: Long, isOver: Boolean, isSel: Boolean, isToday: Boolean, oneKind: Boolean,
     dims: CalendarSize.Dims, modifier: Modifier, onClick: () -> Unit,
 ) {
     val (ex, inc) = sums ?: (0L to 0L)
@@ -313,6 +322,7 @@ private fun DayCell(
         if (ex > 0) append(", 지출 ${Fmt.won(ex)}")
         if (inc > 0) append(", 수입 ${Fmt.won(inc)}")
         if (plannedText != null) append(", 나갈 예정 ${Fmt.won(planned)}")
+        if (isOver) append(", 지금 속도면 이날 예산을 넘어요")
         if (ex == 0L && inc == 0L && plannedText == null) append(", 기록 없음")
     }
     // 앞뒤 달 날짜는 금액까지 흐리게(비주얼 가계부처럼) — 이 달 것과 섞여 보이지 않게.
@@ -320,9 +330,12 @@ private fun DayCell(
     val exText = if (ex > 0) "-" + Fmt.cell(ex) else null
     val incText = if (inc > 0) "+" + Fmt.cell(inc) else null
     val shape = RoundedCornerShape(10.dp)
+    val overColor = P.c.expense
     Column(
         modifier.padding(1.dp).clip(shape)
             .then(if (isSel) Modifier.background(P.c.pineSoft).border(1.5.dp, P.c.pine, shape) else Modifier)
+            // 예상 초과일: 칸 아래에 빨간 줄(구성안 결정 3).
+            .then(if (isOver) Modifier.drawBehind { drawRect(overColor, Offset(0f, size.height - 3.dp.toPx()), Size(size.width, 3.dp.toPx())) } else Modifier)
             .clickable(onClick = onClick)
             .clearAndSetSemantics { contentDescription = spoken; selected = isSel; role = Role.Button }
             .padding(horizontal = 3.dp, vertical = 3.dp),
