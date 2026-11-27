@@ -420,15 +420,23 @@ export async function cleanup(env, now = Date.now()) {
     env.DB.prepare("DELETE FROM invites WHERE expires_at <= ?1").bind(now),
     env.DB.prepare("DELETE FROM rate WHERE win < ?1").bind(now - 86_400_000),
   ];
+  // 뽑은 뒤 지우기 전에 그 폰이 다시 오거나(seen_at 갱신) 다른 기기가 합류할 수 있어, 지우는 문장마다 같은 조건을 다시 붙입니다
+  // (#98 리뷰). batch는 한 트랜잭션이라 조건과 삭제가 함께 판단됩니다. 앞 문장이 멤버를 지운 뒤에도 맞도록 가구·기기는 "멤버가 남지 않았을 때만".
+  const stillAbandoned = "SELECT 1 FROM devices d WHERE d.id = ?2 AND d.seen_at - d.created_at < ?3 AND d.seen_at < ?4";
+  const onlyMember = "(SELECT COUNT(*) FROM members WHERE space = ?1) = 1 AND EXISTS (SELECT 1 FROM members WHERE space = ?1 AND device = ?2)";
   for (const { space, device } of spaces) {
-    for (const t of ["ops", "blobs", "invites", "members"]) stmts.push(env.DB.prepare(`DELETE FROM ${t} WHERE space = ?1`).bind(space));
-    stmts.push(env.DB.prepare("DELETE FROM spaces WHERE id = ?1").bind(space));
-    stmts.push(env.DB.prepare("DELETE FROM invites WHERE owner = ?1").bind(device));
-    stmts.push(env.DB.prepare("DELETE FROM devices WHERE id = ?1").bind(device));
+    for (const t of ["ops", "blobs", "invites"]) {
+      stmts.push(env.DB.prepare(`DELETE FROM ${t} WHERE space = ?1 AND ${onlyMember} AND EXISTS (${stillAbandoned})`).bind(space, device, ONE_HOUR, old));
+    }
+    stmts.push(env.DB.prepare(`DELETE FROM members WHERE space = ?1 AND device = ?2 AND ${onlyMember} AND EXISTS (${stillAbandoned})`).bind(space, device, ONE_HOUR, old));
+    stmts.push(env.DB.prepare("DELETE FROM spaces WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM members WHERE space = ?1)").bind(space));
+    pushLoose(device);
   }
-  for (const { id } of loose) {
-    stmts.push(env.DB.prepare("DELETE FROM invites WHERE owner = ?1").bind(id));
-    stmts.push(env.DB.prepare("DELETE FROM devices WHERE id = ?1").bind(id));
+  for (const { id } of loose) pushLoose(id);
+  function pushLoose(id) {
+    const cond = "NOT EXISTS (SELECT 1 FROM members WHERE device = ?1) AND EXISTS (SELECT 1 FROM devices d WHERE d.id = ?1 AND d.seen_at - d.created_at < ?2 AND d.seen_at < ?3)";
+    stmts.push(env.DB.prepare(`DELETE FROM invites WHERE owner = ?1 AND ${cond}`).bind(id, ONE_HOUR, old));
+    stmts.push(env.DB.prepare(`DELETE FROM devices WHERE id = ?1 AND ${cond}`).bind(id, ONE_HOUR, old));
   }
   await env.DB.batch(stmts);
   if (spaces.length || loose.length) console.log(`cleanup: abandoned spaces ${spaces.length}, loose devices ${loose.length}`);
