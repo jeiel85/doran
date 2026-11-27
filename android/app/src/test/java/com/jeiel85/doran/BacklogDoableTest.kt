@@ -78,6 +78,19 @@ class BacklogDoableTest {
         assertTrue(Twins.existingPairs(LedgerState(txns = listOf(a, b.copy(memberId = "h", createdBy = "ph")).associateBy { it.id }), ms(11, 27)).isEmpty())
     }
 
+    @Test fun cancelsOnTheDroppedTwinMoveToTheKeptOne() {
+        val keep = Txn("a", Kind.EXPENSE, 9_000, 0, accountId = "ca")
+        val gone = Txn("b", Kind.EXPENSE, 9_000, 0, accountId = "cb")
+        val cancel = Txn("x", Kind.EXPENSE, 3_000, 1, accountId = "cb", cancelOf = "b")
+        val s = LedgerState(txns = listOf(keep, gone, cancel).associateBy { it.id })
+        val moved = Twins.cancelsToMove(s, keep, gone).single()
+        assertEquals("a", moved.cancelOf)
+        assertEquals("ca", moved.accountId)
+        // 남길 쪽에도 취소가 있으면 같은 취소를 두 번 기록한 것이라 옮기지 않음
+        val both = s.copy(txns = s.txns + ("y" to Txn("y", Kind.EXPENSE, 3_000, 1, accountId = "ca", cancelOf = "a")))
+        assertTrue(Twins.cancelsToMove(both, keep, gone).isEmpty())
+    }
+
     @Test fun mergeMovesEverythingToTheOtherAccount() {
         val from = Account("x", "현대카드 1234", AccountType.CARD, institution = "현대카드", last4 = "1234")
         val into = Account("y", "가족 카드", AccountType.CARD)

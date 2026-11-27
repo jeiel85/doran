@@ -235,6 +235,15 @@ object Twins {
         return out
     }
 
+    /**
+     * 같은 결제 쌍을 하나로 줄일 때 지울 쪽([gone])에 붙은 승인 취소를 어떻게 할지(#95 리뷰): 남길 쪽에 취소가 없으면 그 취소를 남길 쪽으로
+     * 옮기고(돌려주는 값), 남길 쪽에도 취소가 있으면 같은 취소를 두 폰이 각자 기록한 것이라 옮기지 않습니다(지울 쪽과 함께 지워짐).
+     */
+    fun cancelsToMove(s: LedgerState, keep: Txn, gone: Txn): List<Txn> {
+        if (s.txns.values.any { it.cancelOf == keep.id }) return emptyList()
+        return s.txns.values.filter { it.cancelOf == gone.id }.map { it.copy(cancelOf = keep.id, accountId = keep.accountId) }
+    }
+
     /** 둘 중 남길 것: 먼저 기록된 쪽(카드 주인 폰이 대개 먼저 받음), 같으면 id가 작은 쪽. */
     fun keeper(a: Txn, b: Txn): Txn =
         when {

@@ -226,7 +226,10 @@ fun DuplicatesCard(s: LedgerState) {
     val pairs = remember(s.version) { com.jeiel85.doran.logic.Twins.existingPairs(s, System.currentTimeMillis()) }
     if (pairs.isEmpty()) return
     fun drop(pair: Pair<com.jeiel85.doran.model.Txn, com.jeiel85.doran.model.Txn>) {
-        val gone = pair.second
+        val (keep, gone) = pair
+        // 지울 쪽에만 붙은 승인 취소는 남길 쪽으로 옮긴 뒤 지웁니다(지우면 취소까지 사라져 쓴 돈이 부풀었어요, #95 리뷰).
+        val moved = com.jeiel85.doran.logic.Twins.cancelsToMove(Hub.ledger.value, keep, gone)
+        if (moved.isNotEmpty()) Hub.ledger.putAll(moved.map { Triple(com.jeiel85.doran.model.T.TXN, it.id, it.json()) })
         Hub.ledger.deleteTxn(gone.id)
         com.jeiel85.doran.logic.Twins.leftoverAccount(Hub.ledger.value, gone)?.let { Hub.ledger.delete(com.jeiel85.doran.model.T.ACCOUNT, it.id) }
     }
