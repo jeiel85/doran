@@ -242,10 +242,13 @@ class BanksTest {
         val other = check("o") // 다른 통장(또는 이지 않은) 카드
         val s = state(listOf(a, card, other), listOf(txn("pay", "c", 12_000, 0), txn("x", "o", 12_000, 1)))
         val win = 3 * 60_000L
-        assertEquals("pay", Banks.linkedCardPayment(s, "a", 12_000, at(2), win)?.id)
-        assertNull(Banks.linkedCardPayment(s, "a", 12_000, at(5), win)) // 3분 넘음
-        assertNull(Banks.linkedCardPayment(s, "a", 11_000, at(1), win)) // 금액 다름
-        assertNull(Banks.linkedCardPayment(s, "b", 12_000, at(1), win)) // 이은 카드 없음
+        assertEquals("pay", Banks.linkedCardPayment(s, a, 12_000, at(2), win)?.id)
+        assertNull(Banks.linkedCardPayment(s, a, 12_000, at(5), win)) // 3분 넘음
+        assertNull(Banks.linkedCardPayment(s, a, 11_000, at(1), win)) // 금액 다름
+        assertNull(Banks.linkedCardPayment(s, bank("b"), 12_000, at(1), win)) // 이은 카드 없음
+        // 잔액을 따로 세는 예전 체크카드는 통장에서 빼지 않으므로 같은 돈으로 보지 않음(#90 리뷰)
+        val legacy = card.copy(anchor = 80_000, anchorAt = at(-60))
+        assertNull(Banks.linkedCardPayment(state(listOf(a, legacy), listOf(txn("pay", "c", 12_000, 0))), a, 12_000, at(1), win))
     }
 
     @Test fun keptFlowsAfterTheLastBalanceNoticeAreNeverDropped() {

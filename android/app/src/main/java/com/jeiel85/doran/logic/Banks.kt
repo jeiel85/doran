@@ -159,8 +159,9 @@ object Banks {
      * 통장 [bankId]의 출금 알림이 그 통장에 이은 체크카드로 이미 기록한 결제와 같은 돈인지(#78): 같은 금액, 앞뒤 [window] 안의
      * 알림·문자로 기록된 체크카드 결제(취소 아님). 은행이 체크카드 결제를 출금 문자로도 알려 주면 통장에서 두 번 빠지기 때문입니다.
      */
-    fun linkedCardPayment(s: LedgerState, bankId: String, amount: Long, at: Long, window: Long): Txn? {
-        val cards = s.accounts.values.filter { it.type == AccountType.CHECK && it.payFromId == bankId }.mapTo(HashSet()) { it.id }
+    fun linkedCardPayment(s: LedgerState, bank: Account, amount: Long, at: Long, window: Long): Txn? {
+        // 통장 잔액에서 빼는 카드만([linkedCards]): 잔액을 따로 세는 예전 체크카드의 결제는 통장에서 빼지 않으므로 같은 돈으로 보지 않습니다(#90 리뷰).
+        val cards = linkedCards(s, bank).mapTo(HashSet()) { it.id }
         if (cards.isEmpty()) return null
         return s.txns.values.filter {
             it.accountId in cards && it.kind == Kind.EXPENSE && it.cancelOf == null && it.amount == amount &&

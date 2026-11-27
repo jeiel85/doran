@@ -382,7 +382,9 @@ class CaptureProcessor(
         // 이은 체크카드(D-33)로 낸 결제를 은행도 출금 문자로 알려 주면 같은 돈이 통장에서 두 번 빠집니다(#78). 카드 결제가 먼저 기록돼
         // 있으면(카드 앱 푸시가 대개 먼저 옴) 이 출금은 같은 돈으로 보고 기록하지 않습니다. 은행 문자가 먼저 온 경우는 아직 못 거릅니다(BACKLOG).
         if (p.type == Parsed.Type.WITHDRAWAL && p.cardPaymentTo == null && account.type == AccountType.BANK) {
-            com.jeiel85.doran.logic.Banks.linkedCardPayment(ledger.value, account.id, p.amount, at, sameMinutes)
+            // 한 카드 결제에는 은행 출금 알림 하나만 맞춥니다: 같은 앱이 따로 올린 알림이거나 이미 출금 알림이 붙은 결제면 다른 돈입니다(#90 리뷰).
+            com.jeiel85.doran.logic.Banks.linkedCardPayment(ledger.value, account, p.amount, at, sameMinutes)
+                ?.takeIf { card -> !anotherNotice(card.id, route) && db.capturesOf(card.id).none { row -> parsedRow(row)?.type == Parsed.Type.WITHDRAWAL } }
                 ?.let { return Outcome("이미 기록됨(이은 체크카드 결제의 출금 알림)", it.id) }
         }
         // 간편결제 앱 알림이 먼저 이 카드 기록에 같은 취소를 걸어 두었으면(아직 카드 알림과 짝지어지지 않은 것) 다시 세지 않습니다.
