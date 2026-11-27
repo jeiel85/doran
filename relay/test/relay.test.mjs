@@ -16,7 +16,7 @@ class Stmt {
 }
 function d1() {
   const db = new DatabaseSync(":memory:");
-  for (const m of ["0001_init.sql", "0002_wake_failures.sql", "0003_member_invite.sql"]) db.exec(readFileSync(new URL(`../migrations/${m}`, import.meta.url), "utf8"));
+  for (const m of ["0001_init.sql", "0002_wake_failures.sql", "0003_member_invite.sql", "0004_cleanup_log.sql"]) db.exec(readFileSync(new URL(`../migrations/${m}`, import.meta.url), "utf8"));
   return {
     raw: db,
     prepare: (sql) => new Stmt(db, sql),
@@ -389,6 +389,8 @@ test("cleanup은 버려진 혼자 든 가구와 가구 없는 기기만 지움(D
   const devs = env.DB.raw.prepare("SELECT id FROM devices").all().map((r) => r.id);
   assert.ok(!devs.includes(bot.deviceId) && !devs.includes(loose.deviceId));
   assert.ok(devs.includes(h.deviceId) && devs.includes(w.deviceId) && devs.includes(solo.deviceId));
+  // 지운 수가 남음(#99): 10일째 정리는 지운 것이 없어 남기지 않음
+  assert.deepEqual(env.DB.raw.prepare("SELECT spaces, devices FROM cleanup_log").all().map((r) => ({ ...r })), [{ spaces: 1, devices: 2 }]);
 });
 
 test("cleanup은 고르고 지우는 사이 돌아온 폰·합류한 기기를 지우지 않음(#98 리뷰)", async () => {

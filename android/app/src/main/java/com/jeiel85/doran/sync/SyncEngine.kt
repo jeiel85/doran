@@ -108,6 +108,16 @@ class SyncEngine(
                 if (_status.value.removed) _status.value = _status.value.copy(removed = false)
             } catch (e: RelayError) {
                 if (e.status == 404 && e.code == "space_not_found") {
+                    // 혼자 쓰던 가계부(함께 쓰는 사람이 나뿐)가 중계에서 정리됐으면(오래 접속이 없던 기기, D-41) 새 가구를 만들어
+                    // 이 폰의 장부를 그대로 다시 올립니다(#99). 가족이 있는 가계부에서 빠진 것이면 예전처럼 '빠졌어요'로 알립니다.
+                    if (soloHere()) {
+                        val fresh = createSpace()
+                        pushOutbox(fresh)
+                        pull(fresh)
+                        if (_status.value.removed) _status.value = _status.value.copy(removed = false)
+                        pushForwards()
+                        return
+                    }
                     _status.value = _status.value.copy(removed = true)
                     throw RelayError(404, "removed")
                 }
@@ -141,6 +151,15 @@ class SyncEngine(
     private fun reRegister() {
         identity.clearDevice()
         ensureRegistered()
+    }
+
+    /**
+     * 이 장부에 나 말고 아무도 없는지. 보내 주는 가족(부모님 폰)이 있으면 그 폰들은 옛 가구로 보내고 있어 새 가구를 만들면 끊기므로
+     * 저절로 다시 만들지 않습니다.
+     */
+    private fun soloHere(): Boolean {
+        val me = identity.value.myMemberId ?: return false
+        return ledger.value.activeMembers.none { it.id != me }
     }
 
     /** 오프라인으로 시작한 가계부를 서버에 처음 올림: 가구를 만들고 모든 엔티티를 올릴 목록에 넣습니다. */

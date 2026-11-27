@@ -76,7 +76,9 @@ object Hooks {
             val after = Member.from(c.id, c.after)
             if (!ShareScope.changed(before, after)) continue
             // 내 범위가 다른 폰에서 좁혀졌으면, 그 사이 이 폰이 공유로 기록한 범위 밖 내역을 나만 보는 용돈으로(#74).
-            if (after.id == me) ShareScope.privatize(s, before, after, Hub.identity.installId, System.currentTimeMillis(), Hub.capture::judgeMove)
+            // 범위를 바꾼 시각: 그 멤버 기록의 HLC 시각(앞부분이 ms)(#99).
+            val changedAt = Hub.db.entity(T.MEMBER, c.id)?.hlc?.substringBefore('-')?.toLongOrNull()
+            if (after.id == me) ShareScope.privatize(s, before, after, Hub.identity.installId, System.currentTimeMillis(), Hub.capture::judgeMove, changedAt)
                 .takeIf { it.isNotEmpty() }?.let { list -> Hub.ledger.putAll(list.map { Triple(T.TXN, it.id, it.json()) }) }
             if (after.shareBy == me) continue
             Notifier.system(context, 5000 + (c.id.hashCode() and 0xfff),

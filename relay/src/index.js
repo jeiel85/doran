@@ -438,8 +438,18 @@ export async function cleanup(env, now = Date.now()) {
     stmts.push(env.DB.prepare(`DELETE FROM invites WHERE owner = ?1 AND ${cond}`).bind(id, ONE_HOUR, old));
     stmts.push(env.DB.prepare(`DELETE FROM devices WHERE id = ?1 AND ${cond}`).bind(id, ONE_HOUR, old));
   }
+  // 지운 수를 남깁니다(#99). 조건을 다시 봐 실제로 지운 수는 후보보다 적을 수 있어, 지우기 전후 수의 차이로 셉니다.
+  const count = async () => (await env.DB.prepare("SELECT (SELECT COUNT(*) FROM spaces) AS s, (SELECT COUNT(*) FROM devices) AS d").first()) ?? { s: 0, d: 0 };
+  const before = spaces.length || loose.length ? await count() : null;
   await env.DB.batch(stmts);
-  if (spaces.length || loose.length) console.log(`cleanup: abandoned spaces ${spaces.length}, loose devices ${loose.length}`);
+  if (before) {
+    const after = await count();
+    const gone = { spaces: before.s - after.s, devices: before.d - after.d };
+    if (gone.spaces > 0 || gone.devices > 0) {
+      await env.DB.prepare("INSERT INTO cleanup_log (at, spaces, devices) VALUES (?1, ?2, ?3)").bind(now, gone.spaces, gone.devices).run();
+    }
+    console.log(`cleanup: abandoned spaces ${gone.spaces}, devices ${gone.devices}`);
+  }
 }
 
 export default {
