@@ -364,6 +364,33 @@ test("인증 없으면 401, 등록 속도 제한", async () => {
   assert.equal((await call("POST", "/v1/devices", { body: {}, ip: "1.2.3.4" })).status, 429);
 });
 
+test("cleanup은 버려진 혼자 든 가구와 가구 없는 기기만 지움(D-41)", async () => {
+  const day = 86_400_000;
+  // 로봇: 기기 등록 → 가구 만들고 끝
+  const bot = await register("bot");
+  const { spaceId: botSpace } = (await call("POST", "/v1/spaces", { token: bot.token })).body;
+  const loose = await register("loose");
+  // 진짜 가족: 두 기기
+  const h = await register("h");
+  const { spaceId: home } = (await call("POST", "/v1/spaces", { token: h.token })).body;
+  const w = await register("w");
+  env.DB.raw.prepare("INSERT INTO members (space, device, role, created_at) VALUES (?, ?, 'member', ?)").run(home, w.deviceId, clock);
+  // 혼자 쓰지만 계속 동기화하는 폰: 한 시간 뒤에도 옴
+  const solo = await register("solo");
+  const { spaceId: soloSpace } = (await call("POST", "/v1/spaces", { token: solo.token })).body;
+  env.DB.raw.prepare("UPDATE devices SET seen_at = created_at + ? WHERE id = ?").run(2 * 3_600_000, solo.deviceId);
+  // 아직 30일이 안 됐으면 아무것도 지우지 않음
+  await cleanup(env, clock + 10 * day);
+  assert.equal(env.DB.raw.prepare("SELECT COUNT(*) n FROM spaces").get().n, 3);
+  await cleanup(env, clock + 31 * day);
+  const spaces = env.DB.raw.prepare("SELECT id FROM spaces").all().map((r) => r.id).sort();
+  assert.deepEqual(spaces, [home, soloSpace].sort());
+  assert.ok(!spaces.includes(botSpace));
+  const devs = env.DB.raw.prepare("SELECT id FROM devices").all().map((r) => r.id);
+  assert.ok(!devs.includes(bot.deviceId) && !devs.includes(loose.deviceId));
+  assert.ok(devs.includes(h.deviceId) && devs.includes(w.deviceId) && devs.includes(solo.deviceId));
+});
+
 test("cleanup은 만료 초대만 지움", async () => {
   const h = await register("h");
   const { spaceId } = (await call("POST", "/v1/spaces", { token: h.token })).body;
