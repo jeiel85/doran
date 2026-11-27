@@ -397,12 +397,49 @@ export async function handle(req, env, deps = { fetch, now: Date.now }) {
   }
 }
 
-/** 하루 한 번: 만료 초대·오래된 속도 제한 행 정리. */
+/**
+ * 버려진 시험 기기·가구로 보는 조건(DECISIONS.md D-41): 처음 한 시간 뒤로 한 번도 오지 않았고(접속 시각은 1시간에 한 번만 고치므로
+ * "처음 한 시간 안에 끝남"과 같음) 마지막 접속이 [ABANDONED_MS]보다 오래됨. Play 사전 출시 검사 로봇이 업로드마다 몇 대씩 만들어
+ * 혼자 든 가구를 남깁니다. 둥지를 깔아 둔 폰은 15분마다 동기화해 이 조건에 걸리지 않습니다.
+ */
+export const ABANDONED_MS = 30 * 86_400_000;
+const ONE_HOUR = 3_600_000;
+
+/** 하루 한 번: 만료 초대·오래된 속도 제한 행, 버려진 혼자 든 가구와 가구 없는 기기 정리. */
 export async function cleanup(env, now = Date.now()) {
-  await env.DB.batch([
+  const old = now - ABANDONED_MS;
+  // 기기 하나뿐인 가구 중 그 기기가 버려진 것. 지우기 전에 한 번 뽑아 두고 같은 목록으로 지웁니다(문장마다 조건이 바뀌지 않게).
+  const spaces = (await env.DB.prepare(
+    `SELECT s.id AS space, m.device AS device FROM spaces s JOIN members m ON m.space = s.id JOIN devices d ON d.id = m.device
+     WHERE (SELECT COUNT(*) FROM members x WHERE x.space = s.id) = 1 AND (SELECT COUNT(*) FROM members y WHERE y.device = d.id) = 1
+       AND d.seen_at - d.created_at < ?1 AND d.seen_at < ?2 LIMIT 200`).bind(ONE_HOUR, old).all()).results ?? [];
+  const loose = (await env.DB.prepare(
+    `SELECT id FROM devices d WHERE NOT EXISTS (SELECT 1 FROM members m WHERE m.device = d.id)
+       AND d.seen_at - d.created_at < ?1 AND d.seen_at < ?2 LIMIT 200`).bind(ONE_HOUR, old).all()).results ?? [];
+  const stmts = [
     env.DB.prepare("DELETE FROM invites WHERE expires_at <= ?1").bind(now),
     env.DB.prepare("DELETE FROM rate WHERE win < ?1").bind(now - 86_400_000),
-  ]);
+  ];
+  // 뽑은 뒤 지우기 전에 그 폰이 다시 오거나(seen_at 갱신) 다른 기기가 합류할 수 있어, 지우는 문장마다 같은 조건을 다시 붙입니다
+  // (#98 리뷰). batch는 한 트랜잭션이라 조건과 삭제가 함께 판단됩니다. 앞 문장이 멤버를 지운 뒤에도 맞도록 가구·기기는 "멤버가 남지 않았을 때만".
+  const stillAbandoned = "SELECT 1 FROM devices d WHERE d.id = ?2 AND d.seen_at - d.created_at < ?3 AND d.seen_at < ?4";
+  const onlyMember = "(SELECT COUNT(*) FROM members WHERE space = ?1) = 1 AND EXISTS (SELECT 1 FROM members WHERE space = ?1 AND device = ?2)";
+  for (const { space, device } of spaces) {
+    for (const t of ["ops", "blobs", "invites"]) {
+      stmts.push(env.DB.prepare(`DELETE FROM ${t} WHERE space = ?1 AND ${onlyMember} AND EXISTS (${stillAbandoned})`).bind(space, device, ONE_HOUR, old));
+    }
+    stmts.push(env.DB.prepare(`DELETE FROM members WHERE space = ?1 AND device = ?2 AND ${onlyMember} AND EXISTS (${stillAbandoned})`).bind(space, device, ONE_HOUR, old));
+    stmts.push(env.DB.prepare("DELETE FROM spaces WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM members WHERE space = ?1)").bind(space));
+    pushLoose(device);
+  }
+  for (const { id } of loose) pushLoose(id);
+  function pushLoose(id) {
+    const cond = "NOT EXISTS (SELECT 1 FROM members WHERE device = ?1) AND EXISTS (SELECT 1 FROM devices d WHERE d.id = ?1 AND d.seen_at - d.created_at < ?2 AND d.seen_at < ?3)";
+    stmts.push(env.DB.prepare(`DELETE FROM invites WHERE owner = ?1 AND ${cond}`).bind(id, ONE_HOUR, old));
+    stmts.push(env.DB.prepare(`DELETE FROM devices WHERE id = ?1 AND ${cond}`).bind(id, ONE_HOUR, old));
+  }
+  await env.DB.batch(stmts);
+  if (spaces.length || loose.length) console.log(`cleanup: abandoned spaces ${spaces.length}, loose devices ${loose.length}`);
 }
 
 export default {
