@@ -4,6 +4,7 @@ import com.jeiel85.doran.core.Fmt
 import com.jeiel85.doran.data.LedgerState
 import com.jeiel85.doran.logic.Stats
 import com.jeiel85.doran.model.Kind
+import com.jeiel85.doran.model.Member
 import com.jeiel85.doran.model.Recurring
 import com.jeiel85.doran.model.Txn
 import org.junit.Assert.assertEquals
@@ -70,5 +71,15 @@ class UpcomingFixedTest {
         // 지난 기간이 더 짧으면 그 끝에서 멈춤: 3/31 기준 지난달(2월)은 2/28까지.
         val m = Stats.periodOf(LocalDate.of(2027, 3, 31), 1)
         assertEquals(LocalDate.of(2027, 3, 1), Stats.sameTimeLastPeriod(m, LocalDate.of(2027, 3, 31), 1).end)
+    }
+
+    @Test fun senderRulesFollowTheSenderSetting() {
+        val sender = Member("m.s", "보내는 폰", role = "sender")
+        val r = rule("sub", 25, 9_900).copy(memberId = sender.id)
+        val st = LedgerState(members = mapOf(sender.id to sender), recurrings = mapOf(r.id to r))
+        val from = LocalDate.of(2026, 11, 15)
+        val to = LocalDate.of(2026, 11, 30)
+        assertEquals(1, Stats.ahead(st, from, to).size)
+        assertEquals(0, Stats.ahead(st, from, to, includeSenders = false).size)
     }
 }

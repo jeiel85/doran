@@ -55,4 +55,13 @@ class PaceTest {
         val pace = Stats.pace(entries, emptyList(), p, LocalDate.of(2026, 11, 30), 0)!!
         assertEquals(1_620_000, pace.projected)
     }
+
+    @Test fun futureDatedExpenseIsNotPartOfTheDailyAverage() {
+        // 11/30로 미리 적은 300,000원: 이미 쓴 돈에는 들어가지만 하루 평균을 부풀리지 않고, 그날 나가는 돈으로 셉니다(#86 리뷰).
+        val only = listOf(e("later", 300_000, 30))
+        val pace = Stats.pace(only, emptyList(), p, LocalDate.of(2026, 11, 15), 250_000)!!
+        assertEquals(0, pace.dailyVariable)
+        assertEquals(300_000, pace.projected)
+        assertEquals(LocalDate.of(2026, 11, 30), pace.overDay)
+    }
 }

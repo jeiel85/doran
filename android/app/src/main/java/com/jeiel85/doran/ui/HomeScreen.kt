@@ -102,7 +102,7 @@ fun HomeScreen(nav: Nav) {
         val lp = Stats.sameTimeLastPeriod(p, today, start)
         Stats.entries(s, lp, id.myMemberId, settings.showSenders).takeIf { e -> e.any { it.counted } }?.let { Stats.expense(it) }
     }
-    val aheadList = remember(s.version, p, today) { Stats.ahead(s, today, p.end.minusDays(1)) }
+    val aheadList = remember(s.version, p, today, settings.showSenders) { Stats.ahead(s, today, p.end.minusDays(1), settings.showSenders) }
     val reserved = aheadList.sumOf { it.first.amount }
     // 이번 달 페이스(D-35): 월말 예상·예상 초과일·평소 하루 평균. 첫 3일은 null.
     val pace = remember(entries, aheadList, p, today, totalBudget) { Stats.pace(entries, aheadList, p, today, totalBudget?.budget ?: 0) }

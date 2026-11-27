@@ -411,11 +411,12 @@ object Stats {
      * 이미 들어온 것을 빼는 기준은 규칙이 내역을 만들 때(Hooks.daily)와 같습니다: 매달 규칙은 같은 가계부 한 달에 이어진 내역이 있으면,
      * 그 밖은 정한 날 앞뒤 3일 안에 이어진 내역이 있으면 들어온 것으로 봅니다.
      */
-    fun ahead(s: LedgerState, from: LocalDate, to: LocalDate): List<Pair<Recurring, LocalDate>> {
+    fun ahead(s: LedgerState, from: LocalDate, to: LocalDate, includeSenders: Boolean = true): List<Pair<Recurring, LocalDate>> {
         if (to.isBefore(from)) return emptyList()
         val linked = s.txns.values.filter { it.recurringId != null }.groupBy { it.recurringId }
         val near = 3L * 86_400_000
-        return s.recurrings.values.filter { it.kind == Kind.EXPENSE }.flatMap { r ->
+        // 보내 준 가족 내역을 합계에서 뺐으면([entries]의 includeSenders) 그 가족의 규칙도 몫에서 뺍니다(#86 리뷰).
+        return s.recurrings.values.filter { it.kind == Kind.EXPENSE && (includeSenders || s.member(it.memberId)?.isSender != true) }.flatMap { r ->
             dueDates(r, from, to, s.household.monthStartDay).filter { d ->
                 val at = Fmt.millis(d.atTime(9, 0))
                 val period = if (r.period == "m") periodOf(d, s.household.monthStartDay) else null
@@ -451,6 +452,7 @@ object Stats {
      * 월말 예상 = 쓴 돈 + 아직 안 나간 고정지출([ahead]) + 평소 하루 평균 × 내일부터 남은 날.
      * '평소'는 고정 규칙에 이어지지 않은 지출이라, 월세·보험·용돈처럼 초순에 몰려 나가는 돈이 월초 예상을 부풀리지 않습니다.
      * 한 달의 첫 3일은 평균이 크게 흔들려 셈하지 않습니다(null). [budget]이 0이면 [overDay]는 없습니다.
+     * 미래 날짜로 미리 적은 지출은 이미 쓴 돈([spent])에는 들어가지만 하루 평균에는 넣지 않고, 그날 나가는 돈으로 셉니다(#86 리뷰).
      */
     data class Pace(val projected: Long, val dailyVariable: Long, val overDay: LocalDate?, val elapsedDays: Int)
 
@@ -460,20 +462,25 @@ object Stats {
         val elapsed = (ChronoUnit.DAYS.between(p.start, today) + 1).toInt()
         if (elapsed < PACE_MIN_DAYS || !today.isBefore(p.end)) return null
         val spent = expense(e)
-        val variable = e.filter { it.counted && it.txn.kind == Kind.EXPENSE && it.txn.recurringId == null }.sumOf { it.net }
+        val tomorrow = Fmt.millis(today.plusDays(1))
+        val outflow = e.filter { it.counted && it.txn.kind == Kind.EXPENSE }
+        val (later, sofar) = outflow.partition { it.txn.at >= tomorrow }
+        val variable = sofar.filter { it.txn.recurringId == null }.sumOf { it.net }
         val daily = variable / elapsed
+        val laterBy = later.groupBy({ Fmt.date(it.txn.at) }, { it.net }).mapValues { it.value.sum() }
         val restDays = ChronoUnit.DAYS.between(today, p.end).toInt() - 1 // 내일부터 이 달 끝까지
         val fixedBy = ahead.groupBy({ it.second }, { it.first.amount }).mapValues { it.value.sum() }
         val projected = spent + ahead.sumOf { it.first.amount } + daily * restDays.coerceAtLeast(0)
         // 이미 넘었으면 넘는 날을 따로 칠하지 않습니다(홈이 "예산보다 ○원 더 썼어요"라고 말함).
         // 오늘 아직 안 나간 고정지출이 있으면 오늘부터 더해 봅니다.
         var overDay: LocalDate? = null
-        if (budget > 0 && spent <= budget) {
-            var cum = spent + (fixedBy[today] ?: 0)
+        val spentSoFar = sofar.sumOf { it.net }
+        if (budget > 0 && spentSoFar <= budget) {
+            var cum = spentSoFar + (fixedBy[today] ?: 0)
             if (cum > budget) overDay = today
             var d = today.plusDays(1)
             while (overDay == null && d.isBefore(p.end)) {
-                cum += daily + (fixedBy[d] ?: 0)
+                cum += daily + (fixedBy[d] ?: 0) + (laterBy[d] ?: 0)
                 if (cum > budget) overDay = d
                 d = d.plusDays(1)
             }
@@ -485,7 +492,7 @@ object Stats {
     fun paceNow(s: LedgerState, today: LocalDate, startDay: Int, myMemberId: String?, includeSenders: Boolean): Pace? {
         val p = current(s, today, startDay)
         val e = entries(s, p, myMemberId, includeSenders)
-        return pace(e, ahead(s, today, p.end.minusDays(1)), p, today, budgets(s, e).first?.budget ?: 0)
+        return pace(e, ahead(s, today, p.end.minusDays(1), includeSenders), p, today, budgets(s, e).first?.budget ?: 0)
     }
 
     fun upcoming(s: LedgerState, days: Int, today: LocalDate = LocalDate.now(Fmt.zone)): List<Pair<Recurring, LocalDate>> =
