@@ -246,6 +246,10 @@ class BanksTest {
         assertNull(Banks.linkedCardPayment(s, a, 12_000, at(5), win)) // 3분 넘음
         assertNull(Banks.linkedCardPayment(s, a, 11_000, at(1), win)) // 금액 다름
         assertNull(Banks.linkedCardPayment(s, bank("b"), 12_000, at(1), win)) // 이은 카드 없음
+        // 짝이 찬 결제는 고르기 전에 빼고 남은 같은 금액 결제에 맞춤(#91 리뷰)
+        val two = state(listOf(a, card), listOf(txn("p1", "c", 12_000, 0), txn("p2", "c", 12_000, 1)))
+        assertEquals("p2", Banks.linkedCardPayment(two, a, 12_000, at(0), win) { it.id != "p1" }?.id)
+        assertNull(Banks.linkedCardPayment(two, a, 12_000, at(0), win) { false })
         // 잔액을 따로 세는 예전 체크카드는 통장에서 빼지 않으므로 같은 돈으로 보지 않음(#90 리뷰)
         val legacy = card.copy(anchor = 80_000, anchorAt = at(-60))
         assertNull(Banks.linkedCardPayment(state(listOf(a, legacy), listOf(txn("pay", "c", 12_000, 0))), a, 12_000, at(1), win))
