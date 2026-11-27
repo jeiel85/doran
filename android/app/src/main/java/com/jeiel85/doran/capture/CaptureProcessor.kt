@@ -500,7 +500,8 @@ class CaptureProcessor(
     }
 
     /** 나만 보는 용돈의 은행 출금 [w]를 쓴 돈·옮긴 돈으로 가립니다(D-26, [com.jeiel85.doran.logic.Moves]). */
-    private fun judgeMove(w: Txn): Txn {
+    /** 나만 보는 은행 출금의 '쓴 돈 / 옮긴 돈' 판정(D-26). 공유 범위가 좁혀져 나만 보기로 돌리는 출금에도 씁니다(#74). */
+    fun judgeMove(w: Txn): Txn {
         val s = ledger.value
         val rule = settings.movedBy(com.jeiel85.doran.logic.Moves.ruleKey(w.issuer, w.merchant))
         return com.jeiel85.doran.logic.Moves.judge(s, w, s.member(w.memberId)?.allowance ?: 0, rule)

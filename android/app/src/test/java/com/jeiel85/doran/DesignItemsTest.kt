@@ -35,6 +35,13 @@ class DesignItemsTest {
         val got = ShareScope.privatize(s, before, after, "me", now)
         assertEquals(setOf("kb", "kbc"), got.map { it.id }.toSet())
         assertTrue(got.all { it.private && it.accountId == null })
+        // 6시간보다 오래된 결제의 최근 취소는 결제를 따라 공유로 둠(#97 리뷰)
+        val lateCancel = s.copy(txns = s.txns + ("oc" to t("oc", "KB국민은행", now - 60_000, cancelOf = "old")))
+        assertTrue(ShareScope.privatize(lateCancel, before, after, "me", now).none { it.id == "oc" })
+        // 은행 출금은 판정을 거침(카드 결제는 아님)
+        val judged = ShareScope.privatize(s, before, after, "me", now) { it.copy(kind = Kind.TRANSFER, move = "large") }
+        assertEquals(Kind.TRANSFER, judged.single { it.id == "kb" }.kind)
+        assertEquals(Kind.EXPENSE, judged.single { it.id == "kbc" }.kind) // 취소는 그대로
         // 범위를 넓힌 경우는 아무것도 바꾸지 않음
         assertTrue(ShareScope.privatize(s, after, before, "me", now).isEmpty())
     }
