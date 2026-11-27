@@ -75,14 +75,16 @@ import java.time.LocalDate
 /** 화면 경로. 탭 4개(홈·내역·통계·자산) 위에 하위 화면을 쌓습니다. */
 sealed interface Route {
     data object Main : Route
-    data class Entry(val txnId: String? = null, val kind: Kind = Kind.EXPENSE, val date: LocalDate? = null) : Route
+    /** [copyOf]: 그 내역의 내용·금액·결제 수단을 채운 새 내역(복제). */
+    data class Entry(val txnId: String? = null, val kind: Kind = Kind.EXPENSE, val date: LocalDate? = null, val copyOf: String? = null) : Route
     data object Family : Route
     data object Capture : Route
     data object CaptureLog : Route
     data object Settings : Route
     data object Budget : Route
     data object Recurring : Route
-    data class RecurringEdit(val id: String?) : Route
+    /** [fromTxn]: 그 내역으로 채운 새 규칙("정기결제로 등록"). 저장하면 그 내역도 이 규칙에 잇습니다. */
+    data class RecurringEdit(val id: String?, val fromTxn: String? = null) : Route
     data object Goals : Route
     data class GoalEdit(val id: String?) : Route
     data class AccountEdit(val id: String?) : Route
@@ -271,7 +273,7 @@ private fun Root(nav: Nav) {
             Route.Settings -> SettingsScreen(nav)
             Route.Budget -> BudgetScreen(nav)
             Route.Recurring -> RecurringScreen(nav)
-            is Route.RecurringEdit -> RecurringEditScreen(route.id, nav)
+            is Route.RecurringEdit -> RecurringEditScreen(route.id, nav, route.fromTxn)
             Route.Goals -> GoalsScreen(nav)
             is Route.GoalEdit -> GoalEditScreen(route.id, nav)
             is Route.AccountEdit -> AccountEditScreen(route.id, nav)

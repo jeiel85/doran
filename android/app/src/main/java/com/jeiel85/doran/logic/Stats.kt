@@ -405,6 +405,46 @@ object Stats {
         return out
     }
 
+    /**
+     * [from]~[to](둘 다 포함) 사이에 날짜가 잡혔지만 아직 장부에 들어오지 않은 고정지출(지출 규칙만, 용돈 규칙 포함).
+     * 홈 예산 게이지의 '앞으로 나갈 고정지출' 몫과 예산 화면의 미리 보기에 씁니다.
+     * 이미 들어온 것을 빼는 기준은 규칙이 내역을 만들 때(Hooks.daily)와 같습니다: 매달 규칙은 같은 가계부 한 달에 이어진 내역이 있으면,
+     * 그 밖은 정한 날 앞뒤 3일 안에 이어진 내역이 있으면 들어온 것으로 봅니다.
+     */
+    fun ahead(s: LedgerState, from: LocalDate, to: LocalDate): List<Pair<Recurring, LocalDate>> {
+        if (to.isBefore(from)) return emptyList()
+        val linked = s.txns.values.filter { it.recurringId != null }.groupBy { it.recurringId }
+        val near = 3L * 86_400_000
+        return s.recurrings.values.filter { it.kind == Kind.EXPENSE }.flatMap { r ->
+            dueDates(r, from, to, s.household.monthStartDay).filter { d ->
+                val at = Fmt.millis(d.atTime(9, 0))
+                val period = if (r.period == "m") periodOf(d, s.household.monthStartDay) else null
+                linked[r.id].orEmpty().none { kotlin.math.abs(it.at - at) <= near || (period != null && it.at in period) }
+            }.map { r to it }
+        }.sortedWith(compareBy({ it.second }, { it.first.name }))
+    }
+
+    /**
+     * 예산 게이지의 세 몫: 쓴 돈 · 앞으로 나갈 고정지출([reserved]) · 마음대로 쓸 수 있는 돈([free]).
+     * 하루 쓸 수 있는 돈은 고정지출 몫을 뺀 뒤 남은 날로 나눕니다(전에는 빼지 않아 실제보다 넉넉하게 보였어요).
+     */
+    data class BudgetSplit(val budget: Long, val spent: Long, val reserved: Long) {
+        val left get() = budget - spent
+        val free get() = left - reserved
+        fun perDay(daysLeft: Int): Long = if (free > 0) free / daysLeft.coerceAtLeast(1) else 0
+    }
+
+    /**
+     * 지난 가계부 한 달의 '같은 때'까지: 이번 달 시작에서 오늘까지 지난 날수만큼 지난달 시작에서 센 기간(뱅크샐러드·똑똑 "지난달 이때보다").
+     * 지난달이 더 짧으면 그 달 끝에서 멈춥니다. 오늘이 이번 달 첫날이면 지난달 첫날 하루입니다.
+     */
+    fun sameTimeLastPeriod(p: Period, today: LocalDate, startDay: Int): Period {
+        val prev = periodOf(p.start.minusDays(1), startDay)
+        val elapsed = ChronoUnit.DAYS.between(p.start, today).coerceAtLeast(0)
+        val end = minOf(prev.start.plusDays(elapsed + 1), prev.end)
+        return Period(prev.label, prev.start, end)
+    }
+
     fun upcoming(s: LedgerState, days: Int, today: LocalDate = LocalDate.now(Fmt.zone)): List<Pair<Recurring, LocalDate>> =
         s.recurrings.values.flatMap { r -> dueDates(r, today.plusDays(1), today.plusDays(days.toLong()), s.household.monthStartDay).map { r to it } }
             .sortedBy { it.second }
