@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -38,6 +39,8 @@ import androidx.compose.material.icons.automirrored.rounded.Backspace
 import androidx.compose.material.icons.rounded.AddAPhoto
 import androidx.compose.material.icons.rounded.CalendarToday
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.EventRepeat
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.PhotoLibrary
@@ -60,6 +63,7 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -115,28 +119,33 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
         return
     }
     LaunchedEffect(route.txnId) { route.txnId?.let { Hub.local.markSeen(listOf(it)) } }
+    // 복제: 새 내역이지만 칸은 그 내역으로 채웁니다. 저장하면 손으로 쓴 새 내역이 되고 알림 원문·영수증·고정지출 연결은 따라오지 않습니다.
+    val template = remember(route.copyOf) { if (original == null) route.copyOf?.let { s.txns[it] } else null }
+    val from = original ?: template
 
-    var kind by remember { mutableStateOf(original?.kind ?: route.kind) }
-    var amount by remember { mutableStateOf(original?.amount?.toString() ?: "") }
-    var merchant by remember { mutableStateOf(original?.merchant ?: "") }
-    var memo by remember { mutableStateOf(original?.memo ?: "") }
-    var categoryId by remember { mutableStateOf(original?.categoryId) }
+    var kind by remember { mutableStateOf(from?.kind ?: route.kind) }
+    // 금액은 자판 계산(+ −)을 거칩니다. 저장하는 값은 계산 결과(total)입니다.
+    var calc by remember { mutableStateOf(com.jeiel85.doran.logic.AmountCalc(cur = from?.amount?.takeIf { it > 0 }?.toString() ?: "")) }
+    var merchant by remember { mutableStateOf(from?.merchant ?: "") }
+    var memo by remember { mutableStateOf(from?.memo ?: "") }
+    var categoryId by remember { mutableStateOf(from?.categoryId) }
     // 내 현금 계좌는 새로 쓰는 내역에만 미리 고릅니다. 계좌 없는 기록(범위 밖 통장의 용돈 내역·옮긴 돈, D-19·D-26)을 열 때 채우면
     // 옮긴 돈은 받는 계좌를 고르기 전까지 저장이 막히고, 저장하면 범위 밖 출금이 가계부 현금 잔액에 섞입니다(#49 리뷰).
     var accountId by remember {
-        mutableStateOf(if (original != null) original.accountId else s.accounts.values.firstOrNull { it.ownerId == id.myMemberId && it.type == AccountType.CASH }?.id)
+        mutableStateOf(if (from != null) from.accountId else s.accounts.values.firstOrNull { it.ownerId == id.myMemberId && it.type == AccountType.CASH }?.id)
     }
-    var toAccountId by remember { mutableStateOf(original?.toAccountId) }
-    var memberId by remember { mutableStateOf(original?.memberId ?: id.myMemberId) }
-    var installment by remember { mutableStateOf(original?.installment ?: 0) }
-    var private by remember { mutableStateOf(original?.private ?: false) }
+    var toAccountId by remember { mutableStateOf(from?.toAccountId) }
+    var memberId by remember { mutableStateOf(from?.memberId ?: id.myMemberId) }
+    var installment by remember { mutableStateOf(from?.installment ?: 0) }
+    // 나만 보는 용돈 내역은 내 것일 때만 복제해도 나만 보기로 남습니다(남의 내역을 내 개인 키로 봉하지 않게, #43).
+    var private by remember { mutableStateOf(original?.private ?: (template?.private == true && template.memberId == id.myMemberId)) }
     val receipts = remember { mutableStateListOf<String>().apply { addAll(original?.receiptIds ?: emptyList()) } }
     var at by remember {
-        mutableStateOf(original?.at ?: route.date?.let { Fmt.millis(LocalDateTime.of(it, LocalTime.now(Fmt.zone))) } ?: System.currentTimeMillis())
+        mutableStateOf(original?.at ?: template?.at ?: route.date?.let { Fmt.millis(LocalDateTime.of(it, LocalTime.now(Fmt.zone))) } ?: System.currentTimeMillis())
     }
     var keypad by remember { mutableStateOf(original == null) }
     var picker by remember { mutableStateOf<String?>(null) } // "date" "time" "account" "to" "delete"
-    var touchedCategory by remember { mutableStateOf(original != null) }
+    var touchedCategory by remember { mutableStateOf(from != null) }
 
     // 내용을 쓰면 카테고리를 자동으로 골라 줍니다(사람이 직접 고르기 전까지).
     LaunchedEffect(merchant, kind) {
@@ -150,7 +159,7 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
     val lockedPrivate = original?.private == true && private
     // 옮긴 돈으로 본 은행 출금(D-26)은 계좌 없는 이체라, 계좌를 고르지 않아도 저장됩니다.
     val accountlessMove = lockedPrivate && kind == Kind.TRANSFER && accountId == null && toAccountId == null
-    val value = amount.toLongOrNull() ?: 0L
+    val value = calc.total
     val valid = value > 0 && (kind != Kind.TRANSFER || accountlessMove || (accountId != null && toAccountId != null && accountId != toAccountId))
     // 은행 출금이면 "옮긴 돈 ↔ 용돈에서 쓴 돈"을 바꿀 수 있게 합니다(D-26). 판정 전 기록은 알림 원문을 읽어 가리므로 DB를 봅니다.
     val bankOut by produceState(false, original?.id) {
@@ -178,7 +187,10 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
     }
 
     fun save() {
+        calc = calc.equals()
         persist()
+        // 내역 탭에서 왔으면 저장한 날을 고른 채로 돌아갑니다(날짜를 바꿨으면 바뀐 날로).
+        if (nav.tab == Tab.LEDGER && nav.stack.size == 2) nav.ledger.show(Fmt.date(at))
         nav.back()
     }
 
@@ -202,18 +214,28 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
     Column(Modifier.fillMaxSize().background(P.c.bg).imePadding()) {
         Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 6.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "뒤로", tint = P.c.ink) }
-            Text(if (original == null) "새 내역" else "내역", style = MaterialTheme.typography.titleLarge, color = P.c.ink, modifier = Modifier.weight(1f))
+            Text(if (template != null) "복제한 내역" else if (original == null) "새 내역" else "내역", style = MaterialTheme.typography.titleLarge, color = P.c.ink, modifier = Modifier.weight(1f))
+            // 복제: 같은 자동이체가 두 번 나갔거나 장보기를 나눠 낸 것처럼, 날짜·금액만 바꿔 하나 더 쓸 때(비주얼 가계부).
+            // 금액 자리만 남긴 기록(용돈으로 옮긴 가족 카드 결제)은 복제하지 않습니다.
+            if (original != null && !original.personal) IconButton(onClick = { nav.back(); nav.go(Route.Entry(copyOf = original.id)) }) {
+                Icon(Icons.Rounded.ContentCopy, "복제", tint = P.c.ink)
+            }
             if (original != null) IconButton(onClick = { picker = "delete" }) { Icon(Icons.Rounded.DeleteOutline, "지우기", tint = P.c.danger) }
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
             Segmented(listOf("지출", "수입", "이체"), kind.ordinal) { kind = Kind.entries[it]; if (!touchedCategory) categoryId = null }
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(12.dp))
+            // 날짜는 맨 위에 둡니다. 새로 쓸 때는 키패드가 아래 '날짜' 줄을 가려, 어느 날로 저장되는지 모른 채 기록하게 됐어요.
+            DateChip(at, onClick = { picker = "date" })
+            Spacer(Modifier.height(12.dp))
             // 금액
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).clickable { keypad = true }.padding(vertical = 6.dp)) {
                 Text(when (kind) { Kind.EXPENSE -> "얼마를 썼나요?"; Kind.INCOME -> "얼마가 들어왔나요?"; Kind.TRANSFER -> "얼마를 옮겼나요?" },
                     style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft)
-                FitText(if (value > 0) Fmt.won(value) else "0원", MaterialTheme.typography.displaySmall.merge(Money),
-                    if (value > 0) kindColor(kind, P.c).takeIf { kind != Kind.EXPENSE } ?: P.c.ink else P.c.inkFaint, minSize = 22.sp)
+                // 더하기·빼기 중이면 식을 위에 작게 보이고, 큰 숫자는 지금까지의 결과입니다.
+                calc.expression?.let { Text(it, style = MaterialTheme.typography.bodyMedium.merge(Money), color = P.c.inkSoft) }
+                FitText(if (value > 0) Fmt.won(value) else if (value < 0) "-" + Fmt.won(-value) else "0원", MaterialTheme.typography.displaySmall.merge(Money),
+                    if (value > 0) kindColor(kind, P.c).takeIf { kind != Kind.EXPENSE } ?: P.c.ink else if (value < 0) P.c.danger else P.c.inkFaint, minSize = 22.sp)
                 original?.let { o ->
                     if (o.source.captured || o.cumulative != null || cancels.isNotEmpty() || o.foreign != null) {
                         Spacer(Modifier.height(10.dp))
@@ -383,6 +405,15 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                         }
                     }
                 }
+                // 정기결제(구독·자동이체): 한두 달 써 보면 매달 나가는 돈이 보이므로, 그 내역에서 바로 고정 규칙으로 등록합니다.
+                // 등록하면 다음 달부터 홈·예산 화면에 '앞으로 나갈 돈'으로 미리 잡히고, 같은 결제가 오면 그 규칙에 이어집니다.
+                original?.takeIf { o -> o.kind != Kind.TRANSFER && !o.private && !o.personal && o.cancelOf == null }?.let { o ->
+                    val rule = o.recurringId?.let { s.recurrings[it] }
+                    if (rule != null) ListRow("정기결제", "${rule.name} · ${describe(rule)} 규칙에 이어져 있어요",
+                        Icons.Rounded.EventRepeat, P.c.pine, onClick = { nav.go(Route.RecurringEdit(rule.id)) })
+                    else if (o.recurringId == null) ListRow("정기결제로 등록", "매달 나가는 돈이면 다음 달부터 미리 잡아 둬요",
+                        Icons.Rounded.EventRepeat, P.c.pine, onClick = { nav.go(Route.RecurringEdit(null, fromTxn = o.id)) })
+                }
             }
 
             Spacer(Modifier.height(18.dp))
@@ -441,10 +472,11 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
 
         if (keypad) {
             Keypad(
-                onAdd = { n -> amount = ((amount.toLongOrNull() ?: 0L) + n).coerceAtMost(99_999_999_999L).toString() },
-                onDigit = { d -> if (amount.length < 11) amount = (amount + d).trimStart('0') },
-                onBack = { amount = amount.dropLast(1) },
-                onDone = { keypad = false },
+                onAdd = { n -> calc = calc.add(n) },
+                onDigit = { d -> calc = calc.digit(d) },
+                onBack = { calc = calc.back() },
+                onOperator = { o -> calc = if (o == '=') calc.equals() else calc.operator(o) },
+                onDone = { calc = calc.equals(); keypad = false },
             )
         }
         Box(Modifier.fillMaxWidth().background(P.c.bg).navigationBarsPadding().padding(horizontal = 20.dp, vertical = 10.dp)) {
@@ -522,17 +554,28 @@ private fun PhotoButton(icon: androidx.compose.ui.graphics.vector.ImageVector, l
 @Composable
 fun Field(label: String, value: String, onChange: (String) -> Unit, placeholder: String = "", singleLine: Boolean = true, number: Boolean = false,
           /** 비밀값(API 키 등): 가려 보이고 자판이 기억·추천하지 않게. */
-          secret: Boolean = false) {
+          secret: Boolean = false,
+          /** 금액: 숫자 자판, 끝에 '원', 칸을 벗어나면 세 자리 쉼표. [value]는 숫자만 든 그대로입니다. */
+          money: Boolean = false) {
+    // 쓰는 동안에는 쉼표 없이 숫자만, 칸을 벗어나면 쉼표로 나눠 보입니다(가족 리뷰 2026-11-27).
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
     OutlinedTextField(
+        interactionSource = interaction,
         value = value, onValueChange = onChange, label = { Text(label) }, placeholder = { Text(placeholder, color = P.c.inkFaint) },
         singleLine = singleLine, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
+        suffix = if (money) ({ Text("원", color = P.c.inkSoft) }) else null,
+        textStyle = if (money) androidx.compose.ui.text.TextStyle.Default.merge(Money) else androidx.compose.ui.text.TextStyle.Default,
         keyboardOptions = when {
             secret -> KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false)
-            number -> KeyboardOptions(keyboardType = KeyboardType.Number)
+            number || money -> KeyboardOptions(keyboardType = KeyboardType.Number)
             else -> KeyboardOptions.Default
         },
-        visualTransformation = if (secret) androidx.compose.ui.text.input.PasswordVisualTransformation()
-            else androidx.compose.ui.text.input.VisualTransformation.None,
+        visualTransformation = when {
+            secret -> androidx.compose.ui.text.input.PasswordVisualTransformation()
+            money && !focused -> MoneyTransformation
+            else -> androidx.compose.ui.text.input.VisualTransformation.None
+        },
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = P.c.pine, unfocusedBorderColor = P.c.line, focusedContainerColor = P.c.surface,
             unfocusedContainerColor = P.c.surface, focusedLabelColor = P.c.pine, cursorColor = P.c.pine,
@@ -542,7 +585,7 @@ fun Field(label: String, value: String, onChange: (String) -> Unit, placeholder:
 
 /** 금액 자판. 000 단추로 큰 금액을 빨리 넣습니다. */
 @Composable
-fun Keypad(onAdd: (Long) -> Unit, onDigit: (String) -> Unit, onBack: () -> Unit, onDone: () -> Unit) {
+fun Keypad(onAdd: (Long) -> Unit, onDigit: (String) -> Unit, onBack: () -> Unit, onOperator: (Char) -> Unit, onDone: () -> Unit) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     fun tick() = haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
     Column(Modifier.fillMaxWidth().background(P.c.surface).padding(horizontal = 12.dp, vertical = 8.dp)) {
@@ -554,15 +597,22 @@ fun Keypad(onAdd: (Long) -> Unit, onDigit: (String) -> Unit, onBack: () -> Unit,
                 }
             }
         }
-        listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("000", "0", "<")).forEach { row ->
+        // 오른쪽 열은 더하기·빼기·결과(비주얼 가계부 계산기). 장 본 영수증 몇 장을 더하거나 할인을 뺄 때 씁니다.
+        val ops = listOf("+", "−", "=", "")
+        listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("000", "0", "<")).forEachIndexed { i, row ->
             Row(Modifier.fillMaxWidth()) {
-                row.forEach { k ->
-                    Box(Modifier.weight(1f).height(54.dp).clip(RoundedCornerShape(14.dp)).clickable {
-                        tick()
-                        if (k == "<") onBack() else onDigit(k)
-                    }, contentAlignment = Alignment.Center) {
-                        if (k == "<") Icon(Icons.AutoMirrored.Rounded.Backspace, "지우기", tint = P.c.ink)
-                        else Text(k, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = P.c.ink, style = Money)
+                (row + ops[i]).forEach { k ->
+                    val op = k == "+" || k == "−" || k == "="
+                    Box(Modifier.weight(1f).height(54.dp).clip(RoundedCornerShape(14.dp))
+                        .then(if (op) Modifier.background(P.c.surface2) else Modifier)
+                        .then(if (k.isEmpty()) Modifier else Modifier.clickable(onClickLabel = when (k) { "+" -> "더하기"; "−" -> "빼기"; "=" -> "계산"; else -> null }) {
+                            tick()
+                            when { k == "<" -> onBack(); op -> onOperator(k[0]); else -> onDigit(k) }
+                        }), contentAlignment = Alignment.Center) {
+                        when {
+                            k == "<" -> Icon(Icons.AutoMirrored.Rounded.Backspace, "지우기", tint = P.c.ink)
+                            k.isNotEmpty() -> Text(k, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = if (op) P.c.pine else P.c.ink, style = Money)
+                        }
                     }
                 }
             }
@@ -640,5 +690,39 @@ private fun FundCard(s: com.jeiel85.doran.data.LedgerState, o: Txn, me: String?,
                 onDone()
             }
         }
+    }
+}
+
+/** 맨 위 날짜 표시. 오늘이 아니면 눈에 띄게 칠해 다른 날로 쓰고 있음을 알립니다. 누르면 날짜를 고릅니다. */
+@Composable
+private fun DateChip(at: Long, onClick: () -> Unit) {
+    val d = Fmt.date(at)
+    val today = d == LocalDate.now(Fmt.zone)
+    Row(
+        Modifier.clip(RoundedCornerShape(14.dp)).background(if (today) P.c.surface else P.c.pineSoft)
+            .border(1.dp, if (today) P.c.line else P.c.pine, RoundedCornerShape(14.dp))
+            .clickable(onClickLabel = "날짜 바꾸기", onClick = onClick)
+            .heightIn(min = 48.dp).padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.CalendarToday, null, tint = P.c.pine, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(Fmt.dayLabel(d), style = MaterialTheme.typography.labelLarge, color = if (today) P.c.ink else P.c.pine)
+    }
+}
+
+/**
+ * 금액 칸의 세 자리 쉼표(칸을 벗어났을 때). 저장 값은 숫자 그대로 두고 보이는 모양만 바꿉니다.
+ * 쉼표 규칙은 [Fmt.groupDigits]에 두어 화면 밖 시험(MoneyFormatTest)으로 확인합니다.
+ */
+object MoneyTransformation : androidx.compose.ui.text.input.VisualTransformation {
+    override fun filter(text: androidx.compose.ui.text.AnnotatedString): androidx.compose.ui.text.input.TransformedText {
+        val raw = text.text
+        val shown = Fmt.groupDigits(raw)
+        val map = object : androidx.compose.ui.text.input.OffsetMapping {
+            override fun originalToTransformed(offset: Int) = Fmt.groupedOffset(raw, offset)
+            override fun transformedToOriginal(offset: Int) = Fmt.digitOffset(raw, offset)
+        }
+        return androidx.compose.ui.text.input.TransformedText(androidx.compose.ui.text.AnnotatedString(shown), map)
     }
 }

@@ -65,6 +65,31 @@ object Fmt {
 
     fun won(amount: Long): String = comma.format(amount) + "원"
     fun num(amount: Long): String = comma.format(amount)
+    /**
+     * 금액 입력 칸에 보일 모양: 숫자만 든 글자를 세 자리마다 쉼표로 나눕니다("1500000" → "1,500,000").
+     * 칸에 저장되는 값은 숫자 그대로이고 보이는 모양만 바꿉니다(ui의 MoneyTransformation). 숫자가 아닌 글자가 섞이면 그대로 둡니다.
+     */
+    fun groupDigits(digits: String): String {
+        if (digits.isEmpty() || !digits.all(Char::isDigit)) return digits
+        val head = digits.length % 3
+        return buildString {
+            digits.forEachIndexed { i, c -> if (i > 0 && (i - head) % 3 == 0) append(','); append(c) }
+        }
+    }
+
+    /** [groupDigits]로 나눈 글자에서, 원래 글자의 [offset]번째 자리(커서)가 오는 위치. */
+    fun groupedOffset(digits: String, offset: Int): Int {
+        val g = groupDigits(digits)
+        var seen = 0
+        var p = 0
+        while (seen < offset && p < g.length) { if (g[p].isDigit()) seen++; p++ }
+        return p
+    }
+
+    /** [groupedOffset]의 반대: 쉼표 넣은 글자의 [offset] 앞에 있는 숫자 개수. */
+    fun digitOffset(digits: String, offset: Int): Int =
+        groupDigits(digits).take(offset.coerceIn(0, groupDigits(digits).length)).count(Char::isDigit)
+
     fun signed(amount: Long, plus: Boolean): String = (if (plus) "+" else "-") + comma.format(amount)
 
     /**

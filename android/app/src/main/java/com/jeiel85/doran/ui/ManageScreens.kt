@@ -59,10 +59,8 @@ private fun digits(s: String) = s.filter(Char::isDigit).take(12)
 
 @Composable
 private fun AmountField(label: String, value: String, onChange: (String) -> Unit) {
-    Field(label, value, { onChange(digits(it)) }, "0", number = true)
-    value.toLongOrNull()?.takeIf { it > 0 }?.let {
-        Text(Fmt.won(it), style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft, modifier = Modifier.padding(start = 8.dp, top = 4.dp))
-    }
+    // 칸 안에 쉼표와 '원'이 보이므로(Field money) 아래에 금액을 한 번 더 적던 줄은 뺐습니다.
+    Field(label, value, { onChange(digits(it)) }, "0", money = true)
 }
 
 // --- 예산 -----------------------------------------------------------------------------------------
@@ -102,6 +100,36 @@ fun BudgetScreen(nav: Nav) {
                 PrimaryButton("저장") { Hub.ledger.saveHousehold(s.household.copy(budget = total.toLongOrNull() ?: 0)) }
             }
         }
+        // 미리 잡힌 고정지출: 정기결제로 등록한 돈이 이 달 남은 날과 다음 달에 얼마나 나갈지. 예산을 정할 때 이만큼은 이미 정해진 돈이에요.
+        val today = LocalDate.now(Fmt.zone)
+        val nextP = Stats.periodOf(p.end, Stats.viewStart(s, settings.monthStartDay))
+        val rest = Stats.ahead(s, today, p.end.minusDays(1))
+        val next = Stats.ahead(s, nextP.start, nextP.end.minusDays(1))
+        if (rest.isNotEmpty() || next.isNotEmpty()) {
+            item { Spacer(Modifier.height(20.dp)); SectionTitle("미리 잡힌 고정지출", action = "고정지출", onAction = { nav.go(Route.Recurring) }) }
+            listOf("이번 달 남은 날" to rest, "다음 달 (${nextP.start.monthValue}/${nextP.start.dayOfMonth}~${nextP.end.minusDays(1).let { "${it.monthValue}/${it.dayOfMonth}" }})" to next)
+                .filter { it.second.isNotEmpty() }.forEach { (title, list) ->
+                    item {
+                        Spacer(Modifier.height(8.dp))
+                        SoftCard(padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(title, style = MaterialTheme.typography.titleSmall, color = P.c.ink, modifier = Modifier.weight(1f))
+                                Text(Fmt.won(list.sumOf { it.first.amount }), style = MaterialTheme.typography.titleSmall.merge(Money), color = P.c.expense)
+                            }
+                            list.forEach { (r, d) ->
+                                ListRow(r.name, "${d.monthValue}/${d.dayOfMonth} · ${describe(r)}",
+                                    leading = { CatTile(s.category(r.categoryId)?.icon ?: "subscription", 40.dp) }, onClick = { nav.go(Route.RecurringEdit(r.id)) }) {
+                                    Amount(r.amount, r.kind, MaterialTheme.typography.titleSmall)
+                                }
+                            }
+                        }
+                    }
+                }
+            item {
+                Text("내역 화면의 '정기결제로 등록'으로 더할 수 있어요. 홈 예산 게이지에서는 이 달 남은 몫을 빗금으로 따로 보여 줘요.",
+                    style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft, modifier = Modifier.padding(start = 8.dp, top = 8.dp))
+            }
+        }
         item { Spacer(Modifier.height(20.dp)); SectionTitle("카테고리별 예산") }
         item {
             SoftCard(padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
@@ -128,7 +156,7 @@ fun BudgetScreen(nav: Nav) {
 
 // --- 고정지출 ---------------------------------------------------------------------------------------
 
-private fun describe(r: Recurring): String = when (r.period) {
+internal fun describe(r: Recurring): String = when (r.period) {
     "w" -> "매주 ${listOf("", "월", "화", "수", "목", "금", "토", "일")[r.day.coerceIn(1, 7)]}요일"
     "y" -> "매년 ${r.month}월 ${r.day}일"
     else -> (if (r.day >= 31) "매달 말일" else "매달 ${r.day}일") +
@@ -176,22 +204,25 @@ fun RecurringScreen(nav: Nav) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun RecurringEditScreen(rid: String?, nav: Nav) {
+fun RecurringEditScreen(rid: String?, nav: Nav, fromTxn: String? = null) {
     val s by Hub.ledger.state.collectAsStateWithLifecycle()
     val id by Hub.identity.state.collectAsStateWithLifecycle()
     val o = remember(rid) { rid?.let { s.recurrings[it] } }
-    var name by remember { mutableStateOf(o?.name ?: "") }
+    // 내역에서 "정기결제로 등록"을 눌러 왔으면 그 내역으로 칸을 채웁니다. 날짜는 그 내역이 나간 날(매달 같은 날).
+    val t = remember(fromTxn) { if (o == null) fromTxn?.let { s.txns[it] } else null }
+    val tDate = t?.let { Fmt.date(it.at) }
+    var name by remember { mutableStateOf(o?.name ?: t?.merchant ?: "") }
     // 월 용돈 규칙(DECISIONS.md D-20)은 가계부에서 나가는 돈이라 늘 지출입니다. 수입으로 두면 합계가 용돈의 두 배만큼 틀어져요.
     // 예전 버전에서 수입으로 바뀐 규칙도 열면 지출로 잡혀, 저장하면 바로잡힙니다.
     val allowanceRule = o != null && com.jeiel85.doran.logic.AllowancePlan.isRule(o.id)
-    var kind by remember { mutableStateOf(if (allowanceRule) Kind.EXPENSE else o?.kind ?: Kind.EXPENSE) }
-    var amount by remember { mutableStateOf(o?.amount?.toString() ?: "") }
+    var kind by remember { mutableStateOf(if (allowanceRule) Kind.EXPENSE else o?.kind ?: t?.kind?.takeIf { it != Kind.TRANSFER } ?: Kind.EXPENSE) }
+    var amount by remember { mutableStateOf(o?.amount?.toString() ?: t?.amount?.toString() ?: "") }
     var period by remember { mutableStateOf(o?.period ?: "m") }
-    var day by remember { mutableStateOf((o?.day ?: LocalDate.now(Fmt.zone).dayOfMonth).toString()) }
-    var month by remember { mutableStateOf((o?.month ?: LocalDate.now(Fmt.zone).monthValue).toString()) }
-    var categoryId by remember { mutableStateOf(o?.categoryId ?: "c.subscription") }
-    var accountId by remember { mutableStateOf(o?.accountId) }
-    var memberId by remember { mutableStateOf(o?.memberId ?: id.myMemberId) }
+    var day by remember { mutableStateOf((o?.day ?: tDate?.dayOfMonth ?: LocalDate.now(Fmt.zone).dayOfMonth).toString()) }
+    var month by remember { mutableStateOf((o?.month ?: tDate?.monthValue ?: LocalDate.now(Fmt.zone).monthValue).toString()) }
+    var categoryId by remember { mutableStateOf(o?.categoryId ?: t?.categoryId ?: "c.subscription") }
+    var accountId by remember { mutableStateOf(o?.accountId ?: t?.accountId) }
+    var memberId by remember { mutableStateOf(o?.memberId ?: t?.memberId ?: id.myMemberId) }
     var paused by remember { mutableStateOf(o?.paused ?: false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val valid = name.isNotBlank() && (amount.toLongOrNull() ?: 0) > 0 && (day.toIntOrNull() ?: 0) in 1..31
@@ -201,12 +232,15 @@ fun RecurringEditScreen(rid: String?, nav: Nav) {
         if (o != null) IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.DeleteOutline, "지우기", tint = P.c.danger) }
     }, bottom = {
         PrimaryButton("저장", enabled = valid) {
-            Hub.ledger.saveRecurring(Recurring(
+            val r = Recurring(
                 id = o?.id ?: newId(), name = name.trim(), kind = kind, amount = amount.toLong(),
                 categoryId = com.jeiel85.doran.logic.Fixed.categoryFor(s, name.trim(), kind, categoryId),
                 accountId = accountId, memberId = memberId, period = period, day = day.toInt().coerceIn(1, if (period == "w") 7 else 31),
-                month = (month.toIntOrNull() ?: 1).coerceIn(1, 12), startAt = o?.startAt ?: Fmt.millis(LocalDate.now(Fmt.zone)), paused = paused,
-            ))
+                // 내역에서 만든 규칙은 그 내역이 나간 날부터 셉니다. 이번 달 몫은 그 내역이라 하나 더 생기지 않아요.
+                month = (month.toIntOrNull() ?: 1).coerceIn(1, 12), startAt = o?.startAt ?: tDate?.let { Fmt.millis(it) } ?: Fmt.millis(LocalDate.now(Fmt.zone)), paused = paused,
+            )
+            Hub.ledger.saveRecurring(r)
+            t?.let { x -> s.txns[x.id]?.takeIf { it.recurringId == null }?.let { Hub.ledger.saveTxn(it.copy(recurringId = r.id)) } }
             com.jeiel85.doran.logic.Hooks.daily(Hub.app)
             nav.back()
         }

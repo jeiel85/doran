@@ -38,7 +38,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +47,14 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -61,6 +68,21 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 
+/** 내역 탭에서 보던 자리(달·고른 날·보기·거르기). 하위 화면을 열고 돌아와도 남도록 [Nav]가 들고 있습니다. */
+class LedgerView {
+    var month by mutableStateOf(YearMonth.now(Fmt.zone).toString())
+    var calendar by mutableStateOf(true)
+    var memberFilter by mutableStateOf<String?>(null)
+    var kindFilter by mutableStateOf<String?>(null)
+    var selected by mutableStateOf<String?>(LocalDate.now(Fmt.zone).toString())
+
+    /** 달력에 지금 보이는 고른 날. 목록 보기이거나 고른 날이 다른 달이면 null. */
+    fun shownDay(): LocalDate? = if (!calendar) null else selected?.let(LocalDate::parse)?.takeIf { YearMonth.from(it).toString() == month }
+
+    /** 그날이 보이게 달과 고른 날을 옮깁니다(저장한 내역이 어디 들어갔는지 바로 보이게). */
+    fun show(d: LocalDate) { month = YearMonth.from(d).toString(); selected = d.toString() }
+}
+
 /** 내역 탭: 달력(기본)과 목록. 사람·종류 필터를 함께 씁니다. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,12 +90,14 @@ fun LedgerScreen(nav: Nav) {
     val s by Hub.ledger.state.collectAsStateWithLifecycle()
     val id by Hub.identity.state.collectAsStateWithLifecycle()
     val unseen by Hub.local.unseen.collectAsStateWithLifecycle()
-    var month by rememberSaveable { mutableStateOf(YearMonth.now(Fmt.zone).toString()) }
+    // 보던 자리는 Nav에 둡니다. 내역을 열면 탭 화면이 통째로 빠졌다 돌아오므로, 여기서 기억하면 늘 오늘로 되돌아갔어요.
+    val v = nav.ledger
+    var month by v::month
     val ym = YearMonth.parse(month)
-    var calendar by rememberSaveable { mutableStateOf(true) }
-    var memberFilter by rememberSaveable { mutableStateOf<String?>(null) }
-    var kindFilter by rememberSaveable { mutableStateOf<String?>(null) }
-    var selected by rememberSaveable { mutableStateOf<String?>(LocalDate.now(Fmt.zone).toString()) }
+    var calendar by v::calendar
+    var memberFilter by v::memberFilter
+    var kindFilter by v::kindFilter
+    var selected by v::selected
 
     // 달력은 달력 달(1일~말일)로, 위 합계는 같은 범위로 계산합니다.
     val range = remember(ym) { com.jeiel85.doran.logic.Period(ym, ym.atDay(1), ym.plusMonths(1).atDay(1)) }
@@ -85,6 +109,18 @@ fun LedgerScreen(nav: Nav) {
     fun keep(e: Entry) = (memberFilter == null || e.txn.memberId == memberFilter) && (kindFilter == null || e.txn.kind.code == kindFilter)
     val filtered = all.filter(::keep)
     val byDay = remember(gridAll, memberFilter, kindFilter) { Stats.byDay(gridAll.filter(::keep)) }
+    // 이대로면 예산을 넘을 날(D-35): 홈 첫 카드와 같은 셈. 사람·종류로 거른 화면이어도 가족 전체 예산 기준입니다.
+    val settings by Hub.settings.collectAsStateWithLifecycle()
+    val overDay = remember(s.version, LocalDate.now(Fmt.zone), settings.monthStartDay, settings.showSenders, id.myMemberId) {
+        Stats.paceNow(s, LocalDate.now(Fmt.zone), Stats.viewStart(s, settings.monthStartDay), id.myMemberId, settings.showSenders)?.overDay
+    }
+    // 앞으로 나갈 고정지출(정기결제)을 그날 칸에 흐리게(머니차곡 '예정 표시'). 수입만 보거나 이체만 볼 때는 감춥니다.
+    val today = LocalDate.now(Fmt.zone)
+    val planned = remember(s.version, grid, today, memberFilter, kindFilter) {
+        if (kindFilter != null && kindFilter != "e") emptyMap()
+        else Stats.ahead(s, maxOf(today, grid.start), grid.end.minusDays(1))
+            .filter { memberFilter == null || it.first.memberId == memberFilter }.groupBy({ it.second }, { it.first })
+    }
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 8.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -136,7 +172,7 @@ fun LedgerScreen(nav: Nav) {
                         },
                         padding = PaddingValues(start = 6.dp, end = 6.dp, top = 12.dp, bottom = 6.dp),
                     ) {
-                        CalendarGrid(ym, byDay, sel, oneKind = kindFilter != null) { d -> month = YearMonth.from(d).toString(); selected = d.toString() }
+                        CalendarGrid(ym, byDay, sel, oneKind = kindFilter != null, planned = planned.mapValues { (_, l) -> l.sumOf { it.amount } }, overDay = overDay) { d -> month = YearMonth.from(d).toString(); selected = d.toString() }
                     }
                 }
                 if (sel != null) {
@@ -146,6 +182,7 @@ fun LedgerScreen(nav: Nav) {
                         Row(Modifier.fillMaxWidth().padding(top = 18.dp, start = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(Fmt.dayLabel(sel), style = MaterialTheme.typography.titleMedium, color = P.c.ink)
+                                if (sel == overDay) Text("지금 속도면 이날 이 달 예산을 넘어요", style = MaterialTheme.typography.bodySmall, color = P.c.expense)
                                 Text(listOfNotNull(if (ex > 0) "지출 ${Fmt.won(ex)}" else null, if (inc > 0) "수입 ${Fmt.won(inc)}" else null)
                                     .joinToString(" · ").ifEmpty { "지출·수입 없음" }, style = MaterialTheme.typography.bodySmall.merge(Money), color = P.c.inkSoft)
                                 // 그 주(달력 한 줄) 합계: 하루하루보다 한 주 단위로 씀씀이를 보는 경우가 많아서.
@@ -156,7 +193,18 @@ fun LedgerScreen(nav: Nav) {
                             SmallButton("이날 쓰기") { nav.go(Route.Entry(date = sel)) }
                         }
                     }
-                    if (dayEntries.isEmpty()) item {
+                    // 고른 날에 잡힌 정기결제(아직 안 나감).
+                    planned[sel].orEmpty().forEach { rule -> item(key = "p${rule.id}") {
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { nav.go(Route.RecurringEdit(rule.id)) }
+                            .padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(rule.name, style = MaterialTheme.typography.bodyMedium, color = P.c.inkSoft)
+                                Text("나갈 예정 · 정기결제", style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint)
+                            }
+                            Text("-" + Fmt.won(rule.amount), style = MaterialTheme.typography.bodyMedium.merge(Money), color = P.c.inkFaint)
+                        }
+                    } }
+                    if (dayEntries.isEmpty() && planned[sel].isNullOrEmpty()) item {
                         Text("이날 기록이 없어요", style = MaterialTheme.typography.bodyMedium, color = P.c.inkFaint,
                             modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp), textAlign = TextAlign.Center)
                     }
@@ -210,7 +258,8 @@ fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
  * 앞뒤 달 날짜도 금액까지 흐리게 보여 주고([byDay]는 [Stats.calendarRange] 범위), 누르면 그 달로 갑니다.
  */
 @Composable
-fun CalendarGrid(ym: YearMonth, byDay: Map<LocalDate, Pair<Long, Long>>, selected: LocalDate?, oneKind: Boolean = false, onSelect: (LocalDate) -> Unit) {
+fun CalendarGrid(ym: YearMonth, byDay: Map<LocalDate, Pair<Long, Long>>, selected: LocalDate?, oneKind: Boolean = false,
+                 planned: Map<LocalDate, Long> = emptyMap(), overDay: LocalDate? = null, onSelect: (LocalDate) -> Unit) {
     val (start, end) = Stats.calendarRange(ym)
     val rows = (java.time.temporal.ChronoUnit.DAYS.between(start, end) / 7).toInt()
     val today = LocalDate.now(Fmt.zone)
@@ -229,7 +278,7 @@ fun CalendarGrid(ym: YearMonth, byDay: Map<LocalDate, Pair<Long, Long>>, selecte
             Row(Modifier.fillMaxWidth().height(dims.row.dp)) {
                 for (c in 0 until 7) {
                     val d = start.plusDays((r * 7 + c).toLong())
-                    DayCell(d, YearMonth.from(d) == ym, byDay[d], d == selected, d == today, oneKind, dims, Modifier.weight(1f).fillMaxHeight()) { onSelect(d) }
+                    DayCell(d, YearMonth.from(d) == ym, byDay[d], planned[d] ?: 0, d == overDay, d == selected, d == today, oneKind, dims, Modifier.weight(1f).fillMaxHeight()) { onSelect(d) }
                 }
             }
         }
@@ -260,19 +309,36 @@ private val CellMoneyBig = Money.copy(fontSize = 12.5.sp, lineHeight = CalendarS
 
 @Composable
 private fun DayCell(
-    d: LocalDate, inMonth: Boolean, sums: Pair<Long, Long>?, isSel: Boolean, isToday: Boolean, oneKind: Boolean,
+    d: LocalDate, inMonth: Boolean, sums: Pair<Long, Long>?, planned: Long, isOver: Boolean, isSel: Boolean, isToday: Boolean, oneKind: Boolean,
     dims: CalendarSize.Dims, modifier: Modifier, onClick: () -> Unit,
 ) {
     val (ex, inc) = sums ?: (0L to 0L)
+    // 아직 안 나간 정기결제: 쓴 돈이 없는 칸에만 지출 자리에 흐린 회색으로.
+    val plannedText = if (ex == 0L && planned > 0) "-" + Fmt.cell(planned) else null
+    // 화면 읽기: 칸 하나를 "11월 27일 금요일, 지출 12,000원, 선택됨"으로 묶어 읽습니다(전에는 숫자만 따로 읽혔어요).
+    val spoken = buildString {
+        append("${d.monthValue}월 ${d.dayOfMonth}일 ${d.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.KOREAN)}")
+        if (isToday) append(", 오늘")
+        if (ex > 0) append(", 지출 ${Fmt.won(ex)}")
+        if (inc > 0) append(", 수입 ${Fmt.won(inc)}")
+        if (plannedText != null) append(", 나갈 예정 ${Fmt.won(planned)}")
+        if (isOver) append(", 지금 속도면 이날 예산을 넘어요")
+        if (ex == 0L && inc == 0L && plannedText == null) append(", 기록 없음")
+    }
     // 앞뒤 달 날짜는 금액까지 흐리게(비주얼 가계부처럼) — 이 달 것과 섞여 보이지 않게.
     val fade = if (inMonth) 1f else 0.4f
     val exText = if (ex > 0) "-" + Fmt.cell(ex) else null
     val incText = if (inc > 0) "+" + Fmt.cell(inc) else null
     val shape = RoundedCornerShape(10.dp)
+    val overColor = P.c.expense
     Column(
         modifier.padding(1.dp).clip(shape)
             .then(if (isSel) Modifier.background(P.c.pineSoft).border(1.5.dp, P.c.pine, shape) else Modifier)
-            .clickable(onClick = onClick).padding(horizontal = 3.dp, vertical = 3.dp),
+            // 예상 초과일: 칸 아래에 빨간 줄(구성안 결정 3).
+            .then(if (isOver) Modifier.drawBehind { drawRect(overColor, Offset(0f, size.height - 3.dp.toPx()), Size(size.width, 3.dp.toPx())) } else Modifier)
+            .clickable(onClick = onClick)
+            .clearAndSetSemantics { contentDescription = spoken; selected = isSel; role = Role.Button }
+            .padding(horizontal = 3.dp, vertical = 3.dp),
     ) {
         Box(
             Modifier.size(dims.dayBox.dp).then(if (isToday) Modifier.clip(CircleShape).background(P.c.pine) else Modifier),
@@ -296,11 +362,15 @@ private fun DayCell(
             Box(Modifier.fillMaxWidth().height(dims.line.dp)) {
                 when {
                     exText != null -> FitText(exText, CellMoneyBig, expense, minSize = 8.sp, textAlign = TextAlign.End)
+                    plannedText != null -> FitText(plannedText, CellMoneyBig, P.c.inkFaint.copy(alpha = 0.8f * fade), minSize = 8.sp, textAlign = TextAlign.End)
                     incText != null -> FitText(incText, CellMoneyBig, income, minSize = 8.sp, textAlign = TextAlign.End)
                 }
             }
         } else {
-            Box(Modifier.fillMaxWidth().height(dims.line.dp)) { if (exText != null) FitText(exText, CellMoney, expense, minSize = 7.5.sp, textAlign = TextAlign.End) }
+            Box(Modifier.fillMaxWidth().height(dims.line.dp)) {
+                if (exText != null) FitText(exText, CellMoney, expense, minSize = 7.5.sp, textAlign = TextAlign.End)
+                else if (plannedText != null) FitText(plannedText, CellMoney, P.c.inkFaint.copy(alpha = 0.8f * fade), minSize = 7.5.sp, textAlign = TextAlign.End)
+            }
             Box(Modifier.fillMaxWidth().height(dims.line.dp)) { if (incText != null) FitText(incText, CellMoney, income, minSize = 7.5.sp, textAlign = TextAlign.End) }
         }
     }

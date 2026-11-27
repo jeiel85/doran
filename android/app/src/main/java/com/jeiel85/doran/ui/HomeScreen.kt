@@ -54,6 +54,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jeiel85.doran.R
@@ -94,6 +96,16 @@ fun HomeScreen(nav: Nav) {
             .sortedBy { it.order }.map { Stats.card(s, it, today) }
     }
     val upcoming = remember(s.version) { Stats.upcoming(s, 7, today) }
+    // 이 달이 끝나기 전에 나갈 고정지출: 예산 게이지에서 따로 보여 '실제로 쓸 수 있는 돈'을 가려냅니다.
+    // 지난달 같은 때까지 쓴 돈. 지난달 기록이 하나도 없으면(첫 달) 비교하지 않습니다.
+    val lastSame = remember(s.version, p, today, id.myMemberId, settings.showSenders) {
+        val lp = Stats.sameTimeLastPeriod(p, today, start)
+        Stats.entries(s, lp, id.myMemberId, settings.showSenders).takeIf { e -> e.any { it.counted } }?.let { Stats.expense(it) }
+    }
+    val aheadList = remember(s.version, p, today, settings.showSenders) { Stats.ahead(s, today, p.end.minusDays(1), settings.showSenders) }
+    val reserved = aheadList.sumOf { it.first.amount }
+    // 이번 달 페이스(D-35): 월말 예상·예상 초과일·평소 하루 평균. 첫 3일은 null.
+    val pace = remember(entries, aheadList, p, today, totalBudget) { Stats.pace(entries, aheadList, p, today, totalBudget?.budget ?: 0) }
     val goals = s.goals.values.filter { !it.done }.sortedBy { it.order }.take(3)
     val me = s.member(id.myMemberId)
     val allowanceFirst = me != null && me.sharesPicked && me.allowance > 0
@@ -170,8 +182,8 @@ fun HomeScreen(nav: Nav) {
                     }
                 }
             }
-            if (showFamily) item { Spacer(Modifier.height(12.dp)); Hero(spent, income, totalBudget?.budget ?: 0, p.end, today) { nav.go(Route.Budget) } }
-        } else item { Hero(spent, income, totalBudget?.budget ?: 0, p.end, today) { nav.go(Route.Budget) } }
+            if (showFamily) item { Spacer(Modifier.height(12.dp)); Hero(spent, income, totalBudget?.budget ?: 0, reserved, lastSame, pace, p, today) { nav.go(Route.Budget) } }
+        } else item { Hero(spent, income, totalBudget?.budget ?: 0, reserved, lastSame, pace, p, today) { nav.go(Route.Budget) } }
 
         if (s.activeMembers.count { !it.isSender } <= 1) item {
             Spacer(Modifier.height(14.dp))
@@ -374,21 +386,43 @@ private fun updateBanner(u: com.jeiel85.doran.update.UpdateState): Pair<String, 
 }
 
 @Composable
-private fun Hero(spent: Long, income: Long, budget: Long, end: LocalDate, today: LocalDate, onBudget: () -> Unit) {
+private fun Hero(spent: Long, income: Long, budget: Long, reserved: Long, lastSame: Long?, pace: Stats.Pace?, p: com.jeiel85.doran.logic.Period,
+                 today: LocalDate, onBudget: () -> Unit) {
+    val end = p.end
     val daysLeft = ChronoUnit.DAYS.between(today, end).toInt().coerceAtLeast(1)
     HeroCard(PineHero, R.drawable.art_cat_savings, "이번 달 쓴 돈", Fmt.won(spent), onClick = onBudget) {
         Spacer(Modifier.height(16.dp))
         if (budget > 0) {
-            val left = budget - spent
-            Progress(spent.toFloat() / budget, Color(0xFFFFD36B), height = 10.dp)
+            val b = Stats.BudgetSplit(budget, spent, reserved)
+            val left = b.left
+            BudgetGauge(b, Color(0xFFFFD36B))
             Spacer(Modifier.height(10.dp))
             Text(
-                if (left >= 0) "예산 ${Fmt.compact(budget)} 중 ${Fmt.won(left)} 남음 · 하루 ${Fmt.won(left / daysLeft)}"
+                if (left >= 0) "예산 ${Fmt.compact(budget)} 중 ${Fmt.won(left)} 남음"
                 else "예산보다 ${Fmt.won(-left)} 더 썼어요",
                 style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.9f), fontWeight = FontWeight.SemiBold,
             )
+            // 남은 돈 가운데 이 달 안에 나갈 고정지출을 빼면 실제로 쓸 수 있는 돈이 됩니다.
+            if (left >= 0 && reserved > 0) Text(
+                // 페이스가 보이면 하루 금액은 아래 '하루 권장' 상자에 있으므로 여기서는 뺍니다.
+                if (b.free >= 0) "고정지출 ${Fmt.won(reserved)} 빼면 ${Fmt.won(b.free)}" + if (pace == null) " · 하루 ${Fmt.won(b.perDay(daysLeft))}" else ""
+                else "남은 고정지출 ${Fmt.won(reserved)}이 남은 예산보다 ${Fmt.won(-b.free)} 많아요",
+                style = MaterialTheme.typography.bodySmall.merge(Money), color = Color.White.copy(alpha = 0.85f),
+            ) else if (left >= 0 && pace == null) Text("하루 ${Fmt.won(b.perDay(daysLeft))}", style = MaterialTheme.typography.bodySmall.merge(Money),
+                color = Color.White.copy(alpha = 0.85f))
         } else {
             Text("예산을 정하면 하루에 쓸 수 있는 돈을 알려 드려요 →", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.85f))
+        }
+        PaceBlock(pace, budget, spent, reserved, p, today, daysLeft)
+        // 지난달 같은 때까지와 견줌: 한 달 전체와 견주면 월말이 아니면 늘 덜 쓴 것처럼 보여서(뱅크샐러드·똑똑 방식).
+        lastSame?.let { prev ->
+            val diff = spent - prev
+            Spacer(Modifier.height(6.dp))
+            Text(when {
+                diff > 0 -> "지난달 이때보다 ${Fmt.compact(diff)}원 더 썼어요"
+                diff < 0 -> "지난달 이때보다 ${Fmt.compact(-diff)}원 덜 썼어요"
+                else -> "지난달 이때와 같아요"
+            }, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.85f))
         }
         Spacer(Modifier.height(16.dp))
         // "남은 날"만 쓰면 월급날부터 세는지 말일까지 세는지 헷갈려서(2026-11-20 리뷰) 가계부 한 달의 끝 날을 함께 씁니다.
@@ -398,6 +432,85 @@ private fun Hero(spent: Long, income: Long, budget: Long, end: LocalDate, today:
             Stat("남은 돈", Fmt.won(income - spent)),
             Stat("${last.monthValue}/${last.dayOfMonth}까지", "${daysLeft}일"),
         ))
+    }
+}
+
+/**
+ * 이번 달 페이스(D-35): "이대로면 월말 ○ · ○일에 넘어요", 하루 권장 대 지금 하루 평균 두 상자, 앞으로 며칠 동안 쓸 수 있는 돈 한 줄.
+ * 하루 권장은 위 게이지 아래 '하루 ○원'과 같은 셈(고정지출 몫을 뺀 남은 예산 ÷ 남은 날)입니다.
+ */
+@Composable
+private fun PaceBlock(pace: Stats.Pace?, budget: Long, spent: Long, reserved: Long, p: com.jeiel85.doran.logic.Period, today: LocalDate, daysLeft: Int) {
+    val white = Color.White
+    if (pace == null) {
+        // 첫 3일: 평균이 크게 흔들려 아직 셈하지 않습니다. 기록이 전혀 없을 때는 말하지 않습니다.
+        if (spent > 0 && today.isBefore(p.start.plusDays(Stats.PACE_MIN_DAYS.toLong()))) {
+            Spacer(Modifier.height(6.dp))
+            Text("월말 예상은 기록이 ${Stats.PACE_MIN_DAYS}일 쌓이면 보여 드려요", style = MaterialTheme.typography.bodySmall, color = white.copy(alpha = 0.75f))
+        }
+        return
+    }
+    Spacer(Modifier.height(6.dp))
+    val projected = "이대로면 월말 ${Fmt.compact(pace.projected)}"
+    Text(when {
+        budget <= 0 -> projected
+        pace.overDay != null -> "$projected · ${pace.overDay.monthValue}/${pace.overDay.dayOfMonth}에 넘어요"
+        spent > budget -> projected
+        pace.projected > budget -> "$projected · 예산을 넘어요"
+        else -> "$projected · 예산 안이에요"
+    }, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold,
+        color = if (budget > 0 && pace.projected > budget) Color(0xFFFFD0C4) else white.copy(alpha = 0.92f))
+    if (budget <= 0) return
+    val b = Stats.BudgetSplit(budget, spent, reserved)
+    Spacer(Modifier.height(10.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf("남은 날 하루 권장" to b.perDay(daysLeft), "지금 하루 평균" to pace.dailyVariable).forEach { (k, v) ->
+            Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(white.copy(alpha = 0.12f)).padding(horizontal = 10.dp, vertical = 8.dp)) {
+                Text(k, style = MaterialTheme.typography.labelSmall, color = white.copy(alpha = 0.8f))
+                Text(Fmt.won(v), style = MaterialTheme.typography.titleSmall.merge(Money), color = white)
+            }
+        }
+    }
+    // 앞으로 며칠(최대 7일)을 한 덩어리로: 월 예산을 주 단위 행동으로 바꿔 줍니다(비주얼 "남은 한 주간 ○만원 이하로").
+    val days = minOf(7, daysLeft)
+    val week = b.perDay(daysLeft) * days / 1_000 * 1_000
+    if (b.free > 0 && days >= 2 && week > 0) {
+        Spacer(Modifier.height(8.dp))
+        Text("앞으로 ${days}일 동안 ${Fmt.compact(week)}원 이하로 쓰면 예산 안이에요",
+            style = MaterialTheme.typography.bodySmall, color = white.copy(alpha = 0.85f))
+    }
+}
+
+/**
+ * 예산 게이지: 쓴 돈(굵게) 뒤에 앞으로 나갈 고정지출을 얇은 줄무늬 몫으로 잇습니다. 그 뒤 빈 자리가 실제로 쓸 수 있는 돈입니다.
+ * 고정지출 몫이 예산을 넘으면 넘는 부분은 빨갛게 그립니다.
+ */
+@Composable
+private fun BudgetGauge(b: Stats.BudgetSplit, color: Color) {
+    val over = P.c.expense
+    val desc = "예산 ${Fmt.won(b.budget)} 중 쓴 돈 ${Fmt.won(b.spent)}, 앞으로 나갈 고정지출 ${Fmt.won(b.reserved)}, 쓸 수 있는 돈 ${Fmt.won(b.free.coerceAtLeast(0))}"
+    androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(12.dp)
+        .semantics { contentDescription = desc }) {
+        val h = size.height
+        val r = androidx.compose.ui.geometry.CornerRadius(h / 2, h / 2)
+        drawRoundRect(Color.White.copy(alpha = 0.22f), cornerRadius = r)
+        val total = b.budget.coerceAtLeast(1).toFloat()
+        val spentW = (size.width * (b.spent / total)).coerceIn(0f, size.width)
+        val resW = (size.width * (b.reserved / total)).coerceIn(0f, size.width - spentW)
+        // 고정지출 몫: 굵기의 절반, 흐린 색 + 빗금. 남은 예산으로 고정지출도 못 내면(게이지 끝까지 차면) 빨강.
+        if (resW > 0) {
+            val c = if (b.free < 0) over else color
+            val top = h / 4
+            val rh = h / 2
+            drawRect(c.copy(alpha = 0.45f), androidx.compose.ui.geometry.Offset(spentW, top), androidx.compose.ui.geometry.Size(resW, rh))
+            var x = spentW
+            while (x < spentW + resW) {
+                drawRect(c.copy(alpha = 0.95f), androidx.compose.ui.geometry.Offset(x, top), androidx.compose.ui.geometry.Size(minOf(3f, spentW + resW - x), rh))
+                x += 7f
+            }
+        }
+        if (spentW > 0) drawRoundRect(if (b.spent > b.budget) over else color,
+            size = androidx.compose.ui.geometry.Size(spentW.coerceAtLeast(h), h), cornerRadius = r)
     }
 }
 

@@ -44,6 +44,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.ui.semantics.Role
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -459,9 +461,11 @@ fun GhostButton(text: String, modifier: Modifier = Modifier, color: Color = P.c.
 
 @Composable
 fun SmallButton(text: String, enabled: Boolean = true, color: Color = P.c.pine, onClick: () -> Unit) {
+    // 보이는 크기는 작게 두되, 누르는 자리는 안드로이드 권장 최소 48dp를 채웁니다(전에는 36dp쯤이라 '이날 쓰기'가 잘 안 눌렸어요).
     Box(
-        Modifier.clip(RoundedCornerShape(12.dp)).background(if (enabled) color.copy(alpha = 0.12f) else P.c.line)
-            .clickable(enabled = enabled, onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
+        Modifier.minimumInteractiveComponentSize().clip(RoundedCornerShape(12.dp)).background(if (enabled) color.copy(alpha = 0.12f) else P.c.line)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Text(text, style = MaterialTheme.typography.labelMedium, color = if (enabled) color else P.c.inkFaint)
     }
