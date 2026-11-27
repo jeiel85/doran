@@ -189,6 +189,10 @@ class LocalSettings(context: Context) {
     /** 기억한 판정: 옮긴 돈 true, 쓴 돈 false, 없으면 null. */
     fun movedBy(key: String?): Boolean? = key?.let { k -> _moveRules.value.firstOrNull { it.key == k }?.moved }
 
+    // --- 월말 마감 체크(이 폰에만) -----------------------------------------------------------------
+    fun checked(key: String): Boolean = prefs.getBoolean("check.$key", false)
+    fun setChecked(key: String, on: Boolean) = prefs.edit().putBoolean("check.$key", on).apply()
+
     // --- 한 달에 한 번만 보내는 알림 표시(예산 80%·100%) -------------------------------------
     fun once(key: String): Boolean {
         if (prefs.getBoolean("once.$key", false)) return false

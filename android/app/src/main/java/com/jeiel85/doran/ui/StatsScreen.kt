@@ -82,6 +82,7 @@ fun StatsScreen(nav: Nav) {
                     Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "다음", tint = if (offset > 0) P.c.ink else P.c.line)
                 }
                 Spacer(Modifier.weight(1f))
+                androidx.compose.material3.TextButton(onClick = { nav.go(Route.YearReport(p.label.year)) }) { Text("연간", color = P.c.pine) }
                 Segmented(listOf("지출", "수입"), mode) { mode = it }
             }
         }

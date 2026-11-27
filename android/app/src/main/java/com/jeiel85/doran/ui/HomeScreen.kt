@@ -184,6 +184,10 @@ fun HomeScreen(nav: Nav) {
             }
             if (showFamily) item { Spacer(Modifier.height(12.dp)); Hero(spent, income, totalBudget?.budget ?: 0, reserved, lastSame, pace, p, today) { nav.go(Route.Budget) } }
         } else item { Hero(spent, income, totalBudget?.budget ?: 0, reserved, lastSame, pace, p, today) { nav.go(Route.Budget) } }
+        // 월말 마감(한 달 끝 3일·다음 달 첫 3일): 수입 → 빠진 지출 → 고정지출 → 저축 순서로 점검.
+        com.jeiel85.doran.logic.Review.closingPeriod(today, start)?.let { cp ->
+            if (!Hub.local.checked("closed.${cp.key}")) item { Spacer(Modifier.height(14.dp)); ClosingCard(s, cp, today, id.myMemberId, settings.showSenders, nav) }
+        }
 
         if (s.activeMembers.count { !it.isSender } <= 1) item {
             Spacer(Modifier.height(14.dp))
