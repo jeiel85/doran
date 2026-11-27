@@ -143,6 +143,8 @@ fun SettingsScreen(nav: Nav) {
                     Hub.local.update { it.copy(notifyAllowance = on) }
                 }
                 ToggleRow("예산 80%·100%", "한 달에 한 번씩만", Icons.Rounded.Wallet, P.c.pine, settings.notifyBudget) { on -> Hub.local.update { it.copy(notifyBudget = on) } }
+                ToggleRow("알림창에 오늘 지출 한 줄", "오늘 쓴 돈·남은 예산을 늘 보여 주고 '쓰기'로 바로 기록해요. 현금 쓴 것을 잊지 않게", Icons.Rounded.Wallet, P.c.pine,
+                    settings.statusLine) { on -> Hub.local.update { it.copy(statusLine = on) } }
                 ToggleRow("${com.jeiel85.doran.logic.Fixed.label(s.recurrings.values.map { it.kind })} 기록", "정해진 날 장부에 넣을 때",
                     Icons.Rounded.EventRepeat, P.c.pine, settings.notifyRecurring) { on ->
                     Hub.local.update { it.copy(notifyRecurring = on) }

@@ -62,10 +62,33 @@ object Hub {
                 if (!sync.sync()) SyncWorker.retrySoon(app)
             }
         }
+        // 알림창 한 줄: 장부·설정이 바뀌거나 날이 바뀌면 고쳐 씁니다(켰을 때만, 끄면 거둠).
+        scope.launch {
+            kotlinx.coroutines.flow.combine(ledger.state, local.state, dayTicks()) { s, st, day -> Triple(s, st, day) }
+                .debounce(1000)
+                .collect { (s, st, day) ->
+                    val me = identity.value
+                    if (st.statusLine && me.onboarded) {
+                        val (title, text) = com.jeiel85.doran.logic.Stats.statusLine(s, day,
+                            com.jeiel85.doran.logic.Stats.viewStart(s, st.monthStartDay), me.myMemberId, st.showSenders)
+                        com.jeiel85.doran.ui.Notifier.status(app, title, text)
+                    } else com.jeiel85.doran.ui.Notifier.clearStatus(app)
+                }
+        }
         scope.launch {
             delay(2_000)
             Hooks.daily(app)
             com.jeiel85.doran.feature.Receipts.retryPending(app) // 앱을 열 때도 못 올린·못 지운 사진(#7)
+        }
+    }
+
+    /** 오늘 날짜를 내보내고, 자정이 지나면 다음 날을 내보냅니다(오늘 지출이 0으로 돌아가게). */
+    private fun dayTicks() = kotlinx.coroutines.flow.flow {
+        while (true) {
+            val today = java.time.LocalDate.now(Fmt.zone)
+            emit(today)
+            val next = today.plusDays(1).atStartOfDay(Fmt.zone).toInstant().toEpochMilli()
+            delay((next - System.currentTimeMillis()).coerceAtLeast(1_000) + 1_000)
         }
     }
 

@@ -138,7 +138,7 @@ fun CaptureScreen(nav: Nav) {
         item { Spacer(Modifier.height(20.dp)); SectionTitle("문구 시험") }
         item {
             SoftCard {
-                Text("카드 알림 문구를 붙여 넣으면 어떻게 읽는지 미리 보여 줘요. 장부에는 넣지 않아요.",
+                Text("카드 알림 문구를 붙여 넣으면 어떻게 읽는지 미리 보여 줘요. 장부에 넣으려면 아래 '이대로 쓰기'를 눌러 확인한 뒤 기록해요.",
                     style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
                 Spacer(Modifier.height(10.dp))
                 Field("알림 문구", sample, { sample = it }, "현대카드 승인 홍*동 12,300원 일시불 …", singleLine = false)
@@ -172,6 +172,11 @@ fun CaptureScreen(nav: Nav) {
                                 Text(k, style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft, modifier = Modifier.weight(0.35f))
                                 Text(v, style = MaterialTheme.typography.bodyMedium, color = P.c.ink, modifier = Modifier.weight(0.65f))
                             }
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        SmallButton("이대로 쓰기") {
+                            nav.copyDraft = com.jeiel85.doran.capture.Pasted.draft(Hub.ledger.value, r, Hub.identity.value.myMemberId)
+                            nav.go(Route.Entry(copyOf = "paste"))
                         }
                     }
                 }

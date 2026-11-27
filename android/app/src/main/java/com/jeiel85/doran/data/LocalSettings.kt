@@ -53,6 +53,8 @@ data class Settings(
     val aiModel: String = "",
     /** 이 폰에서 보는 한 달 시작일(1~28). 0이면 가족 공통 한 달 시작일을 따릅니다(DECISIONS.md D-33, `Stats.viewStart`). */
     val monthStartDay: Int = 0,
+    /** 알림창에 늘 떠 있는 한 줄(오늘 지출 · 남은 예산 · 쓰기, 비주얼 가계부). 기본은 꺼 둡니다. */
+    val statusLine: Boolean = false,
 )
 
 class LocalSettings(context: Context) {
@@ -77,6 +79,7 @@ class LocalSettings(context: Context) {
         aiProvider = prefs.getString("aiProvider", "") ?: "",
         aiModel = prefs.getString("aiModel", "") ?: "",
         monthStartDay = prefs.getInt("monthStartDay", 0).takeIf { it in 1..28 } ?: 0,
+        statusLine = prefs.getBoolean("statusLine", false),
     )
 
     fun update(f: (Settings) -> Settings) {
@@ -89,7 +92,7 @@ class LocalSettings(context: Context) {
             .putBoolean("notifyBudget", s.notifyBudget).putBoolean("notifyRecurring", s.notifyRecurring)
             .putLong("lastBackupAt", s.lastBackupAt).putBoolean("showSenders", s.showSenders)
             .putString("aiProvider", s.aiProvider).putString("aiModel", s.aiModel)
-            .putInt("monthStartDay", s.monthStartDay)
+            .putInt("monthStartDay", s.monthStartDay).putBoolean("statusLine", s.statusLine)
             .apply()
         _state.value = s
     }
@@ -185,6 +188,14 @@ class LocalSettings(context: Context) {
 
     /** 기억한 판정: 옮긴 돈 true, 쓴 돈 false, 없으면 null. */
     fun movedBy(key: String?): Boolean? = key?.let { k -> _moveRules.value.firstOrNull { it.key == k }?.moved }
+
+    // --- 정기결제 제안에서 "아니에요"를 고른 가게(이 폰에만) -------------------------------------------
+    fun dismissedSuggestions(): Set<String> = prefs.getStringSet("suggest.dismissed", emptySet())?.toSet() ?: emptySet()
+    fun dismissSuggestion(key: String) = prefs.edit().putStringSet("suggest.dismissed", dismissedSuggestions() + key).apply()
+
+    // --- 월말 마감 체크(이 폰에만) -----------------------------------------------------------------
+    fun checked(key: String): Boolean = prefs.getBoolean("check.$key", false)
+    fun setChecked(key: String, on: Boolean) = prefs.edit().putBoolean("check.$key", on).apply()
 
     // --- 한 달에 한 번만 보내는 알림 표시(예산 80%·100%) -------------------------------------
     fun once(key: String): Boolean {

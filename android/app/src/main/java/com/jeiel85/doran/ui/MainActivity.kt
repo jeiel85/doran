@@ -107,6 +107,8 @@ sealed interface Route {
     data class SendPicked(val logId: Long) : Route
     data class Share(val memberId: String) : Route
     data object Receipts : Route
+    /** 연간 리포트(편한가계부 결산·연말 회고). */
+    data class YearReport(val year: Int) : Route
     /** 보내는 폰: 이 링크로 보낼 카드·은행(D-6). */
     data class LinkScope(val spaceId: String) : Route
     data class Join(val link: String? = null) : Route
@@ -187,6 +189,11 @@ class MainActivity : FragmentActivity() {
             pendingInvite = link
             if (Hub.identity.value.onboarded) { nav.home(); nav.go(Route.Join(link)) }
             intent.data = null
+            return
+        }
+        if (intent?.getBooleanExtra(Notifier.EXTRA_NEW, false) == true) {
+            intent.removeExtra(Notifier.EXTRA_NEW)
+            nav.home(); nav.go(Route.Entry())
             return
         }
         val txn = intent?.getStringExtra(Notifier.EXTRA_TXN) ?: return
@@ -304,6 +311,7 @@ private fun Root(nav: Nav) {
             is Route.SendPicked -> SendPickedScreen(route.logId, nav)
             is Route.Share -> ShareScreen(route.memberId, nav)
             Route.Receipts -> ReceiptsScreen(nav)
+            is Route.YearReport -> YearReportScreen(route.year, nav)
             is Route.LinkScope -> LinkScopeScreen(route.spaceId, nav)
             is Route.Join -> JoinScreen(route.link, nav)
         }

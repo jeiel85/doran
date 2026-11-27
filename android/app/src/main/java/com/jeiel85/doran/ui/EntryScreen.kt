@@ -40,6 +40,7 @@ import androidx.compose.material.icons.rounded.AddAPhoto
 import androidx.compose.material.icons.rounded.CalendarToday
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.EventRepeat
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Lock
@@ -92,6 +93,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jeiel85.doran.capture.Categorizer
 import com.jeiel85.doran.core.Fmt
+import com.jeiel85.doran.logic.Stats
 import com.jeiel85.doran.core.Hub
 import com.jeiel85.doran.core.newId
 import com.jeiel85.doran.feature.Receipts
@@ -134,6 +136,8 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
     var calc by remember { mutableStateOf(com.jeiel85.doran.logic.AmountCalc(cur = from?.amount?.takeIf { it > 0 }?.toString() ?: "")) }
     var merchant by remember { mutableStateOf(from?.merchant ?: "") }
     var memo by remember { mutableStateOf(from?.memo ?: "") }
+    var tags by remember { mutableStateOf(from?.tags ?: emptyList()) }
+    var tagInput by remember { mutableStateOf("") }
     var categoryId by remember { mutableStateOf(from?.categoryId) }
     // 내 현금 계좌는 새로 쓰는 내역에만 미리 고릅니다. 계좌 없는 기록(범위 밖 통장의 용돈 내역·옮긴 돈, D-19·D-26)을 열 때 채우면
     // 옮긴 돈은 받는 계좌를 고르기 전까지 저장이 막히고, 저장하면 범위 밖 출금이 가계부 현금 잔액에 섞입니다(#49 리뷰).
@@ -173,6 +177,8 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
     }
     var rememberMove by remember { mutableStateOf(false) }
     var allFunds by remember { mutableStateOf(false) }
+    var pasteNote by remember { mutableStateOf<String?>(null) }
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
 
     /** 화면에 보이는 그대로의 내역(저장하지 않음). */
     fun current(): Txn = (original ?: Txn(id = newId(), kind = kind, amount = 0, at = at, source = Source.MANUAL,
@@ -183,6 +189,8 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
             installment = if (kind == Kind.EXPENSE) installment else 0,
             private = if (original?.private == true) private else private && canEditPrivate,
             receiptIds = receipts.toList(), needsReview = false,
+            // 쓰다 만 태그 칸의 글도 함께(저장을 누르면 들어가야 하니까).
+            tags = com.jeiel85.doran.logic.Tags.add(tags, tagInput),
             // 종류를 손으로 바꾼 은행 출금은 사용자가 정한 것이라 다시 자동 판정하지 않습니다(D-26).
             move = original?.move?.let { m -> if (kind == original.kind) m else if (kind == Kind.TRANSFER) Moves.USER else Moves.KEPT },
         )
@@ -239,18 +247,35 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
     Column(Modifier.fillMaxSize().background(P.c.bg).imePadding()) {
         Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 6.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "뒤로", tint = P.c.ink) }
-            Text(if (template != null) "복제한 내역" else if (original == null) "새 내역" else "내역", style = MaterialTheme.typography.titleLarge, color = P.c.ink, modifier = Modifier.weight(1f))
+            Text(if (route.copyOf == "paste") "붙여 넣은 내역" else if (template != null) "복제한 내역" else if (original == null) "새 내역" else "내역", style = MaterialTheme.typography.titleLarge, color = P.c.ink, modifier = Modifier.weight(1f))
             // 복제: 같은 자동이체가 두 번 나갔거나 장보기를 나눠 낸 것처럼, 날짜·금액만 바꿔 하나 더 쓸 때(비주얼 가계부).
             // 금액 자리만 남긴 기록(용돈으로 옮긴 가족 카드 결제)은 복제하지 않습니다.
             if (original != null && !original.personal) IconButton(onClick = { nav.copyDraft = current(); nav.back(); nav.go(Route.Entry(copyOf = original.id)) }) {
                 Icon(Icons.Rounded.ContentCopy, "복제", tint = P.c.ink)
             }
+            // 붙여넣기: 복사해 둔 카드·은행 문자로 칸을 채웁니다(편한가계부·위플). 저장은 확인한 뒤 사람이.
+            if (original == null) IconButton(onClick = {
+                val text = clipboard.getText()?.text.orEmpty()
+                val p = com.jeiel85.doran.capture.Pasted.parse(text)
+                if (p == null) pasteNote = if (text.isBlank()) "복사해 둔 글이 없어요" else "카드·은행 문자로 읽지 못했어요"
+                else {
+                    val d = com.jeiel85.doran.capture.Pasted.draft(s, p, id.myMemberId)
+                    kind = d.kind; calc = com.jeiel85.doran.logic.AmountCalc(cur = d.amount.takeIf { it > 0 }?.toString() ?: "")
+                    merchant = d.merchant; at = d.at; installment = d.installment
+                    // 붙여 넣은 문자의 카드·통장을 못 가리면 '선택 안 함'으로 둡니다(앞에 골라 둔 현금에 잘못 남지 않게, #91 리뷰).
+                    accountId = d.accountId
+                    touchedCategory = false; categoryId = null; keypad = false
+                    pasteNote = "붙여 넣은 문자로 채웠어요. 맞는지 보고 기록해 주세요"
+                }
+            }) { Icon(Icons.Rounded.ContentPaste, "복사한 문자로 채우기", tint = P.c.ink) }
             if (original != null) IconButton(onClick = { picker = "delete" }) { Icon(Icons.Rounded.DeleteOutline, "지우기", tint = P.c.danger) }
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
             Segmented(listOf("지출", "수입", "이체"), kind.ordinal) { kind = Kind.entries[it]; if (!touchedCategory) categoryId = null }
             Spacer(Modifier.height(12.dp))
             // 날짜는 맨 위에 둡니다. 새로 쓸 때는 키패드가 아래 '날짜' 줄을 가려, 어느 날로 저장되는지 모른 채 기록하게 됐어요.
+            pasteNote?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = P.c.pine,
+                modifier = Modifier.padding(bottom = 8.dp).semantics { liveRegion = LiveRegionMode.Polite }) }
             DateChip(at, onClick = { picker = "date" })
             Spacer(Modifier.height(12.dp))
             // 금액
@@ -393,10 +418,12 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                 Spacer(Modifier.height(18.dp))
                 Text("카테고리", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
                 Spacer(Modifier.height(10.dp))
-                val cats = s.categories.values.filter { it.kind == kind && !it.hidden }.sortedBy { it.order }
+                // 상위 카테고리만 칸으로, 고른 것에 세부가 있으면 아래 칩으로(D-37).
+                val cats = s.categories.values.filter { it.kind == kind && !it.hidden && (it.parentId == null || s.categories[it.parentId] == null) }.sortedBy { it.order }
+                val topSel = categoryId?.let { Stats.topCategory(s, it) }
                 FlowRow(Modifier.fillMaxWidth(), maxItemsInEachRow = 4, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     cats.forEach { c ->
-                        val sel = c.id == categoryId
+                        val sel = c.id == topSel
                         Column(
                             Modifier.weight(1f).clip(RoundedCornerShape(18.dp))
                                 .background(if (sel) P.c.pineSoft else P.c.surface)
@@ -410,6 +437,14 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                         }
                     }
                     repeat((4 - cats.size % 4) % 4) { Spacer(Modifier.weight(1f)) }
+                }
+                val subs = topSel?.let { t -> s.categories.values.filter { it.parentId == t && !it.hidden }.sortedBy { it.order } }.orEmpty()
+                if (subs.isNotEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    ChipRow {
+                        Chip("${s.category(topSel)?.name ?: ""} 전체", categoryId == topSel, { categoryId = topSel; touchedCategory = true })
+                        subs.forEach { sc -> Chip(sc.name, categoryId == sc.id, { categoryId = sc.id; touchedCategory = true }) }
+                    }
                 }
             }
 
@@ -471,6 +506,24 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
 
             Spacer(Modifier.height(18.dp))
             Field("메모", memo, { memo = it }, "남기고 싶은 말", singleLine = false)
+            // 태그: 여행·경조사처럼 카테고리를 가로지르는 묶음(D-36). 칩을 누르면 빠지고, 아래 추천을 누르면 더해집니다.
+            Spacer(Modifier.height(14.dp))
+            Text("태그", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
+            Spacer(Modifier.height(8.dp))
+            if (tags.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                tags.forEach { tg -> Chip("#$tg ✕", true, { tags = tags - tg }) }
+            }
+            Field("태그 더하기", tagInput, { v ->
+                // 띄어쓰기·쉼표를 치면 그 앞까지를 태그로 넣습니다.
+                if (v.endsWith(' ') || v.endsWith(',')) { tags = com.jeiel85.doran.logic.Tags.add(tags, v); tagInput = "" } else tagInput = v
+            }, "예: 여행 경조사 (띄어 쓰면 들어가요)")
+            val suggest = remember(s.version) { com.jeiel85.doran.logic.Tags.used(s) }.filter { it !in tags }.take(8)
+            if (suggest.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    suggest.forEach { tg -> Chip("#$tg", false, { tags = com.jeiel85.doran.logic.Tags.add(tags, tg) }) }
+                }
+            }
 
             Spacer(Modifier.height(18.dp))
             Text("영수증", style = MaterialTheme.typography.titleSmall, color = P.c.ink)

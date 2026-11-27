@@ -150,10 +150,14 @@ object Stats {
     fun expense(e: List<Entry>) = e.filter { it.counted && it.txn.kind == Kind.EXPENSE }.sumOf { it.net }
     fun income(e: List<Entry>) = e.filter { it.counted && it.txn.kind == Kind.INCOME }.sumOf { it.net }
 
-    fun byCategory(e: List<Entry>, kind: Kind): List<Pair<String, Long>> =
+    /** 카테고리별 합계. [s]를 주면 하위 카테고리를 상위로 묶습니다(D-37 — 통계 도넛·예산). 엑셀은 세부 그대로. */
+    fun byCategory(e: List<Entry>, kind: Kind, s: LedgerState? = null): List<Pair<String, Long>> =
         e.filter { it.counted && it.txn.kind == kind && it.net > 0 }
-            .groupBy { it.txn.categoryId ?: if (kind == Kind.INCOME) Defaults.INCOME_FALLBACK else Defaults.EXPENSE_FALLBACK }
+            .groupBy { (it.txn.categoryId ?: if (kind == Kind.INCOME) Defaults.INCOME_FALLBACK else Defaults.EXPENSE_FALLBACK).let { c -> s?.let { topCategory(it, c) } ?: c } }
             .map { (k, v) -> k to v.sumOf { it.net } }.sortedByDescending { it.second }
+
+    /** 하위 카테고리면 상위 id, 아니면 그대로. 상위가 지워졌으면 그대로 둡니다. */
+    fun topCategory(s: LedgerState, id: String): String = s.categories[id]?.parentId?.takeIf { s.categories.containsKey(it) } ?: id
 
     /** 사람별 합계. 가족 카드 결제는 쓴 사람이 아니라 [FAMILY] 칸으로 묶습니다(DECISIONS.md D-20). */
     fun byMember(e: List<Entry>, kind: Kind = Kind.EXPENSE, s: LedgerState? = null): List<Pair<String?, Long>> =
@@ -165,6 +169,18 @@ object Stats {
         e.filter { it.counted && !it.allowanceSummary }.groupBy { Fmt.date(it.txn.at) }.mapValues { (_, v) ->
             v.filter { it.txn.kind == Kind.EXPENSE }.sumOf { it.net } to v.filter { it.txn.kind == Kind.INCOME }.sumOf { it.net }
         }
+
+    /**
+     * '이체'만 볼 때 달력 칸의 금액: 그날 옮긴 돈(이체와, 가계부 통장끼리 옮겨 합계에서 뺀 출금 쪽). 지출·수입 달력에는 이 돈이 안 보여
+     * 어디로 얼마를 옮겼는지 날짜로 보려면 이 보기가 필요합니다(초록·비주얼 '제외 내역'). 둘째 값은 늘 0입니다.
+     */
+    fun byDayMoved(e: List<Entry>): Map<LocalDate, Pair<Long, Long>> =
+        e.filter(::isMoved)
+            .groupBy { Fmt.date(it.txn.at) }.mapValues { (_, v) -> v.sumOf { it.net } to 0L }
+
+    /** 옮긴 돈 보기에 들어가는 내역: 이체, 또는 가계부 통장끼리 옮겨 합계에서 뺀 출금 쪽(입금 쪽은 두 번 세지 않게 뺌). */
+    fun isMoved(e: Entry): Boolean = !e.allowanceSummary && e.txn.cancelOf == null &&
+        (e.txn.kind == Kind.TRANSFER || e.txn.kind == Kind.EXPENSE && Moves.linked(e.txn))
 
     /**
      * 달력에 그리는 날들(D-30): [month] 1일이 든 주의 일요일부터 말일이 든 주의 토요일까지. 끝(second)은 그다음 날(배타).
@@ -204,7 +220,7 @@ object Stats {
     }
 
     fun budgets(s: LedgerState, e: List<Entry>): Pair<BudgetLine?, List<BudgetLine>> {
-        val spentBy = byCategory(e, Kind.EXPENSE).toMap()
+        val spentBy = byCategory(e, Kind.EXPENSE, s).toMap()
         val total = s.household.budget.takeIf { it > 0 }?.let { BudgetLine(null, it, expense(e)) }
         val lines = s.budgets.values.filter { it.amount > 0 && s.categories.containsKey(it.categoryId) }
             .map { BudgetLine(it.categoryId, it.amount, spentBy[it.categoryId] ?: 0) }
@@ -362,13 +378,13 @@ object Stats {
     }
 
     /**
-     * 월 용돈의 [ym] 달 몫이 들어가는 날. 정한 날([day])이 토·일이면 월급이 먼저 들어오는 앞 금요일입니다(D-27).
+     * 월 용돈의 [ym] 달 몫이 들어가는 날. 정한 날([day])이 토·일이나 공휴일이면 월급이 먼저 들어오는 앞 영업일입니다(D-27, D-38 — 설·추석 연휴 포함).
      * 다만 앞당긴 날이 가계부 한 달([startDay]부터) 경계를 넘으면 앞당기지 않습니다: 정한 날이 한 달 시작일과 같거나 바로 뒤면
      * 그달 몫이 앞 달 합계로 넘어가 앞 달엔 두 번, 그달엔 0번 들어가기 때문입니다(#53 리뷰).
      */
     fun allowanceDue(ym: YearMonth, day: Int, startDay: Int): LocalDate {
         val nominal = ym.atDay(day.coerceIn(1, ym.lengthOfMonth()))
-        val early = beforeWeekend(nominal)
+        val early = Holidays.beforeOff(nominal)
         return if (periodOf(early, startDay).key == periodOf(nominal, startDay).key) early else nominal
     }
 
@@ -503,6 +519,26 @@ object Stats {
         val p = current(s, today, startDay)
         val e = entries(s, p, myMemberId, includeSenders)
         return pace(e, ahead(s, today, p.end.minusDays(1), includeSenders), p, today, budgets(s, e).first?.budget ?: 0)
+    }
+
+    /**
+     * 알림창 한 줄의 제목·내용: "오늘 15,000원 썼어요" / "남은 예산 380,000원 · 이번 달 1,620,000원". 홈과 같은 셈(이 폰의 한 달, 보내는 가족 설정).
+     * 예산이 없으면 이번 달 쓴 돈만, 예산을 넘었으면 넘은 금액.
+     */
+    fun statusLine(s: LedgerState, today: LocalDate, startDay: Int, myMemberId: String?, includeSenders: Boolean): Pair<String, String> {
+        val p = current(s, today, startDay)
+        val e = entries(s, p, myMemberId, includeSenders)
+        val todayRange = Period(p.label, today, today.plusDays(1))
+        val spentToday = expense(e.filter { !it.allowanceSummary && it.txn.at in todayRange })
+        val month = expense(e)
+        val budget = budgets(s, e).first?.budget ?: 0
+        val title = if (spentToday > 0) "오늘 ${Fmt.won(spentToday)} 썼어요" else "오늘은 아직 쓴 돈이 없어요"
+        val text = when {
+            budget <= 0 -> "이번 달 ${Fmt.won(month)}"
+            month <= budget -> "남은 예산 ${Fmt.won(budget - month)} · 이번 달 ${Fmt.won(month)}"
+            else -> "예산보다 ${Fmt.won(month - budget)} 더 썼어요 · 이번 달 ${Fmt.won(month)}"
+        }
+        return title to text
     }
 
     fun upcoming(s: LedgerState, days: Int, today: LocalDate = LocalDate.now(Fmt.zone)): List<Pair<Recurring, LocalDate>> =
