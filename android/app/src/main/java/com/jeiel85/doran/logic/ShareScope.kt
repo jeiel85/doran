@@ -39,11 +39,15 @@ object ShareScope {
     private const val CLOCK_SLACK_MS = 5 * 60_000L
 
     /**
-     * 다시 볼 기록의 시작 시각(#99): 범위를 바꾼 시각([changedAt], 그 멤버 기록의 HLC 시각)을 알면 그때부터(시계 차이 5분 감안, 최대 30일),
-     * 모르면 최근 [RECHECK_MS]. 범위를 바꾼 폰과 이 폰이 오래 동기화되지 않았어도 그 사이 기록을 모두 다시 봅니다.
+     * 다시 볼 기록의 시작 시각(#99): 멤버 기록의 HLC 시각([changedAt])과 최근 [RECHECK_MS] 중 **더 이른 쪽**(최대 30일, 시계 차이 5분 감안).
+     * HLC 시각은 그 멤버 기록을 마지막으로 고친 때라, 범위를 바꾼 뒤 이름·용돈을 또 고쳤으면 범위를 바꾼 때보다 늦습니다(#101 리뷰) —
+     * 그래서 6시간보다 줄이지는 않고, 더 오래 동기화되지 않은 경우에만 넓힙니다.
      */
-    fun recheckSince(changedAt: Long?, now: Long): Long =
-        changedAt?.let { maxOf(it - CLOCK_SLACK_MS, now - RECHECK_MAX_MS) } ?: (now - RECHECK_MS)
+    fun recheckSince(changedAt: Long?, now: Long): Long {
+        val fallback = now - RECHECK_MS
+        val byHlc = changedAt?.let { maxOf(it - CLOCK_SLACK_MS, now - RECHECK_MAX_MS) } ?: fallback
+        return minOf(byHlc, fallback)
+    }
 
     /**
      * 다른 폰에서 내 공유 범위를 좁혔을 때(#74, DECISIONS.md D-40): 그 동기화가 오기 전에 이 폰이 공유로 기록한 알림 내역 가운데

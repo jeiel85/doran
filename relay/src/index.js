@@ -424,11 +424,15 @@ export async function cleanup(env, now = Date.now()) {
   // (#98 리뷰). batch는 한 트랜잭션이라 조건과 삭제가 함께 판단됩니다. 앞 문장이 멤버를 지운 뒤에도 맞도록 가구·기기는 "멤버가 남지 않았을 때만".
   const stillAbandoned = "SELECT 1 FROM devices d WHERE d.id = ?2 AND d.seen_at - d.created_at < ?3 AND d.seen_at < ?4";
   const onlyMember = "(SELECT COUNT(*) FROM members WHERE space = ?1) = 1 AND EXISTS (SELECT 1 FROM members WHERE space = ?1 AND device = ?2)";
+  // 실제로 지운 수는 batch 결과(행마다 meta.changes)에서 셉니다(#101 리뷰 — 전후 전체 수의 차이는 그 사이 다른 요청이 섞였어요).
+  const spaceRows = [];
+  const deviceRows = [];
   for (const { space, device } of spaces) {
     for (const t of ["ops", "blobs", "invites"]) {
       stmts.push(env.DB.prepare(`DELETE FROM ${t} WHERE space = ?1 AND ${onlyMember} AND EXISTS (${stillAbandoned})`).bind(space, device, ONE_HOUR, old));
     }
     stmts.push(env.DB.prepare(`DELETE FROM members WHERE space = ?1 AND device = ?2 AND ${onlyMember} AND EXISTS (${stillAbandoned})`).bind(space, device, ONE_HOUR, old));
+    spaceRows.push(stmts.length);
     stmts.push(env.DB.prepare("DELETE FROM spaces WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM members WHERE space = ?1)").bind(space));
     pushLoose(device);
   }
@@ -436,18 +440,15 @@ export async function cleanup(env, now = Date.now()) {
   function pushLoose(id) {
     const cond = "NOT EXISTS (SELECT 1 FROM members WHERE device = ?1) AND EXISTS (SELECT 1 FROM devices d WHERE d.id = ?1 AND d.seen_at - d.created_at < ?2 AND d.seen_at < ?3)";
     stmts.push(env.DB.prepare(`DELETE FROM invites WHERE owner = ?1 AND ${cond}`).bind(id, ONE_HOUR, old));
+    deviceRows.push(stmts.length);
     stmts.push(env.DB.prepare(`DELETE FROM devices WHERE id = ?1 AND ${cond}`).bind(id, ONE_HOUR, old));
   }
-  // 지운 수를 남깁니다(#99). 조건을 다시 봐 실제로 지운 수는 후보보다 적을 수 있어, 지우기 전후 수의 차이로 셉니다.
-  const count = async () => (await env.DB.prepare("SELECT (SELECT COUNT(*) FROM spaces) AS s, (SELECT COUNT(*) FROM devices) AS d").first()) ?? { s: 0, d: 0 };
-  const before = spaces.length || loose.length ? await count() : null;
-  await env.DB.batch(stmts);
-  if (before) {
-    const after = await count();
-    const gone = { spaces: before.s - after.s, devices: before.d - after.d };
-    if (gone.spaces > 0 || gone.devices > 0) {
-      await env.DB.prepare("INSERT INTO cleanup_log (at, spaces, devices) VALUES (?1, ?2, ?3)").bind(now, gone.spaces, gone.devices).run();
-    }
+  const results = (await env.DB.batch(stmts)) ?? [];
+  const changed = (rows) => rows.reduce((n, i) => n + (results[i]?.meta?.changes ?? 0), 0);
+  const gone = { spaces: changed(spaceRows), devices: changed(deviceRows) };
+  // 지운 수를 남깁니다(#99). 무엇을 지웠는지는 남기지 않습니다.
+  if (gone.spaces > 0 || gone.devices > 0) {
+    await env.DB.prepare("INSERT INTO cleanup_log (at, spaces, devices) VALUES (?1, ?2, ?3)").bind(now, gone.spaces, gone.devices).run();
     console.log(`cleanup: abandoned spaces ${gone.spaces}, devices ${gone.devices}`);
   }
 }

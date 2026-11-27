@@ -50,6 +50,8 @@ class DesignItemsTest {
         val day = 86_400_000L
         assertEquals(now - ShareScope.RECHECK_MS, ShareScope.recheckSince(null, now))
         assertEquals(now - 2 * day - 5 * 60_000L, ShareScope.recheckSince(now - 2 * day, now)) // 이틀 전에 바꿨으면 그때부터(5분 여유)
+        // 범위를 바꾼 뒤 이름을 또 고쳐 HLC가 방금이면 6시간보다 줄이지 않음(#101 리뷰)
+        assertEquals(now - ShareScope.RECHECK_MS, ShareScope.recheckSince(now - 60_000L, now))
         assertEquals(now - ShareScope.RECHECK_MAX_MS, ShareScope.recheckSince(now - 90 * day, now)) // 한 달까지만
         // 바꾼 시각을 알면 6시간보다 오래된 기록도 다시 봄
         val before = Member("h", "남편")

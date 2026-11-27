@@ -103,8 +103,17 @@ class SyncEngine(
         if (id.inHousehold) {
             val space = id.spaceId ?: createSpace()
             try {
-                pushOutbox(space)
-                pull(space)
+                try {
+                    pushOutbox(space)
+                    pull(space)
+                } catch (e: RelayError) {
+                    // 중계가 이 기기를 모른다고 확실히 답하면(정리된 기기, D-41) 다시 등록하고 한 번 더 — 그래야 가구가 정리된 경우의
+                    // 404로 이어져 아래에서 되살립니다(#101 리뷰). 다른 401은 그대로 올립니다(#9).
+                    if (e.status != 401 || e.code != "unauthorized") throw e
+                    reRegister()
+                    pushOutbox(space)
+                    pull(space)
+                }
                 if (_status.value.removed) _status.value = _status.value.copy(removed = false)
             } catch (e: RelayError) {
                 if (e.status == 404 && e.code == "space_not_found") {
