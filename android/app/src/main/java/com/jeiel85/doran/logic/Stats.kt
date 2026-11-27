@@ -93,12 +93,19 @@ object Stats {
             val fixed = hasFixedAllowance(s, a.memberId)
             out += Entry(
                 Txn(id = a.id, kind = Kind.EXPENSE, amount = a.spent, at = summaryAt, categoryId = Defaults.ALLOWANCE,
-                    merchant = (if (fixed) "$name 용돈 사용 (${a.count}건)" else "$name 용돈 (${a.count}건)") + familyMonthNote, memberId = a.memberId),
+                    // 월 용돈이 정해진 가족은 "남은 ○원"도(BACKLOG 후보): 용돈 금액과 쓴 합계는 이미 가족에게 보이는 값이라 새로 드러나는 것은 없습니다(D-7).
+                    merchant = (if (fixed) "$name 용돈 사용 (${a.count}건)" + allowanceLeft(s, a.memberId, a.spent) else "$name 용돈 (${a.count}건)") + familyMonthNote,
+                    memberId = a.memberId),
                 net = a.spent, canceled = false, allowanceSummary = true, counted = !fixed,
             )
         }
         out.sortByDescending { it.txn.at }
         return out
+    }
+
+    private fun allowanceLeft(s: LedgerState, memberId: String?, spent: Long): String {
+        val allowance = s.member(memberId)?.allowance ?: 0
+        return if (allowance <= 0) "" else if (spent <= allowance) " · 남은 ${Fmt.won(allowance - spent)}" else " · ${Fmt.won(spent - allowance)} 넘음"
     }
 
     /** 월 용돈이 정해진 사람: 그 용돈은 고정지출 한 번으로 세고, 안에서 쓴 것은 더하지 않습니다. */
@@ -236,7 +243,9 @@ object Stats {
     fun carryIn(s: LedgerState, p: Period, myMemberId: String?, includeSenders: Boolean = true): Long {
         val budget = s.household.budget
         if (!s.household.carryOver || budget <= 0) return 0
-        val prev = periodOf(p.start.minusDays(1), p.start.dayOfMonth.coerceIn(1, 28))
+        // 이월은 가족 공통 설정이라 가족 공통 한 달로 셉니다: 이 폰의 한 달 시작일이 달라도(D-33) 가족 폰마다 같은 금액이 되게(#93).
+        val family = s.household.monthStartDay
+        val prev = periodOf(periodOf(p.start, family).start.minusDays(1), family)
         val e = entries(s, prev, myMemberId, includeSenders)
         if (e.none { it.counted && !it.allowanceSummary }) return 0
         return (budget - expense(e)).coerceAtLeast(0)

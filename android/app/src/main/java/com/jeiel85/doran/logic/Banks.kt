@@ -170,6 +170,21 @@ object Banks {
         }.minByOrNull { kotlin.math.abs(it.at - at) }
     }
 
+    /**
+     * [linkedCardPayment]의 반대 순서(#78 남은 것): 은행 출금 문자가 먼저 와 통장에 출금으로 기록된 뒤 이은 체크카드 [card]의 결제 알림이
+     * 왔을 때, 그 출금(같은 금액·[window] 안·판정이나 고정 규칙이 붙지 않은 이 폰([installId])의 기록)을 찾습니다. 찾으면 카드 결제를 남기고
+     * 그 출금은 지웁니다 — 가맹점·카테고리가 있는 쪽이 카드 결제라서.
+     */
+    fun bankTwinOfCardPayment(s: LedgerState, card: Account, amount: Long, at: Long, window: Long, installId: String): Txn? {
+        val bank = card.payFromId?.let { s.accounts[it] } ?: return null
+        if (linkedCards(s, bank).none { it.id == card.id }) return null
+        return s.txns.values.filter {
+            it.accountId == bank.id && it.kind == Kind.EXPENSE && it.cancelOf == null && it.amount == amount && !it.private &&
+                it.source.captured && it.move == null && it.recurringId == null && it.createdBy == installId &&
+                kotlin.math.abs(it.at - at) <= window
+        }.minByOrNull { kotlin.math.abs(it.at - at) }
+    }
+
     /** [Kept]에 남기는 최대 건수(은행 잔액 알림이 오래 없을 때의 상한). */
     const val MAX_KEPT = 500
 

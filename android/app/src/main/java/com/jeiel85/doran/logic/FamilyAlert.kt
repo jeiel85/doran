@@ -209,6 +209,32 @@ object Twins {
         return a.takeUnless { used }
     }
 
+    /**
+     * 장부에 이미 두 번 들어 있는 같은 결제 쌍(#64): 두 사람 폰이 각자 기록했는데 동기화 전이라 서로 못 거른 것. 나만 보는 용돈·취소는 뺍니다.
+     * (남길 것, 지울 것) — 남길 것은 [keeper]. 최근 60일만 봅니다.
+     */
+    fun existingPairs(s: LedgerState, now: Long, days: Int = 60): List<Pair<Txn, Txn>> {
+        val since = now - days * 86_400_000L
+        val list = s.txns.values.filter { it.at >= since && !it.private && !it.personal && it.cancelOf == null && it.source.captured }
+            .sortedBy { it.at }
+        val used = HashSet<String>()
+        val out = ArrayList<Pair<Txn, Txn>>()
+        for (i in list.indices) {
+            val a = list[i]
+            if (a.id in used) continue
+            for (j in i + 1 until list.size) {
+                val b = list[j]
+                if (b.at - a.at > WINDOW) break
+                if (b.id in used || a.memberId == b.memberId && a.createdBy == b.createdBy || !same(a, b)) continue
+                val keep = keeper(a, b)
+                out += keep to (if (keep === a) b else a)
+                used += a.id; used += b.id
+                break
+            }
+        }
+        return out
+    }
+
     /** 둘 중 남길 것: 먼저 기록된 쪽(카드 주인 폰이 대개 먼저 받음), 같으면 id가 작은 쪽. */
     fun keeper(a: Txn, b: Txn): Txn =
         when {

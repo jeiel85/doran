@@ -434,8 +434,14 @@ object Parser {
         if (s.count { it == '(' } != s.count { it == ')' }) s = s.replace('(', ' ').replace(')', ' ')
         s = SPACES.replace(s, " ").trim(' ', ':', '-', '.', '>')
         if (s.length > 2 && s.first() == '(' && s.indexOf(')') == s.lastIndex) s = s.substring(1, s.lastIndex).trim()
+        // 토스 푸시의 결제대행 꼬리("구글플레이_TOSS", "네이버페이_CJ")와 인증 표시("(인증)")는 가게 이름이 아닙니다(#13).
+        s = PG_TAIL.replace(s, "").let { AUTH_MARK.replace(it, "") }.trim()
         return s
     }
+
+    /** 가맹점 끝에 붙는 결제대행사·간편결제 꼬리. 밑줄 뒤에 이 이름만 있을 때만 뗍니다("홍길동_축의" 같은 메모는 그대로). */
+    private val PG_TAIL = Regex("""_(?:CJ|TOSS|토스|토스페이먼츠|카카오페이|카카오|네이버페이|KCP|NHN|KG|KGI|이니시스|NICE|나이스|다날|페이코|KSNET|스마트로)$""", RegexOption.IGNORE_CASE)
+    private val AUTH_MARK = Regex("""\(인증\)""")
 
     /**
      * 카드사·은행이 아닌 간편결제 앱(네이버페이 등)의 결제·취소 안내를 읽습니다: "CU에서 3,610원 결제되었습니다. (결제 수단: 카드 간편결제)".

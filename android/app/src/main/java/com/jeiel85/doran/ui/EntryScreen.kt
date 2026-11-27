@@ -374,6 +374,10 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                                 Spacer(Modifier.height(8.dp))
                                 Chip("${listOfNotNull(o.issuer, o.merchant.ifBlank { null }).joinToString(" · ")} 출금은 앞으로도 이렇게", rememberMove,
                                     { rememberMove = !rememberMove })
+                                // 사람 이름이면 그 사람에게 보낸 다른 돈(진짜 지출)까지 같은 판정이 된다고 알립니다(#50).
+                                if (rememberMove && Moves.looksLikePerson(o.merchant)) Text(
+                                    "'${o.merchant}'님에게 보내는 출금은 앞으로 모두 이렇게 셉니다. 그분에게 쓴 돈(선물·축의 등)도 같이 판정되니 그때는 그 출금 화면에서 바꿔 주세요.",
+                                    style = MaterialTheme.typography.bodySmall, color = P.c.apricot, modifier = Modifier.padding(top = 6.dp))
                             }
                             Spacer(Modifier.height(8.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {

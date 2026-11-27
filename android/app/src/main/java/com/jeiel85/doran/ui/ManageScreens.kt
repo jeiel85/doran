@@ -25,6 +25,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.rounded.MergeType
 import androidx.compose.material.icons.rounded.Wallet
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -453,6 +454,7 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
     var payFrom by remember { mutableStateOf(o?.payFromId) }
     var cardBudget by remember { mutableStateOf(o?.monthBudget?.takeIf { it > 0 }?.toString() ?: "") }
     var perfGoal by remember { mutableStateOf(o?.perfGoal?.takeIf { it > 0 }?.toString() ?: "") }
+    var merging by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val used = o != null && s.txns.values.any { it.accountId == o.id || it.toAccountId == o.id }
     // 체크카드는 예전부터 잔액을 세던 체크카드(통장처럼 쓰던 것)일 때만 잔액 칸을 보여 줍니다(D-29). 다른 종류에서 체크카드로 바꾸면
@@ -461,6 +463,7 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
     val noBalance = type == AccountType.CARD || type == AccountType.CHECK && !trackedCheck
 
     SubScreen(if (o == null) "계좌·카드 추가" else o.name, { nav.back() }, actions = {
+        if (o != null) IconButton(onClick = { merging = true }) { Icon(Icons.Rounded.MergeType, "다른 계좌와 합치기", tint = P.c.ink) }
         if (o != null) IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.DeleteOutline, "지우기", tint = P.c.danger) }
     }, bottom = {
         PrimaryButton("저장", enabled = name.isNotBlank()) {
@@ -515,6 +518,9 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
                 AmountField("이 카드 월 예산 (비우면 없음)", cardBudget) { cardBudget = it }
                 Spacer(Modifier.height(10.dp))
                 AmountField("실적 목표 (이용 기간 기준, 비우면 없음)", perfGoal) { perfGoal = it }
+                // 카드사마다 실적에서 빼는 항목(공과금·상품권·할부 등)이 달라 둥지의 값은 어림입니다(#93).
+                Text("카드사가 실적에서 빼는 항목(공과금·상품권 등)은 둥지가 모르므로 어림이에요. 정확한 실적은 카드사 앱에서 봐요.",
+                    style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft, modifier = Modifier.padding(start = 8.dp, top = 4.dp))
             }
             Spacer(Modifier.height(10.dp))
             Field("카드사·은행 (알림 연결용)", institution, { institution = it }, "예: 현대카드, KB국민은행")
@@ -566,6 +572,29 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
             }
             ToggleRow("숨기기", "자산 화면과 합계에서 뺍니다", Icons.Rounded.VisibilityOff, P.c.inkSoft, hidden) { hidden = it }
         }
+    }
+    // 계좌 합치기(#60): 알림이 같은 카드를 둘로 갈라 만든 경우 등. 이 계좌의 내역·규칙·목표를 고른 계좌로 옮기고 이 계좌는 지웁니다.
+    if (merging && o != null) {
+        val targets = com.jeiel85.doran.logic.Accounts.mergeTargets(s, o)
+        AlertDialog(onDismissRequest = { merging = false }, containerColor = P.c.bg, title = { Text("'${o.name}'을 어느 계좌로 합칠까요?") },
+            text = {
+                Column {
+                    Text("이 계좌의 내역·고정지출·목표가 고른 계좌로 옮겨가고, 이 계좌는 지워져요. 가족 폰에도 같이 바뀌어요.",
+                        style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                    Spacer(Modifier.height(8.dp))
+                    if (targets.isEmpty()) Text("합칠 같은 종류의 계좌가 없어요", style = MaterialTheme.typography.bodyMedium, color = P.c.inkFaint)
+                    targets.forEach { t ->
+                        ListRow(t.name, listOfNotNull(t.institution, t.last4?.let { "…$it" }, s.member(t.ownerId)?.name).joinToString(" · "), onClick = {
+                            val m = com.jeiel85.doran.logic.Accounts.merge(s, o, t)
+                            Hub.ledger.putAll(m.txns.map { Triple(T.TXN, it.id, it.json()) } + m.recurrings.map { Triple(T.RECURRING, it.id, it.json()) } +
+                                m.goals.map { Triple(T.GOAL, it.id, it.json()) } + m.accounts.map { Triple(T.ACCOUNT, it.id, it.json()) })
+                            Hub.ledger.delete(T.ACCOUNT, o.id)
+                            merging = false; nav.back()
+                        })
+                    }
+                }
+            },
+            confirmButton = {}, dismissButton = { TextButton({ merging = false }) { Text("두기") } })
     }
     if (confirmDelete && o != null) AlertDialog(onDismissRequest = { confirmDelete = false }, containerColor = P.c.bg,
         title = { Text("이 계좌를 지울까요?") },
