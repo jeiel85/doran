@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -179,6 +180,8 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
 
     fun save() {
         persist()
+        // 내역 탭에서 왔으면 저장한 날을 고른 채로 돌아갑니다(날짜를 바꿨으면 바뀐 날로).
+        if (nav.tab == Tab.LEDGER && nav.stack.size == 2) nav.ledger.show(Fmt.date(at))
         nav.back()
     }
 
@@ -207,7 +210,10 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
             Segmented(listOf("지출", "수입", "이체"), kind.ordinal) { kind = Kind.entries[it]; if (!touchedCategory) categoryId = null }
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(12.dp))
+            // 날짜는 맨 위에 둡니다. 새로 쓸 때는 키패드가 아래 '날짜' 줄을 가려, 어느 날로 저장되는지 모른 채 기록하게 됐어요.
+            DateChip(at, onClick = { picker = "date" })
+            Spacer(Modifier.height(12.dp))
             // 금액
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).clickable { keypad = true }.padding(vertical = 6.dp)) {
                 Text(when (kind) { Kind.EXPENSE -> "얼마를 썼나요?"; Kind.INCOME -> "얼마가 들어왔나요?"; Kind.TRANSFER -> "얼마를 옮겼나요?" },
@@ -640,5 +646,23 @@ private fun FundCard(s: com.jeiel85.doran.data.LedgerState, o: Txn, me: String?,
                 onDone()
             }
         }
+    }
+}
+
+/** 맨 위 날짜 표시. 오늘이 아니면 눈에 띄게 칠해 다른 날로 쓰고 있음을 알립니다. 누르면 날짜를 고릅니다. */
+@Composable
+private fun DateChip(at: Long, onClick: () -> Unit) {
+    val d = Fmt.date(at)
+    val today = d == LocalDate.now(Fmt.zone)
+    Row(
+        Modifier.clip(RoundedCornerShape(14.dp)).background(if (today) P.c.surface else P.c.pineSoft)
+            .border(1.dp, if (today) P.c.line else P.c.pine, RoundedCornerShape(14.dp))
+            .clickable(onClickLabel = "날짜 바꾸기", onClick = onClick)
+            .heightIn(min = 48.dp).padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.CalendarToday, null, tint = P.c.pine, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(Fmt.dayLabel(d), style = MaterialTheme.typography.labelLarge, color = if (today) P.c.ink else P.c.pine)
     }
 }

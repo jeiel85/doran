@@ -112,6 +112,11 @@ enum class Tab(val label: String, val icon: ImageVector) {
 class Nav {
     val stack = mutableStateListOf<Route>(Route.Main)
     var tab by mutableStateOf(Tab.HOME)
+    /** 내역 탭에서 보던 달·고른 날·거르기. 내역을 열고 돌아와도 그 자리에 있도록 탭 화면 밖에 둡니다. */
+    val ledger = LedgerView()
+
+    /** 가운데 + 버튼이 쓸 날짜: 내역 달력에서 날을 골라 두었으면 그날, 아니면 오늘(null). */
+    fun addDate(): LocalDate? = if (tab == Tab.LEDGER) ledger.shownDay() else null
     val top: Route get() = stack.last()
     fun go(r: Route) { stack.add(r) }
     fun back(): Boolean = if (stack.size > 1) { stack.removeAt(stack.lastIndex); true } else false
@@ -319,10 +324,12 @@ private fun BottomBar(nav: Nav, modifier: Modifier) {
             Modifier.align(Alignment.Center).offset(y = (-14).dp).size(60.dp)
                 .shadow(14.dp, CircleShape, spotColor = P.c.pine.copy(alpha = 0.5f))
                 .clip(CircleShape).background(P.c.pine)
-                .clickable { nav.go(Route.Entry()) },
+                .clickable { nav.go(Route.Entry(date = nav.addDate())) },
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Rounded.Add, "내역 쓰기", tint = Color.White, modifier = Modifier.size(32.dp))
+            // 내역 달력에서 다른 날을 골라 두었으면 그날로 씁니다. 화면 읽기 프로그램에도 어느 날로 쓰는지 알려 줍니다.
+            val day = nav.addDate()?.takeIf { it != LocalDate.now(com.jeiel85.doran.core.Fmt.zone) }
+            Icon(Icons.Rounded.Add, day?.let { "${it.monthValue}월 ${it.dayOfMonth}일 내역 쓰기" } ?: "내역 쓰기", tint = Color.White, modifier = Modifier.size(32.dp))
         }
     }
 }
@@ -331,7 +338,10 @@ private fun BottomBar(nav: Nav, modifier: Modifier) {
 private fun TabItem(tab: Tab, nav: Nav, modifier: Modifier) {
     val selected = nav.tab == tab
     Column(
-        modifier.clip(RoundedCornerShape(16.dp)).clickable { nav.tab = tab }.padding(vertical = 8.dp),
+        // 내역 탭에 있는데 한 번 더 누르면 오늘로 돌아옵니다(다른 화면을 다녀와도 보던 날에 남아 있으므로).
+        modifier.clip(RoundedCornerShape(16.dp)).clickable {
+            if (selected && tab == Tab.LEDGER) nav.ledger.show(LocalDate.now(com.jeiel85.doran.core.Fmt.zone)) else nav.tab = tab
+        }.padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Icon(tab.icon, tab.label, tint = if (selected) P.c.pine else P.c.inkFaint, modifier = Modifier.size(24.dp))

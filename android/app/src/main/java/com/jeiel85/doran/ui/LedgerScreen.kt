@@ -38,7 +38,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +60,21 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 
+/** 내역 탭에서 보던 자리(달·고른 날·보기·거르기). 하위 화면을 열고 돌아와도 남도록 [Nav]가 들고 있습니다. */
+class LedgerView {
+    var month by mutableStateOf(YearMonth.now(Fmt.zone).toString())
+    var calendar by mutableStateOf(true)
+    var memberFilter by mutableStateOf<String?>(null)
+    var kindFilter by mutableStateOf<String?>(null)
+    var selected by mutableStateOf<String?>(LocalDate.now(Fmt.zone).toString())
+
+    /** 달력에 지금 보이는 고른 날. 목록 보기이거나 고른 날이 다른 달이면 null. */
+    fun shownDay(): LocalDate? = if (!calendar) null else selected?.let(LocalDate::parse)?.takeIf { YearMonth.from(it).toString() == month }
+
+    /** 그날이 보이게 달과 고른 날을 옮깁니다(저장한 내역이 어디 들어갔는지 바로 보이게). */
+    fun show(d: LocalDate) { month = YearMonth.from(d).toString(); selected = d.toString() }
+}
+
 /** 내역 탭: 달력(기본)과 목록. 사람·종류 필터를 함께 씁니다. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,12 +82,14 @@ fun LedgerScreen(nav: Nav) {
     val s by Hub.ledger.state.collectAsStateWithLifecycle()
     val id by Hub.identity.state.collectAsStateWithLifecycle()
     val unseen by Hub.local.unseen.collectAsStateWithLifecycle()
-    var month by rememberSaveable { mutableStateOf(YearMonth.now(Fmt.zone).toString()) }
+    // 보던 자리는 Nav에 둡니다. 내역을 열면 탭 화면이 통째로 빠졌다 돌아오므로, 여기서 기억하면 늘 오늘로 되돌아갔어요.
+    val v = nav.ledger
+    var month by v::month
     val ym = YearMonth.parse(month)
-    var calendar by rememberSaveable { mutableStateOf(true) }
-    var memberFilter by rememberSaveable { mutableStateOf<String?>(null) }
-    var kindFilter by rememberSaveable { mutableStateOf<String?>(null) }
-    var selected by rememberSaveable { mutableStateOf<String?>(LocalDate.now(Fmt.zone).toString()) }
+    var calendar by v::calendar
+    var memberFilter by v::memberFilter
+    var kindFilter by v::kindFilter
+    var selected by v::selected
 
     // 달력은 달력 달(1일~말일)로, 위 합계는 같은 범위로 계산합니다.
     val range = remember(ym) { com.jeiel85.doran.logic.Period(ym, ym.atDay(1), ym.plusMonths(1).atDay(1)) }
