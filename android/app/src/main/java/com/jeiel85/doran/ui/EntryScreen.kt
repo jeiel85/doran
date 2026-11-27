@@ -262,7 +262,8 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                     val d = com.jeiel85.doran.capture.Pasted.draft(s, p, id.myMemberId)
                     kind = d.kind; calc = com.jeiel85.doran.logic.AmountCalc(cur = d.amount.takeIf { it > 0 }?.toString() ?: "")
                     merchant = d.merchant; at = d.at; installment = d.installment
-                    if (d.accountId != null) accountId = d.accountId
+                    // 붙여 넣은 문자의 카드·통장을 못 가리면 '선택 안 함'으로 둡니다(앞에 골라 둔 현금에 잘못 남지 않게, #91 리뷰).
+                    accountId = d.accountId
                     touchedCategory = false; categoryId = null; keypad = false
                     pasteNote = "붙여 넣은 문자로 채웠어요. 맞는지 보고 기록해 주세요"
                 }

@@ -24,7 +24,10 @@ object Pasted {
             Parsed.Type.WITHDRAWAL -> if (p.cardPaymentTo != null) Kind.TRANSFER else Kind.EXPENSE
         }
         val same = s.accounts.values.filter { a -> !a.hidden && (a.institution == p.issuer || a.name.contains(p.issuer)) }
-        val account = same.firstOrNull { p.last4 != null && it.last4 == p.last4 } ?: same.singleOrNull()
+        // 카드는 카드 끝자리(last4), 은행 알림은 계좌 끝자리(acct)로 같은 회사의 여러 계좌를 가립니다(#91 리뷰, D-33과 같은 맞춤).
+        val tail = if (p.isCard) p.last4 else p.acct
+        val account = tail?.let { t -> same.firstOrNull { a -> a.last4?.let { com.jeiel85.doran.logic.Banks.tailMatch(it, t) } == true } }
+            ?: same.singleOrNull()
         val merchant = when {
             p.type == Parsed.Type.CANCEL -> listOfNotNull(p.merchant, "결제 취소").joinToString(" ")
             p.cardPaymentTo != null -> "${p.cardPaymentTo} 카드값"

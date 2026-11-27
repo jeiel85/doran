@@ -175,8 +175,12 @@ object Stats {
      * 어디로 얼마를 옮겼는지 날짜로 보려면 이 보기가 필요합니다(초록·비주얼 '제외 내역'). 둘째 값은 늘 0입니다.
      */
     fun byDayMoved(e: List<Entry>): Map<LocalDate, Pair<Long, Long>> =
-        e.filter { !it.allowanceSummary && it.txn.cancelOf == null && (it.txn.kind == Kind.TRANSFER || it.txn.kind == Kind.EXPENSE && Moves.linked(it.txn)) }
+        e.filter(::isMoved)
             .groupBy { Fmt.date(it.txn.at) }.mapValues { (_, v) -> v.sumOf { it.net } to 0L }
+
+    /** 옮긴 돈 보기에 들어가는 내역: 이체, 또는 가계부 통장끼리 옮겨 합계에서 뺀 출금 쪽(입금 쪽은 두 번 세지 않게 뺌). */
+    fun isMoved(e: Entry): Boolean = !e.allowanceSummary && e.txn.cancelOf == null &&
+        (e.txn.kind == Kind.TRANSFER || e.txn.kind == Kind.EXPENSE && Moves.linked(e.txn))
 
     /**
      * 달력에 그리는 날들(D-30): [month] 1일이 든 주의 일요일부터 말일이 든 주의 토요일까지. 끝(second)은 그다음 날(배타).

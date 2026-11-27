@@ -56,6 +56,12 @@ class TagsPasteTest {
         assertEquals("acc.c", d.accountId) // 끝자리로 고름
         assertEquals(Source.MANUAL, d.source)
         assertEquals("h", d.memberId)
+        // 은행 알림은 계좌 끝자리로(같은 은행 통장 둘)
+        val kb1 = Account("acc.k1", "생활비", AccountType.BANK, institution = "KB국민은행", last4 = "789")
+        val kb2 = Account("acc.k2", "적금", AccountType.BANK, institution = "KB국민은행", last4 = "456")
+        val banks = LedgerState(accounts = listOf(kb1, kb2).associateBy { it.id })
+        val bp = Pasted.parse("[KB국민] 123456**789 출금 50,000원 홍길순", now)!!
+        assertEquals("acc.k1", Pasted.draft(banks, bp, "h", now).accountId)
         assertNull(Pasted.parse("   "))
         assertNull(Pasted.parse("안녕하세요 오늘 날씨가 좋네요"))
     }

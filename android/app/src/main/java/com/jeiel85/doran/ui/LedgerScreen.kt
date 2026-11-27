@@ -132,7 +132,9 @@ fun LedgerScreen(nav: Nav) {
     val grid = remember(ym) { Stats.calendarRange(ym).let { (a, b) -> com.jeiel85.doran.logic.Period(ym, a, b) } }
     val gridAll = remember(s.version, grid, id.myMemberId) { Stats.entries(s, grid, id.myMemberId, summaryAt = range.startMs) }
     val all = remember(gridAll, range) { gridAll.filter { it.txn.at in range } }
-    fun keep(e: Entry) = (memberFilter == null || e.txn.memberId == memberFilter) && (kindFilter == null || e.txn.kind.code == kindFilter)
+    // '이체'는 옮긴 돈 전부: 이체와, 합계에서 뺀 가계부 통장끼리 옮긴 출금(달력 칸 금액과 같은 기준, #91 리뷰).
+    fun keep(e: Entry) = (memberFilter == null || e.txn.memberId == memberFilter) &&
+        (kindFilter == null || (if (kindFilter == "t") Stats.isMoved(e) else e.txn.kind.code == kindFilter))
     val filtered = all.filter(::keep)
     // '이체'를 고르면 달력에 옮긴 돈을(합계에서 뺀 가계부 통장끼리 옮긴 출금 포함) 그 색으로 보입니다.
     val movedView = kindFilter == "t"
