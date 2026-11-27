@@ -34,7 +34,9 @@ OUT="dist/doran-play-$VER-$COMMIT.aab"
 # Gradle 출력은 로그 파일에 남깁니다: 첫 실행이 Kotlin 컴파일에서 실패하고 다시 하면 통과하던 일이 있었는데(#40),
 # 원인을 남기지 않아 메모리 경합인지 알 수 없었어요.
 LOG="dist/logs/play-bundle-$VER-$COMMIT-$(date '+%Y%m%d-%H%M%S').log"
-if ! (cd android && ./gradlew.bat --console=plain -Papp.version="$VER" "$@" testPlayDebugUnitTest bundlePlayRelease) >"$LOG" 2>&1; then
+# Windows(이 PC)에선 gradlew.bat, CI(리눅스)에선 gradlew.
+GRADLEW=./gradlew; [ -f android/gradlew.bat ] && [ -n "${WINDIR:-}" ] && GRADLEW=./gradlew.bat
+if ! (cd android && $GRADLEW --console=plain -Papp.version="$VER" "$@" testPlayDebugUnitTest bundlePlayRelease) >"$LOG" 2>&1; then
   echo "✗ Gradle 빌드 실패 — 전체 로그: $LOG"
   grep -n -m 20 -E "^e: |error:|What went wrong|OutOfMemory|Could not reserve|daemon .*(disappeared|stopped)|FAILED" "$LOG" || tail -n 30 "$LOG"
   echo "  메모리 부족으로 보이면 README \"개발\"의 저메모리 옵션을 Gradle 인자로 넘겨 다시 하세요"
