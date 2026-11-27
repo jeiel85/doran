@@ -214,6 +214,11 @@ data class Txn(
      * null이면 은행 출금이 아니거나 이 판정이 생기기 전에 기록된 것입니다.
      */
     val move: String? = null,
+    /**
+     * 태그(DECISIONS.md D-36): 여행·경조사처럼 카테고리를 가로지르는 묶음. '#' 없이 저장합니다. 옛 버전 폰이 이 내역을 고쳐 써도
+     * 장부 저장이 받은 칸만 덮어써(`Ledger.putAll`) 태그는 남습니다.
+     */
+    val tags: List<String> = emptyList(),
 ) {
     val isCancel get() = cancelOf != null
     fun json(): JSONObject = JSONObject().put("kind", kind.code).put("amount", amount).put("at", at)
@@ -222,7 +227,7 @@ data class Txn(
         .put("installment", installment).putN("cancelOf", cancelOf).putN("cumulative", cumulative)
         .putN("issuer", issuer).putN("cardLabel", cardLabel).putN("foreign", foreign).put("needsReview", needsReview)
         .put("receiptIds", receiptIds.json()).put("private", private).put("personal", personal).putN("recurringId", recurringId)
-        .putN("createdBy", createdBy).put("createdAt", createdAt).putN("move", move)
+        .putN("createdBy", createdBy).put("createdAt", createdAt).putN("move", move).put("tags", tags.json())
     companion object {
         fun from(id: String, o: JSONObject) = Txn(
             id = id, kind = Kind.of(o.str("kind")), amount = o.long("amount") ?: 0, at = o.long("at") ?: 0,
@@ -232,7 +237,7 @@ data class Txn(
             cumulative = o.long("cumulative"), issuer = o.str("issuer"), cardLabel = o.str("cardLabel"),
             foreign = o.str("foreign"), needsReview = o.optBoolean("needsReview"), receiptIds = o.strs("receiptIds"),
             private = o.optBoolean("private"), personal = o.optBoolean("personal"), recurringId = o.str("recurringId"), createdBy = o.str("createdBy"),
-            createdAt = o.long("createdAt") ?: 0, move = o.str("move"),
+            createdAt = o.long("createdAt") ?: 0, move = o.str("move"), tags = o.strs("tags"),
         )
     }
 }

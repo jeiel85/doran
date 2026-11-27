@@ -667,16 +667,23 @@ fun SearchScreen(nav: Nav) {
             val c = s.canceled
             val needle = q.trim()
             s.txns.values.filter { it.cancelOf == null }.filter { t ->
-                t.merchant.contains(needle, true) || t.memo.contains(needle, true) ||
+                com.jeiel85.doran.logic.Tags.matches(t, needle) && needle.startsWith("#") ||
+                !needle.startsWith("#") && (t.merchant.contains(needle, true) || t.memo.contains(needle, true) || com.jeiel85.doran.logic.Tags.matches(t, needle)) ||
                     s.category(t.categoryId)?.name?.contains(needle) == true || t.amount.toString() == needle.replace(",", "")
-            }.sortedByDescending { it.at }.take(200).map { t ->
+            }.sortedByDescending { it.at }.let { if (needle.startsWith("#")) it else it.take(200) }.map { t ->
+                // 태그 검색은 합계를 보려는 것이라 200건에서 자르지 않습니다.
                 val net = (t.amount - (c[t.id] ?: 0)).coerceAtLeast(0)
                 com.jeiel85.doran.logic.Entry(t, net, c[t.id] != null && net == 0L, counted = Stats.counts(s, t))
             }
         }
     }
     SubScreen("검색", { nav.back() }) {
-        item { Field("가맹점·메모·카테고리·금액", q, { q = it }, "예: 스타벅스, 12300"); Spacer(Modifier.height(10.dp)) }
+        item { Field("가맹점·메모·카테고리·금액·#태그", q, { q = it }, "예: 스타벅스, 12300, #여행"); Spacer(Modifier.height(10.dp)) }
+        // 쓰인 태그를 칩으로: 누르면 그 태그의 내역과 합계(여행·경조사 한 번에 얼마 썼는지).
+        val usedTags = com.jeiel85.doran.logic.Tags.used(s)
+        if (usedTags.isNotEmpty()) item {
+            ChipRow(Modifier.padding(bottom = 8.dp)) { usedTags.take(20).forEach { tg -> Chip("#$tg", q.trim() == "#$tg", { q = if (q.trim() == "#$tg") "" else "#$tg" }) } }
+        }
         if (q.isNotBlank()) item {
             Text("${results.size}건 · 지출 ${Fmt.won(results.filter { it.txn.kind == Kind.EXPENSE }.sumOf { it.net })}",
                 style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft, modifier = Modifier.padding(8.dp))

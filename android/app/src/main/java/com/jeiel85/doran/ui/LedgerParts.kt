@@ -138,6 +138,7 @@ private fun txnBits(e: Entry, s: LedgerState, showDate: Boolean): List<String> {
             moves.destination(s, t)?.let { add("→ $it") }
             moves.origin(s, t)?.let { add("← $it") }
             if (t.installment > 1) add("${t.installment}개월")
+            t.tags.forEach { add("#$it") }
             if (t.source == Source.RECURRING) add("고정")
             if (!showDate) add(Fmt.time(t.at))
         }
