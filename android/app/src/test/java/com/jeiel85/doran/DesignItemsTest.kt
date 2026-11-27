@@ -39,11 +39,44 @@ class DesignItemsTest {
         val lateCancel = s.copy(txns = s.txns + ("oc" to t("oc", "KB국민은행", now - 60_000, cancelOf = "old")))
         assertTrue(ShareScope.privatize(lateCancel, before, after, "me", now).none { it.id == "oc" })
         // 은행 출금은 판정을 거침(카드 결제는 아님)
-        val judged = ShareScope.privatize(s, before, after, "me", now) { it.copy(kind = Kind.TRANSFER, move = "large") }
+        val judged = ShareScope.privatize(s, before, after, "me", now, judgeWithdrawal = { it.copy(kind = Kind.TRANSFER, move = "large") })
         assertEquals(Kind.TRANSFER, judged.single { it.id == "kb" }.kind)
         assertEquals(Kind.EXPENSE, judged.single { it.id == "kbc" }.kind) // 취소는 그대로
         // 범위를 넓힌 경우는 아무것도 바꾸지 않음
         assertTrue(ShareScope.privatize(s, after, before, "me", now).isEmpty())
+    }
+
+    @Test fun recheckStartsAtTheChangeTime() {
+        val day = 86_400_000L
+        assertEquals(now - ShareScope.RECHECK_MS, ShareScope.recheckSince(null, now))
+        assertEquals(now - 2 * day - 5 * 60_000L, ShareScope.recheckSince(now - 2 * day, now)) // 이틀 전에 바꿨으면 그때부터(5분 여유)
+        // 범위를 바꾼 뒤 이름을 또 고쳐 HLC가 방금이면 6시간보다 줄이지 않음(#101 리뷰)
+        assertEquals(now - ShareScope.RECHECK_MS, ShareScope.recheckSince(now - 60_000L, now))
+        assertEquals(now - ShareScope.RECHECK_MAX_MS, ShareScope.recheckSince(now - 90 * day, now)) // 한 달까지만
+        // 바꾼 시각을 알면 6시간보다 오래된 기록도 다시 봄
+        val before = Member("h", "남편")
+        val after = before.copy(share = Member.SHARE_PICKED, shareIssuers = listOf("현대카드"))
+        val s = LedgerState(txns = mapOf("kb" to t("kb", "KB국민은행", now - day)))
+        assertTrue(ShareScope.privatize(s, before, after, "me", now).isEmpty())
+        assertEquals(listOf("kb"), ShareScope.privatize(s, before, after, "me", now, changedAt = now - 2 * day).map { it.id })
+    }
+
+    @Test fun businessMonthsCoverEveryDayOnce() {
+        // 쉬는 날 한 달 시작(101~128)에서 하루하루가 빠짐없이 정확히 한 달에 들어가고, 달 이름이 겹치지 않음(#99 — 예산 알림 열쇠가 달 이름)
+        for (sd in listOf(Stats.BUSINESS + 1, Stats.BUSINESS + 25, Stats.BUSINESS + 28)) {
+            var d = LocalDate.of(2026, 1, 1)
+            var prev: com.jeiel85.doran.logic.Period? = null
+            while (d.isBefore(LocalDate.of(2028, 1, 1))) {
+                val p = Stats.periodOf(d, sd)
+                assertTrue("$sd $d", !d.isBefore(p.start) && d.isBefore(p.end))
+                if (prev != null && prev.label != p.label) {
+                    assertEquals(prev.end, p.start)
+                    assertEquals(prev.label.plusMonths(1), p.label)
+                }
+                prev = p
+                d = d.plusDays(1)
+            }
+        }
     }
 
     @Test fun monthStartsOnTheBusinessDayBeforeAWeekendPayday() {

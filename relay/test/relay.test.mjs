@@ -11,18 +11,20 @@ class Stmt {
   constructor(db, sql) { this.db = db; this.sql = sql; this.args = []; }
   bind(...a) { this.args = a; return this; }
   async first() { return this.db.prepare(this.sql).get(...this.args) ?? null; }
-  async run() { this.db.prepare(this.sql).run(...this.args); return { success: true }; }
+  async run() { const r = this.db.prepare(this.sql).run(...this.args); return { success: true, meta: { changes: Number(r.changes) } }; }
   async all() { return { results: this.db.prepare(this.sql).all(...this.args) }; }
 }
 function d1() {
   const db = new DatabaseSync(":memory:");
-  for (const m of ["0001_init.sql", "0002_wake_failures.sql", "0003_member_invite.sql"]) db.exec(readFileSync(new URL(`../migrations/${m}`, import.meta.url), "utf8"));
+  for (const m of ["0001_init.sql", "0002_wake_failures.sql", "0003_member_invite.sql", "0004_cleanup_log.sql"]) db.exec(readFileSync(new URL(`../migrations/${m}`, import.meta.url), "utf8"));
   return {
     raw: db,
     prepare: (sql) => new Stmt(db, sql),
     batch: async (stmts) => {
       db.exec("BEGIN");
-      try { for (const s of stmts) await s.run(); db.exec("COMMIT"); } catch (e) { db.exec("ROLLBACK"); throw e; }
+      const out = [];
+      try { for (const s of stmts) out.push(await s.run()); db.exec("COMMIT"); } catch (e) { db.exec("ROLLBACK"); throw e; }
+      return out;
     },
   };
 }
@@ -389,6 +391,8 @@ test("cleanup은 버려진 혼자 든 가구와 가구 없는 기기만 지움(D
   const devs = env.DB.raw.prepare("SELECT id FROM devices").all().map((r) => r.id);
   assert.ok(!devs.includes(bot.deviceId) && !devs.includes(loose.deviceId));
   assert.ok(devs.includes(h.deviceId) && devs.includes(w.deviceId) && devs.includes(solo.deviceId));
+  // 지운 수가 남음(#99): 10일째 정리는 지운 것이 없어 남기지 않음
+  assert.deepEqual(env.DB.raw.prepare("SELECT spaces, devices FROM cleanup_log").all().map((r) => ({ ...r })), [{ spaces: 1, devices: 2 }]);
 });
 
 test("cleanup은 고르고 지우는 사이 돌아온 폰·합류한 기기를 지우지 않음(#98 리뷰)", async () => {
@@ -410,6 +414,8 @@ test("cleanup은 고르고 지우는 사이 돌아온 폰·합류한 기기를 �
   assert.deepEqual(spaces, [sa, sb].sort());
   assert.equal(env.DB.raw.prepare("SELECT COUNT(*) n FROM members WHERE space = ?").get(sb).n, 2);
   assert.ok(env.DB.raw.prepare("SELECT 1 FROM devices WHERE id = ?").get(a.deviceId));
+  // 지운 것이 없으면 기록도 없음(사이에 새 기기가 생겨도 음수가 남지 않음, #101 리뷰)
+  assert.equal(env.DB.raw.prepare("SELECT COUNT(*) n FROM cleanup_log").get().n, 0);
 });
 
 test("cleanup은 만료 초대만 지움", async () => {
