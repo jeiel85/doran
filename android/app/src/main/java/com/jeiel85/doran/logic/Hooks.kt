@@ -210,7 +210,7 @@ object Hooks {
         val s = Hub.ledger.value
         val p = Stats.current(s, startDay = Stats.viewStart(s, Hub.settings.value.monthStartDay))
         val e = Stats.entries(s, p, Hub.identity.value.myMemberId)
-        val (total, lines) = Stats.budgets(s, e)
+        val (total, lines) = Stats.budgets(s, e, Stats.carryIn(s, p, Hub.identity.value.myMemberId))
         for (line in listOfNotNull(total) + lines) {
             val name = line.categoryId?.let { s.category(it)?.name } ?: "이번 달 예산"
             for ((level, ratio) in listOf(100 to 1.0f, 80 to 0.8f)) {
@@ -220,6 +220,12 @@ object Hooks {
                     "${Fmt.won(line.spent)} / ${Fmt.won(line.budget)} · ${Fmt.month(p.label)}")
                 break
             }
+        }
+        // 카드 월 예산·실적 목표(D-39): 예산은 80%·100%에, 실적은 채웠을 때 한 번.
+        val today = java.time.LocalDate.now(Fmt.zone)
+        for (a in s.accounts.values.filter { !it.hidden && (it.monthBudget > 0 || it.perfGoal > 0) }) {
+            val c = Stats.card(s, a, today)
+            for ((key, title, text) in Stats.cardAlerts(c, p.key)) if (Hub.local.once(key)) Notifier.budget(context, key, title, text)
         }
     }
 

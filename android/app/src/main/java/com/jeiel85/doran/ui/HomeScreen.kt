@@ -86,7 +86,7 @@ fun HomeScreen(nav: Nav) {
     val entries = remember(s.version, p, id.myMemberId, settings.showSenders) { Stats.entries(s, p, id.myMemberId, settings.showSenders) }
     val spent = Stats.expense(entries)
     val income = Stats.income(entries)
-    val (totalBudget, budgetLines) = remember(s.version, entries) { Stats.budgets(s, entries) }
+    val (totalBudget, budgetLines) = remember(s.version, entries) { Stats.budgets(s, entries, Stats.carryIn(s, p, id.myMemberId, settings.showSenders)) }
     val fresh = remember(s.version, unseen) {
         s.txns.values.filter { it.id in unseen }.sortedByDescending { it.at }.take(5)
     }
@@ -539,6 +539,11 @@ fun CardTile(c: com.jeiel85.doran.logic.CardStatus, owner: com.jeiel85.doran.mod
             Spacer(Modifier.weight(1f))
             Text("이번 달", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f))
             Text(Fmt.won(c.monthSpent), style = MaterialTheme.typography.titleLarge.merge(Money), color = Color.White)
+            // 카드 예산·실적 목표(D-39)
+            listOfNotNull(
+                c.account.monthBudget.takeIf { it > 0 }?.let { "예산 ${c.monthSpent * 100 / it}%" },
+                c.account.perfGoal.takeIf { it > 0 }?.let { g -> if (c.cycleSpent >= g) "실적 채움" else "실적까지 ${Fmt.compact(g - c.cycleSpent)}원" },
+            ).takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.85f)) }
             Text(
                 listOfNotNull(
                     c.issuerCumulative?.let { "카드사 누적 ${Fmt.compact(it)}" },
