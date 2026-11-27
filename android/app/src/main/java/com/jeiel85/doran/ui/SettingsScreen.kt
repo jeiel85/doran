@@ -224,8 +224,10 @@ fun SettingsScreen(nav: Nav) {
         "startDay" -> {
             // 가족 공통 날짜(가구 설정, 두 폰이 같음)와 이 폰에서만 보는 날짜(D-33). 아내는 1일, 남편은 월급날처럼 서로 달라도 됩니다.
             var day by remember { mutableStateOf(s.household.monthStartDay.toString()) }
-            var own by remember { mutableStateOf(settings.monthStartDay in 1..28) }
-            var mine by remember { mutableStateOf(settings.monthStartDay.takeIf { it in 1..28 }?.toString() ?: "") }
+            val savedMine = settings.monthStartDay.let { if (it > com.jeiel85.doran.logic.Stats.BUSINESS) it - com.jeiel85.doran.logic.Stats.BUSINESS else it }
+            var own by remember { mutableStateOf(savedMine in 1..28) }
+            var mine by remember { mutableStateOf(savedMine.takeIf { it in 1..28 }?.toString() ?: "") }
+            var business by remember { mutableStateOf(settings.monthStartDay > com.jeiel85.doran.logic.Stats.BUSINESS) }
             val dayOk = day.toIntOrNull() in 1..28
             val mineOk = !own || mine.toIntOrNull() in 1..28
             AlertDialog(onDismissRequest = { dialog = null }, containerColor = P.c.bg,
@@ -240,10 +242,13 @@ fun SettingsScreen(nav: Nav) {
                     ToggleRow("이 폰에서만 다르게 보기", "홈·통계·예산·위젯·엑셀의 '이번 달'만 바뀌어요. 가족 폰은 그대로예요",
                         Icons.Rounded.CalendarMonth, P.c.pine, own) { own = it }
                     if (own) Field("이 폰의 시작일 (1~28)", mine, { mine = it.filter(Char::isDigit).take(2) }, "25", number = true)
+                    // 월급이 주말·공휴일이면 앞 금요일(영업일)에 들어오므로 그날부터 한 달로(D-40). 이 폰에서만.
+                    if (own) ToggleRow("쉬는 날이면 앞 영업일부터", "25일이 토요일이면 24일(금)부터 그 달로 봐요. 월급이 먼저 들어오는 날에 맞춰요",
+                        Icons.Rounded.CalendarMonth, P.c.pine, business) { business = it }
                 } },
                 confirmButton = { TextButton({
                     day.toIntOrNull()?.takeIf { it in 1..28 && it != s.household.monthStartDay }?.let { Hub.ledger.saveHousehold(s.household.copy(monthStartDay = it)) }
-                    val next = if (own) mine.toIntOrNull()?.takeIf { it in 1..28 } ?: 0 else 0
+                    val next = if (own) mine.toIntOrNull()?.takeIf { it in 1..28 }?.let { if (business) it + com.jeiel85.doran.logic.Stats.BUSINESS else it } ?: 0 else 0
                     if (next != settings.monthStartDay) Hub.local.update { it.copy(monthStartDay = next) }
                     dialog = null
                 }, enabled = dayOk && mineOk) { Text("저장") } },
@@ -320,5 +325,6 @@ private fun PwField(label: String, value: String, onChange: (String) -> Unit) {
 
 /** 설정 줄의 한 달 시작일 설명: 가족 공통 날짜와, 이 폰만 다르게 보면 그 날짜(D-33). */
 internal fun startDaySummary(household: Int, mine: Int): String =
-    if (mine in 1..28 && mine != household) "가족 공통 매달 ${household}일 · 이 폰은 ${mine}일부터"
+    if (mine > com.jeiel85.doran.logic.Stats.BUSINESS) "가족 공통 매달 ${household}일 · 이 폰은 ${mine - com.jeiel85.doran.logic.Stats.BUSINESS}일(쉬는 날이면 앞 영업일)부터"
+    else if (mine in 1..28 && mine != household) "가족 공통 매달 ${household}일 · 이 폰은 ${mine}일부터"
     else "매달 ${household}일부터 · 월급날에 맞추면 편해요"

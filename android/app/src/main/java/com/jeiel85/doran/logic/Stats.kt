@@ -49,14 +49,29 @@ data class CardStatus(
 )
 
 object Stats {
+    /**
+     * [startDay]: 1~28은 그날부터 한 달. **101~128**은 이 폰의 "월급날이 쉬는 날이면 앞 영업일부터"(D-40) — 시작일(=startDay-100)이
+     * 주말·공휴일이면 그 앞 영업일에 한 달이 시작합니다. 가족 공통 한 달(가구 설정)은 늘 1~28입니다.
+     */
     fun period(ym: YearMonth, startDay: Int): Period {
+        if (startDay > BUSINESS) {
+            val d = (startDay - BUSINESS).coerceIn(1, 28)
+            return Period(ym, Holidays.beforeOff(ym.atDay(d)), Holidays.beforeOff(ym.plusMonths(1).atDay(d)))
+        }
         val d = startDay.coerceIn(1, 28)
         return Period(ym, ym.atDay(d), ym.plusMonths(1).atDay(d))
     }
 
+    /** [period]의 앞당긴 시작일을 뜻하는 표시(시작일 + 100). */
+    const val BUSINESS = 100
+
     fun periodOf(date: LocalDate, startDay: Int): Period {
-        val ym = YearMonth.from(date)
-        return if (date.dayOfMonth >= startDay.coerceIn(1, 28)) period(ym, startDay) else period(ym.minusMonths(1), startDay)
+        val p = period(YearMonth.from(date), startDay)
+        return when {
+            date.isBefore(p.start) -> period(p.label.minusMonths(1), startDay)
+            !date.isBefore(p.end) -> period(p.label.plusMonths(1), startDay)
+            else -> p
+        }
     }
 
     fun current(s: LedgerState, today: LocalDate = LocalDate.now(Fmt.zone), startDay: Int = s.household.monthStartDay) = periodOf(today, startDay)
@@ -66,7 +81,7 @@ object Stats {
      * 가족 공통 한 달 시작일. 아내는 1일, 남편은 월급날처럼 사람마다 보고 싶은 한 달이 달라서 폰마다 고를 수 있게 했습니다.
      * 고정지출 날짜·용돈 날·가족에게 올리는 용돈 월 합계(D-7)는 두 폰이 같아야 해서 늘 가족 공통 날짜를 씁니다.
      */
-    fun viewStart(s: LedgerState, mine: Int): Int = if (mine in 1..28) mine else s.household.monthStartDay
+    fun viewStart(s: LedgerState, mine: Int): Int = if (mine in 1..28 || mine in BUSINESS + 1..BUSINESS + 28) mine else s.household.monthStartDay
 
     /**
      * 수입·지출 합계에 들어가는 줄. 취소 엔티티는 원거래를 상쇄하고 자기는 빠지며, 원화 확정 전 해외 결제는 0이라

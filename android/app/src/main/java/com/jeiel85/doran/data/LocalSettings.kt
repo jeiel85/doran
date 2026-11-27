@@ -78,7 +78,8 @@ class LocalSettings(context: Context) {
         showSenders = prefs.getBoolean("showSenders", true),
         aiProvider = prefs.getString("aiProvider", "") ?: "",
         aiModel = prefs.getString("aiModel", "") ?: "",
-        monthStartDay = prefs.getInt("monthStartDay", 0).takeIf { it in 1..28 } ?: 0,
+        // 101~128: 그 날짜가 쉬는 날이면 앞 영업일부터(D-40, Stats.period)
+        monthStartDay = prefs.getInt("monthStartDay", 0).takeIf { it in 1..28 || it in 101..128 } ?: 0,
         statusLine = prefs.getBoolean("statusLine", false),
     )
 
