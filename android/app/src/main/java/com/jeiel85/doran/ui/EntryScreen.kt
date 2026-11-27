@@ -65,6 +65,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -184,6 +187,19 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
         // 가족 카드에서 용돈으로 옮겼던 결제를 다시 공유로 돌리면, 대신 남겨 둔 금액 자리를 지웁니다(D-20).
         if (original?.private == true && !t.private) stubId(t.id).takeIf { s.txns.containsKey(it) }?.let { Hub.ledger.delete(com.jeiel85.doran.model.T.TXN, it) }
         scope.launch { receipts.forEach { Receipts.upload(context, it) } }
+    }
+
+    // 연속 입력(편한가계부 '계속'): 장 본 영수증 여러 장처럼 같은 날 여러 건을 쓸 때 화면을 닫지 않고 다음 건으로.
+    // 날짜·결제 수단·사람·종류는 그대로 두고 금액·내용·메모·카테고리·사진만 비웁니다.
+    var savedInRow by remember { mutableStateOf(0) }
+    fun saveAndNext() {
+        persist()
+        if (nav.tab == Tab.LEDGER && nav.stack.size == 2) nav.ledger.show(Fmt.date(at))
+        savedInRow++
+        calc = com.jeiel85.doran.logic.AmountCalc()
+        merchant = ""; memo = ""; categoryId = null; touchedCategory = false; installment = 0
+        receipts.clear()
+        keypad = true
     }
 
     fun save() {
@@ -479,8 +495,13 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                 onDone = { calc = calc.equals(); keypad = false },
             )
         }
-        Box(Modifier.fillMaxWidth().background(P.c.bg).navigationBarsPadding().padding(horizontal = 20.dp, vertical = 10.dp)) {
-            PrimaryButton(if (original == null) "기록하기" else "고친 내용 저장", enabled = valid) { save() }
+        Column(Modifier.fillMaxWidth().background(P.c.bg).navigationBarsPadding().padding(horizontal = 20.dp, vertical = 10.dp)) {
+            if (savedInRow > 0) Text("방금 ${savedInRow}건 기록했어요 · 같은 날로 이어서 써요", style = MaterialTheme.typography.bodySmall,
+                color = P.c.pine, modifier = Modifier.padding(bottom = 6.dp).semantics { liveRegion = LiveRegionMode.Polite })
+            if (original == null) Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                PrimaryButton("저장하고 하나 더", Modifier.weight(1f), enabled = valid, color = P.c.pineSoft, textColor = P.c.pine) { saveAndNext() }
+                PrimaryButton("기록하기", Modifier.weight(1f), enabled = valid) { save() }
+            } else PrimaryButton("고친 내용 저장", enabled = valid) { save() }
         }
     }
 
@@ -526,9 +547,17 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
         "delete" -> AlertDialog(
             onDismissRequest = { picker = null },
             title = { Text("이 내역을 지울까요?") },
-            text = { Text("가족 모두의 장부에서 지워져요. 카드 알림으로 들어온 내역은 같은 알림이 다시 와도 새로 생기지 않아요.") },
+            text = { Text("가족 모두의 장부에서 지워져요. 지운 뒤 잠깐 동안은 아래 '되돌리기'로 살릴 수 있어요. 카드 알림으로 들어온 내역은 같은 알림이 다시 와도 새로 생기지 않아요.") },
             confirmButton = { TextButton({
-                original?.let { o -> Hub.ledger.deleteTxn(o.id); Hub.scope.launch { o.receiptIds.forEach { Receipts.delete(context, it) } } }
+                original?.let { o ->
+                    // 지우기 전 모습(승인 취소 짝 포함)을 들고 있다가 '되돌리기'면 같은 id로 다시 씁니다. 영수증 사진은 되돌릴 기회가 끝난 뒤에 지웁니다.
+                    val keep = (listOf(o) + cancels).map { Triple(com.jeiel85.doran.model.T.TXN, it.id, it.json()) }
+                    Hub.ledger.deleteTxn(o.id)
+                    val app = context.applicationContext
+                    Undo.show("'${o.merchant.ifBlank { "내역" }}' ${Fmt.won(o.amount)}을 지웠어요",
+                        restore = { Hub.ledger.putAll(keep) },
+                        finalize = { Hub.scope.launch { o.receiptIds.forEach { Receipts.delete(app, it) } } })
+                }
                 picker = null; nav.back()
             }) { Text("지우기", color = P.c.danger) } },
             dismissButton = { TextButton({ picker = null }) { Text("두기") } },

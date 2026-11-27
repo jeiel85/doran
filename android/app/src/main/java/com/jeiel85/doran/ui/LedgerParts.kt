@@ -24,6 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import com.jeiel85.doran.core.Fmt
 import com.jeiel85.doran.data.LedgerState
@@ -42,9 +44,24 @@ fun TxnRow(e: Entry, s: LedgerState, isNew: Boolean, showDate: Boolean = false, 
         e.allowanceSummary -> "allowance"
         else -> cat?.icon ?: if (t.kind == Kind.INCOME) "income_etc" else "etc"
     }
+    val name = t.merchant.ifBlank { cat?.name ?: if (t.kind == Kind.TRANSFER) "이체" else "내역" }
+    val bits = txnBits(e, s, showDate)
+    val status = when {
+        t.isCancel -> "승인 취소"
+        e.canceled -> "취소됨"
+        e.net != t.amount -> "부분 취소"
+        t.needsReview -> "확인 필요"
+        else -> null
+    }
+    // 화면 읽기: 줄 하나를 "스타벅스, 지출 5,000원, 현대카드, 오후 2:30, 새 내역"처럼 한 번에 읽습니다.
+    // 전에는 '-' 부호와 아이콘 이름이 따로 읽혀 지출인지 수입인지 들리지 않았어요(BENCHMARK.md 7-4).
+    val spoken = spokenTxn(name, t.kind, if (t.isCancel || e.canceled) t.amount else e.net, t.isCancel,
+        bits + listOfNotNull(status, if (t.private) "나만 보는 용돈" else null, if (t.receiptIds.isNotEmpty()) "영수증 있음" else null,
+            if (isNew) "새 내역" else null))
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(if (onClick != null) Modifier.clickable(onClickLabel = "자세히 보기", onClick = onClick) else Modifier)
+            .clearAndSetSemantics { contentDescription = spoken }
             .padding(horizontal = 6.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -58,7 +75,7 @@ fun TxnRow(e: Entry, s: LedgerState, isNew: Boolean, showDate: Boolean = false, 
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    t.merchant.ifBlank { cat?.name ?: if (t.kind == Kind.TRANSFER) "이체" else "내역" },
+                    name,
                     style = MaterialTheme.typography.titleSmall, color = P.c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     textDecoration = if (e.canceled) TextDecoration.LineThrough else null,
                     modifier = Modifier.weight(1f, fill = false),
@@ -70,28 +87,6 @@ fun TxnRow(e: Entry, s: LedgerState, isNew: Boolean, showDate: Boolean = false, 
                 }
                 if (t.private) { Spacer(Modifier.width(4.dp)); Icon(Icons.Rounded.Lock, "용돈", tint = P.c.inkFaint, modifier = Modifier.size(14.dp)) }
                 if (t.receiptIds.isNotEmpty()) { Spacer(Modifier.width(4.dp)); Icon(Icons.Rounded.Photo, "영수증", tint = P.c.inkFaint, modifier = Modifier.size(14.dp)) }
-            }
-            val bits = buildList {
-                if (showDate) add(Fmt.date(t.at).let { "${it.monthValue}/${it.dayOfMonth}" })
-                if (e.allowanceSummary) add(if (e.counted) "세부 내역은 본인만 볼 수 있어요" else "참고 · 용돈 안에서 써서 합계에 안 더함")
-                else {
-                    member?.name?.let(::add)
-                    val acc = s.account(t.accountId)
-                    (acc?.name ?: t.cardLabel)?.let { add(if (acc?.family == true) "$it(가족 카드)" else it) }
-                    val moves = com.jeiel85.doran.logic.Moves
-                    when {
-                        t.private && moves.fromOf(t) != null -> add("가족 돈에서 나감 · 용돈에서 안 뺌")
-                        t.private && moves.isMoved(t) -> add("옮긴 돈 · 용돈에서 안 뺌")
-                        t.private && moves.fundOf(t) != null -> add("가족 돈")
-                        moves.linked(t) -> add("옮긴 돈 · 합계 제외")
-                        moves.selfIn(t) -> add("내 통장끼리 옮긴 돈 · 수입 아님")
-                        !e.counted -> add("용돈 · 합계 제외")
-                    }
-                    moves.destination(s, t)?.let { add("→ $it") }
-                    if (t.installment > 1) add("${t.installment}개월")
-                    if (t.source == Source.RECURRING) add("고정")
-                    if (!showDate) add(Fmt.time(t.at))
-                }
             }
             Text(bits.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
@@ -114,6 +109,46 @@ fun TxnRow(e: Entry, s: LedgerState, isNew: Boolean, showDate: Boolean = false, 
             }
         }
     }
+}
+
+/** 내역 줄 둘째 줄의 조각들(사람·결제 수단·표시·시각). 화면 읽기 문장에도 같은 것을 씁니다. */
+private fun txnBits(e: Entry, s: LedgerState, showDate: Boolean): List<String> {
+    val t = e.txn
+    val member = s.member(t.memberId)
+    return buildList {
+        if (showDate) add(Fmt.date(t.at).let { "${it.monthValue}/${it.dayOfMonth}" })
+        if (e.allowanceSummary) add(if (e.counted) "세부 내역은 본인만 볼 수 있어요" else "참고 · 용돈 안에서 써서 합계에 안 더함")
+        else {
+            member?.name?.let(::add)
+            val acc = s.account(t.accountId)
+            (acc?.name ?: t.cardLabel)?.let { add(if (acc?.family == true) "$it(가족 카드)" else it) }
+            val moves = com.jeiel85.doran.logic.Moves
+            when {
+                t.private && moves.fromOf(t) != null -> add("가족 돈에서 나감 · 용돈에서 안 뺌")
+                t.private && moves.isMoved(t) -> add("옮긴 돈 · 용돈에서 안 뺌")
+                t.private && moves.fundOf(t) != null -> add("가족 돈")
+                moves.linked(t) -> add("옮긴 돈 · 합계 제외")
+                moves.selfIn(t) -> add("내 통장끼리 옮긴 돈 · 수입 아님")
+                !e.counted -> add("용돈 · 합계 제외")
+            }
+            moves.destination(s, t)?.let { add("→ $it") }
+            if (t.installment > 1) add("${t.installment}개월")
+            if (t.source == Source.RECURRING) add("고정")
+            if (!showDate) add(Fmt.time(t.at))
+        }
+    }
+}
+
+/** 내역 한 줄의 화면 읽기 문장. 지출·수입·이체를 말로 밝히고 금액은 원 단위로. */
+internal fun spokenTxn(name: String, kind: Kind, amount: Long, isCancel: Boolean, rest: List<String>): String {
+    val what = when {
+        isCancel -> "돌아온 돈"
+        kind == Kind.INCOME -> "수입"
+        kind == Kind.TRANSFER -> "이체"
+        else -> "지출"
+    }
+    // 화살표·가운뎃점은 읽으면 어색해서 말로 바꿉니다.
+    return (listOf(name, "$what ${Fmt.won(amount)}") + rest.map { it.replace("→ ", "받는 곳 ").replace(" · ", ", ") }).joinToString(", ")
 }
 
 /** 날짜 머리 + 그날 합계. */

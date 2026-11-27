@@ -46,6 +46,9 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -263,6 +266,8 @@ fun StatStrip(
                         val inset = 2.dp.toPx()
                         drawLine(divider, Offset(0f, inset), Offset(0f, size.height - inset), strokeWidth = 1.dp.toPx())
                     } else Modifier)
+                    // 화면 읽기: "지출, 1,234원"처럼 라벨과 금액을 한 번에.
+                    .semantics(mergeDescendants = true) {}
                     .padding(horizontal = 12.dp),
             ) {
                 // 라벨도 잘리지 않고 줄어듭니다("11/30까지"가 "11/30…"이 되면 무슨 날인지 모름 — 좁은 폰에서 확인).
@@ -314,10 +319,11 @@ fun HeroStats(stats: List<Stat>) {
 
 @Composable
 fun Chip(text: String, selected: Boolean, onClick: () -> Unit, leading: (@Composable () -> Unit)? = null, color: Color = P.c.pine) {
+    // 보이는 칩은 그대로 두고 누르는 자리만 48dp로(BENCHMARK.md 7-4 — 전에는 높이 약 34dp). 고른 상태도 화면 읽기에 알립니다.
     Row(
-        Modifier.clip(RoundedCornerShape(50)).background(if (selected) color else P.c.surface)
+        Modifier.minimumInteractiveComponentSize().clip(RoundedCornerShape(50)).background(if (selected) color else P.c.surface)
             .border(1.dp, if (selected) color else P.c.line, RoundedCornerShape(50))
-            .clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
+            .selectable(selected = selected, onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -439,13 +445,15 @@ fun ToggleRow(title: String, sub: String?, icon: ImageVector, tint: Color = P.c.
 }
 
 @Composable
-fun PrimaryButton(text: String, modifier: Modifier = Modifier, enabled: Boolean = true, color: Color = P.c.pine, onClick: () -> Unit) {
+fun PrimaryButton(text: String, modifier: Modifier = Modifier, enabled: Boolean = true, color: Color = P.c.pine,
+                  textColor: Color = Color.White, onClick: () -> Unit) {
     Box(
-        modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(18.dp))
-            .background(if (enabled) color else P.c.line).clickable(enabled = enabled, onClick = onClick),
+        modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(18.dp))
+            .background(if (enabled) color else P.c.line).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, style = MaterialTheme.typography.labelLarge, color = if (enabled) Color.White else P.c.inkFaint)
+        Text(text, style = MaterialTheme.typography.labelLarge, color = if (enabled) textColor else P.c.inkFaint, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }
 
