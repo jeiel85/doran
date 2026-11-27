@@ -298,7 +298,9 @@ object Recurrer {
                 // 카드 알림으로 이미 들어온 같은 금액이 있으면 그 거래에 규칙만 이어 줍니다. 날짜가 가장 가까운 것으로, 나만 보는 용돈
                 // 내역은 빼고(이으면 가족 가계부에 그 고정 내역이 생기지 않음), '누구'는 규칙에 정한 사람으로(#36).
                 val captured = Fixed.nearest(ledger.value.txns.values.filter {
-                    it.recurringId == null && !it.personal && !it.private && it.kind == r.kind && it.amount == r.amount && it.cancelOf == null &&
+                    // 금액이 같거나, 가게 이름이 규칙 이름과 맞고 금액이 조금 달라진 달(구독료 인상, #87)
+                    it.recurringId == null && !it.personal && !it.private && it.kind == r.kind && it.cancelOf == null &&
+                        (it.amount == r.amount || Fixed.nameFits(r.name, it.merchant) && Fixed.drift(r.amount, it.amount)) &&
                         kotlin.math.abs(it.at - at) <= 3L * 86_400_000 && (r.accountId == null || it.accountId == r.accountId)
                 }, at)
                 if (captured != null) {

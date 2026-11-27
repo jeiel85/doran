@@ -370,13 +370,23 @@ class CaptureProcessor(
         // 같은 승인이 앱 알림과 문자로 두 번 온 경우 (DECISIONS.md D-5). 같은 앱이 따로 올린 알림이면 다른 거래입니다(Notices).
         val dup = ledger.value.txns.values.firstOrNull {
             it.accountId == account.id && it.amount == p.amount && it.kind == kind && (it.cancelOf != null) == isCancel &&
-                abs(it.at - at) <= sameMinutes && it.source.captured && !anotherNotice(it.id, route)
+                abs(it.at - at) <= sameMinutes && it.source.captured && !anotherNotice(it.id, route) &&
+                com.jeiel85.doran.logic.Moves.samePayer(kind, it.merchant, p.merchant)
         }
         if (dup != null) {
             if (dup.cumulative == null && p.cumulative != null || dup.merchant.isBlank() && !p.merchant.isNullOrBlank()) {
                 ledger.saveTxn(dup.copy(cumulative = dup.cumulative ?: p.cumulative, merchant = dup.merchant.ifBlank { p.merchant.orEmpty() }))
             }
             return Outcome("이미 기록됨(중복 알림)", dup.id)
+        }
+        // 이은 체크카드(D-33)로 낸 결제를 은행도 출금 문자로 알려 주면 같은 돈이 통장에서 두 번 빠집니다(#78). 카드 결제가 먼저 기록돼
+        // 있으면(카드 앱 푸시가 대개 먼저 옴) 이 출금은 같은 돈으로 보고 기록하지 않습니다. 은행 문자가 먼저 온 경우는 아직 못 거릅니다(BACKLOG).
+        if (p.type == Parsed.Type.WITHDRAWAL && p.cardPaymentTo == null && account.type == AccountType.BANK) {
+            // 한 카드 결제에는 은행 출금 알림 하나만 맞춥니다: 같은 앱이 따로 올린 알림이거나 이미 출금 알림이 붙은 결제면 다른 돈입니다(#90 리뷰).
+            // 짝이 이미 찬 결제는 고르기 전에 빼서, 같은 금액 결제 둘이 있으면 남은 쪽에 맞춥니다(#91 리뷰).
+            com.jeiel85.doran.logic.Banks.linkedCardPayment(ledger.value, account, p.amount, at, sameMinutes) { card ->
+                !anotherNotice(card.id, route) && db.capturesOf(card.id).none { row -> parsedRow(row)?.type == Parsed.Type.WITHDRAWAL }
+            }?.let { return Outcome("이미 기록됨(이은 체크카드 결제의 출금 알림)", it.id) }
         }
         // 간편결제 앱 알림이 먼저 이 카드 기록에 같은 취소를 걸어 두었으면(아직 카드 알림과 짝지어지지 않은 것) 다시 세지 않습니다.
         // 원래 결제의 남은 금액보다 먼저 봐야 부분 취소가 3분 넘게 떨어져 와도 한 번만 셉니다(#18, #21 리뷰).
@@ -509,6 +519,8 @@ class CaptureProcessor(
     fun markFunds(changed: List<Pair<Txn?, Txn?>>) {
         val me = identity.value.myMemberId ?: return
         com.jeiel85.doran.logic.Moves.fundUpdates(ledger.value, changed, me, identity.installId).forEach { ledger.saveTxn(it, auto = true) }
+        // 손으로 이은 출금의 가족 돈이 사라졌으면 이음을 풉니다(#74 — 전에는 "가족 돈에서 나감"으로 남았어요).
+        com.jeiel85.doran.logic.Moves.orphanedPicks(ledger.value, me, identity.installId).forEach { ledger.saveTxn(it, auto = true) }
     }
 
     /** 사용자가 내역 화면에서 "가족 돈 아니에요"를 누름: 다시 표시하지 않고, 이 돈으로 본 출금은 다음 훅에서 다시 판정됩니다. */
@@ -577,6 +589,23 @@ class CaptureProcessor(
      * ([Gaps]). 답한 것(옮긴 돈·쓴 돈·아니에요)은 빼고, 같은 무렵 같은 금액이 내 다른 통장에 들어왔으면 그 입금을 함께 돌려줍니다.
      * 알림 원문(30일)을 읽으니 IO 스레드에서.
      */
+    /**
+     * 기록을 마친 알림 원문의 해석 결과를 원문 줄(id)마다 기억합니다. 원문·시각·라벨은 바뀌지 않아 해석도 같습니다.
+     * 자산 화면이 열려 있으면 장부가 바뀔 때마다 지난 30일 원문을 다시 해석하던 것을 줄입니다(#78, '나만 보는 통장'·빈틈 찾기).
+     */
+    private val parsedRows = object : LinkedHashMap<Long, Any>(256, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Any>?) = size > PARSED_ROWS_MAX
+    }
+    private val noParse = Any()
+
+    private fun parsedRow(row: Db.CaptureRow): Parsed? = synchronized(parsedRows) {
+        val hit = parsedRows[row.id]
+        if (hit != null) return if (hit === noParse) null else hit as Parsed
+        val p = Parser.parse(listOfNotNull(row.title, row.text).joinToString("\n"), Fmt.dateTime(row.at), row.label)
+        parsedRows[row.id] = p ?: noParse
+        p
+    }
+
     fun missingOutflows(now: Long = System.currentTimeMillis()): List<Pair<Gaps.Gap, Txn?>> {
         val me = identity.value.myMemberId ?: return emptyList()
         val since = now - 30L * 86_400_000
@@ -585,7 +614,7 @@ class CaptureProcessor(
         val checkCards = HashSet<String>()
         val bills = ArrayList<Pair<String, Gaps.Step>>()
         for (row in db.doneCapturesSince(since)) {
-            val p = Parser.parse(listOfNotNull(row.title, row.text).joinToString("\n"), Fmt.dateTime(row.at), row.label) ?: continue
+            val p = parsedRow(row) ?: continue
             val bank = Gaps.bankOf(p.issuer) ?: continue
             val id = row.txnId
             if (id != null && p.checkCard) checkCards += id
@@ -654,7 +683,7 @@ class CaptureProcessor(
     /** 나만 보는 통장 계산에 남겨 둔 체크카드 결제·카드값 출금(D-33, [com.jeiel85.doran.logic.Banks.Kept])을 고쳐 저장합니다. */
     @Synchronized
     private fun keepPrivate(f: (com.jeiel85.doran.logic.Banks.Kept) -> com.jeiel85.doran.logic.Banks.Kept) {
-        val next = f(com.jeiel85.doran.logic.Banks.Kept.from(db.kv(PRIVATE_KEPT_KEY))).pruned()
+        val next = f(com.jeiel85.doran.logic.Banks.Kept.from(db.kv(PRIVATE_KEPT_KEY))).pruned(privateAnchors())
         db.setKv(PRIVATE_KEPT_KEY, next.json())
     }
 
@@ -677,7 +706,7 @@ class CaptureProcessor(
         val checkCards = kept.checks.mapTo(HashSet()) { it.id }
         val bills = ArrayList(kept.bills)
         for (row in db.doneCapturesSince(now - 30L * 86_400_000)) {
-            val p = Parser.parse(listOfNotNull(row.title, row.text).joinToString("\n"), Fmt.dateTime(row.at), row.label) ?: continue
+            val p = parsedRow(row) ?: continue
             val bank = Gaps.bankOf(p.issuer) ?: continue
             val id = row.txnId
             if (id != null && p.checkCard) checkCards += id
@@ -876,6 +905,8 @@ class CaptureProcessor(
         private const val PRIVATE_BALANCES_KEY = "private.balances"
         /** 나만 보는 통장 계산에 남겨 둔 체크카드 결제·카드값 출금(D-33, `Banks.Kept`). */
         private const val PRIVATE_KEPT_KEY = "private.kept"
+        /** [parsedRow] 기억 개수: 30일 원문보다 넉넉하게. */
+        private const val PARSED_ROWS_MAX = 4_000
         private const val DISMISSED = "-"
 
         /** 이 링크로 보낼 카드사·은행인지. 비어 있으면 전부, 표기가 달라도 같은 곳이면 보냅니다(#10). */

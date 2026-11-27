@@ -63,6 +63,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
@@ -118,6 +122,8 @@ class Nav {
     var tab by mutableStateOf(Tab.HOME)
     /** 내역 탭에서 보던 달·고른 날·거르기. 내역을 열고 돌아와도 그 자리에 있도록 탭 화면 밖에 둡니다. */
     val ledger = LedgerView()
+    /** 복제할 때 고치던 화면 그대로의 내역(저장 안 한 고침 포함). 복제 화면이 한 번 읽고 비웁니다. */
+    var copyDraft: com.jeiel85.doran.model.Txn? = null
 
     /** 가운데 + 버튼이 쓸 날짜: 내역 달력에서 날을 골라 두었으면 그날, 아니면 오늘(null). */
     fun addDate(): LocalDate? = if (tab == Tab.LEDGER) ledger.shownDay() else null
@@ -139,6 +145,7 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         Hub.init(this)
         locked = Hub.settings.value.appLock
+        nav.ledger.restore(savedInstanceState)
         handle(intent)
         setContent {
             val settings by Hub.settings.collectAsStateWithLifecycle()
@@ -155,7 +162,8 @@ class MainActivity : FragmentActivity() {
                     when {
                         locked -> LockScreen { authenticate() }
                         !id.onboarded -> Onboarding(pendingInvite)
-                        else -> Root(nav)
+                        // 좌우는 카메라 구멍·가로 내비 바만큼 띄웁니다(폴더블·멀티윈도, #84). 위아래는 화면마다 처리하고 아래 띠가 덮습니다.
+                        else -> Box(Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) { Root(nav) }
                     }
                     // 지운 뒤 되돌리기 띠: 하단 막대(높이 약 86dp) 위에 띄웁니다.
                     if (!locked && id.onboarded) UndoBar(Modifier.align(Alignment.BottomCenter).padding(bottom = navBarBottom(96.dp)))
@@ -192,6 +200,11 @@ class MainActivity : FragmentActivity() {
         // 30초 넘게 밖에 있다 돌아오면 다시 잠급니다.
         if (Hub.settings.value.appLock && lastStop > 0 && System.currentTimeMillis() - lastStop > 30_000) locked = true
         if (locked) authenticate()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        nav.ledger.save(outState)
     }
 
     override fun onResume() {

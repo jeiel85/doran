@@ -57,10 +57,29 @@ object Fixed {
         // 나만 보는 용돈·용돈으로 옮긴 결제는 가계부 고정 내역을 채우지 않습니다: 채우면 가족 가계부의 그 자리가 개인 내역이 됩니다(#36).
         if (cancelNotice || txn.kind == Kind.TRANSFER || txn.cancelOf != null || txn.private || txn.personal) return null
         return nearest(txns.filter {
-            it.source == Source.RECURRING && it.kind == txn.kind && it.amount == txn.amount && it.cancelOf == null && !it.private &&
+            it.source == Source.RECURRING && it.kind == txn.kind && amountFits(it, txn) && it.cancelOf == null && !it.private &&
                 abs(it.at - txn.at) <= NEAR && (it.accountId == null || it.accountId == accountId)
         }, txn.at)
     }
+
+    /**
+     * 고정 내역 자리 [planned](이름 = 규칙 이름)를 알림 [txn]이 채울 만큼 금액이 맞는지: 같은 금액, 또는 가게 이름이 규칙 이름과 맞고
+     * 금액이 [AMOUNT_DRIFT] 안(구독료 인상·환율로 달라진 달, #87). 이름이 안 맞으면 금액이 조금만 달라도 다른 결제로 봅니다.
+     */
+    fun amountFits(planned: Txn, txn: Txn): Boolean =
+        planned.amount == txn.amount || nameFits(planned.merchant, txn.merchant) && drift(planned.amount, txn.amount)
+
+    /** 규칙 이름과 가게 이름이 같은 곳인지: 띄어쓰기·대소문자를 빼고 한쪽이 다른 쪽을 품으면(두 글자 이상). */
+    fun nameFits(rule: String, merchant: String): Boolean {
+        fun norm(x: String) = x.filterNot { it.isWhitespace() }.lowercase()
+        val a = norm(rule); val b = norm(merchant)
+        if (a.length < 2 || b.length < 2) return false
+        return a.contains(b) || b.contains(a)
+    }
+
+    const val AMOUNT_DRIFT = 0.3
+
+    fun drift(a: Long, b: Long): Boolean = a > 0 && b > 0 && abs(a - b) <= maxOf(a, b) * AMOUNT_DRIFT
 
     /**
      * 3일 안 후보 중 날짜가 가장 가까운 것(같으면 id 순 — 두 폰이 같은 것을 고르게). 같은 금액의 구독 둘이 며칠 사이로 있으면

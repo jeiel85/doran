@@ -81,6 +81,32 @@ class LedgerView {
 
     /** 그날이 보이게 달과 고른 날을 옮깁니다(저장한 내역이 어디 들어갔는지 바로 보이게). */
     fun show(d: LocalDate) { month = YearMonth.from(d).toString(); selected = d.toString() }
+
+    /**
+     * 앱이 백그라운드에서 정리됐다 돌아와도 보던 자리를 되살리도록 저장합니다(#87). 하루가 지났으면 오늘로 시작하는 편이 맞아
+     * 저장한 날짜도 함께 두고, 다른 날이면 되살리지 않습니다.
+     */
+    fun save(out: android.os.Bundle) {
+        out.putString("ledger.day", LocalDate.now(Fmt.zone).toString())
+        out.putString("ledger.month", month); out.putBoolean("ledger.calendar", calendar)
+        out.putString("ledger.member", memberFilter); out.putString("ledger.kind", kindFilter); out.putString("ledger.selected", selected)
+    }
+
+    fun restore(b: android.os.Bundle?) {
+        if (b == null || b.getString("ledger.day") != LocalDate.now(Fmt.zone).toString()) return
+        b.getString("ledger.month")?.let { month = it }
+        calendar = b.getBoolean("ledger.calendar", true)
+        memberFilter = b.getString("ledger.member"); kindFilter = b.getString("ledger.kind")
+        selected = b.getString("ledger.selected") ?: selected
+    }
+
+    // 예상 초과일(D-35)은 장부 한 달치를 훑으므로, 같은 장부·같은 날·같은 설정이면 탭을 다시 열어도 다시 세지 않습니다(#87).
+    private var overKey: List<Any?>? = null
+    private var overValue: LocalDate? = null
+    fun overDay(key: List<Any?>, compute: () -> LocalDate?): LocalDate? {
+        if (key != overKey) { overValue = compute(); overKey = key }
+        return overValue
+    }
 }
 
 /** 내역 탭: 달력(기본)과 목록. 사람·종류 필터를 함께 씁니다. */
@@ -111,7 +137,7 @@ fun LedgerScreen(nav: Nav) {
     val byDay = remember(gridAll, memberFilter, kindFilter) { Stats.byDay(gridAll.filter(::keep)) }
     // 이대로면 예산을 넘을 날(D-35): 홈 첫 카드와 같은 셈. 사람·종류로 거른 화면이어도 가족 전체 예산 기준입니다.
     val settings by Hub.settings.collectAsStateWithLifecycle()
-    val overDay = remember(s.version, LocalDate.now(Fmt.zone), settings.monthStartDay, settings.showSenders, id.myMemberId) {
+    val overDay = v.overDay(listOf(s.version, LocalDate.now(Fmt.zone), settings.monthStartDay, settings.showSenders, id.myMemberId)) {
         Stats.paceNow(s, LocalDate.now(Fmt.zone), Stats.viewStart(s, settings.monthStartDay), id.myMemberId, settings.showSenders)?.overDay
     }
     // 앞으로 나갈 고정지출(정기결제)을 그날 칸에 흐리게(머니차곡 '예정 표시'). 수입만 보거나 이체만 볼 때는 감춥니다.

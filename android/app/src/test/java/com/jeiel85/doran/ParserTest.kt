@@ -102,6 +102,11 @@ class ParserTest {
         val bare = p("[카카오뱅크] 입출금통장(1234) 출금 100,000원")!!
         assertEquals(100_000L, bare.amount)
         assertTrue(bare.merchant.isNullOrEmpty())
+        // 다른 통장 상품 이름도(#81)
+        assertEquals("홍길순", p("[KB국민] 보통예금(1234) 출금 50,000원 홍길순")!!.merchant)
+        assertEquals("홍길순", p("[신한] 저축예금 출금 50,000원 홍길순")!!.merchant)
+        assertTrue(p("[신한] 저축예금(1234) 출금 50,000원")!!.merchant.isNullOrEmpty())
+        assertEquals("홍길순", p("[토스뱅크] 자유입출금 출금 50,000원 홍길순")!!.merchant)
     }
 
     @Test fun checkCardApprovalFromBank() {

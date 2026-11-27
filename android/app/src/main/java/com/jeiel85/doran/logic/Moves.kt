@@ -66,6 +66,20 @@ object Moves {
         return listOfNotNull(s.member(d.memberId)?.name, where).joinToString(" ")
     }
 
+    /**
+     * 옮긴 돈이 온 곳(입금 쪽, 내역 목록 "← …"·엑셀 '옮긴 곳', #81): 가계부 통장끼리 옮긴 입금은 짝인 출금의, 나만 보는 통장의 옮긴 돈은
+     * 그 입금을 짝으로 삼은 출금의, 가족 돈 입금은 그 돈을 보낸 가족 출금의 사람·통장. 모르면 null.
+     */
+    fun origin(s: LedgerState, t: Txn): String? {
+        if (t.kind != Kind.INCOME) return null
+        val w = linkOf(t)?.let { s.txns[it] }?.takeIf { it.kind == Kind.EXPENSE }
+            ?: fundOf(t)?.let { s.txns[it] }
+            ?: s.txns.values.firstOrNull { pairOf(it) == t.id }
+            ?: return null
+        val where = s.account(w.accountId)?.name ?: w.cardLabel ?: w.issuer ?: "통장"
+        return listOfNotNull(s.member(w.memberId)?.name, where).joinToString(" ")
+    }
+
     /** 이 판정으로 옮긴 돈이 된 출금인지. */
     fun isMoved(t: Txn): Boolean = t.kind == Kind.TRANSFER && t.move != null
 
@@ -272,6 +286,15 @@ object Moves {
         }
     }
 
+    /**
+     * 손으로 가족 돈에 이은 출금(`pick:`) 가운데 그 입금이 지워졌거나 더는 가족 돈이 아닌 것(#74). 자동 판정이 아니라 [affected]가 다시 보지
+     * 않으므로 따로 찾아, 옮긴 돈(사용자가 고름, [USER])으로 남기고 이음만 풉니다("가족 돈 아니에요"를 눌렀을 때와 같음).
+     */
+    fun orphanedPicks(s: LedgerState, me: String, installId: String): List<Txn> =
+        s.txns.values.filter { w -> picked(w) && w.private && w.memberId == me && w.createdBy == installId }
+            .filter { w -> fromOf(w)?.let { s.txns[it] }?.let { fundOf(it) == null } ?: true }
+            .map { moved(it, USER) }
+
     // --- 내 통장끼리 옮겨 온 입금 (D-31) -------------------------------------------------------------
 
     /**
@@ -337,10 +360,35 @@ object Moves {
         val out = if (a.kind == Kind.EXPENSE) a else b
         val into = if (out === a) b else a
         if (out.kind != Kind.EXPENSE || into.kind != Kind.INCOME || out.memberId != into.memberId || abs(out.at - into.at) > SAME_BANK_WINDOW) return false
-        val name = out.merchant.trim()
-        if (name.length < 2) return false
-        val from = into.merchant.trim()
-        return from.startsWith(name) && (from.length == name.length || from[name.length].let { c -> c !in '가'..'힣' })
+        return sameName(out.merchant.trim(), into.merchant.trim())
+    }
+
+    /**
+     * 같은 통장·같은 금액·3분 안의 두 알림을 한 건(D-5)으로 합쳐도 되는지 보낸 분 이름으로 한 번 더 봅니다(#81): 입금은 보낸 분이
+     * 둘 다 적혀 있고 서로 다르면(가린 이름은 [sameName]으로 맞춤) 다른 돈입니다. 같은 사람이 같은 금액을 두 번 받은 날 한 건이
+     * 사라지던 것(2026-11-23 의심 사례)을 막습니다. 카드 결제는 앱 알림과 문자가 가게 이름을 다르게 적어 이름을 보지 않습니다.
+     */
+    fun samePayer(kind: Kind, a: String?, b: String?): Boolean {
+        if (kind != Kind.INCOME) return true
+        val x = a?.trim().orEmpty(); val y = b?.trim().orEmpty()
+        if (x.isEmpty() || y.isEmpty()) return true
+        return x == y || sameName(x, y) || sameName(y, x) || x.startsWith(y) || y.startsWith(x)
+    }
+
+    /**
+     * 출금의 받는 분 [name]과 입금의 보낸 분 [from]이 같은 사람인지: 이름 그대로이거나 뒤에 한글이 아닌 메모("_축의")가 붙음.
+     * 은행이 이름 가운데를 가리면("홍*순") 가린 자리는 아무 글자로 보되, 가리지 않은 글자가 둘 이상 같아야 합니다(#81).
+     */
+    fun sameName(name: String, from: String): Boolean {
+        if (name.length < 2 || from.length < name.length) return false
+        var known = 0
+        for (i in name.indices) {
+            val a = name[i]; val b = from[i]
+            if (a == '*' || b == '*') continue
+            if (a != b) return false
+            known++
+        }
+        return known >= 2 && (from.length == name.length || from[name.length].let { c -> c !in '가'..'힣' && c != '*' })
     }
 
     fun link(a: Txn, b: Txn): List<Txn> = listOf(a.copy(move = LINK + b.id), b.copy(move = LINK + a.id))

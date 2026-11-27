@@ -84,13 +84,16 @@ object Stats {
             val net = (t.amount - c).coerceAtLeast(0)
             out += Entry(t, net, canceled = c > 0 && net == 0L, counted = counts(s, t))
         }
+        // 다른 가족의 용돈 월 합계는 가족 공통 한 달로 셉니다. 이 폰의 한 달 시작일이 다르면(D-33) 며칠이 어긋날 수 있어 그렇다고 적습니다(#78).
+        val familyMonthNote = if (p.start.dayOfMonth != s.household.monthStartDay.coerceIn(1, 28) && s.household.monthStartDay in 1..28)
+            " · 가족 한 달(${s.household.monthStartDay}일 시작) 기준" else ""
         for (a in s.allowances.values) {
             if (a.month != p.key || a.memberId == myMemberId || a.spent <= 0) continue
             val name = s.member(a.memberId)?.name ?: "가족"
             val fixed = hasFixedAllowance(s, a.memberId)
             out += Entry(
                 Txn(id = a.id, kind = Kind.EXPENSE, amount = a.spent, at = summaryAt, categoryId = Defaults.ALLOWANCE,
-                    merchant = if (fixed) "$name 용돈 사용 (${a.count}건)" else "$name 용돈 (${a.count}건)", memberId = a.memberId),
+                    merchant = (if (fixed) "$name 용돈 사용 (${a.count}건)" else "$name 용돈 (${a.count}건)") + familyMonthNote, memberId = a.memberId),
                 net = a.spent, canceled = false, allowanceSummary = true, counted = !fixed,
             )
         }
@@ -264,12 +267,19 @@ object Stats {
             if (t.accountId == null || t.accountId !in cards || !Banks.countsOnBank(t) || covered(t.at)) continue
             bal += Gaps.delta(t) ?: 0L
         }
+        // 이 통장에 바로 기록된 결제(토스뱅크 체크카드처럼 통장으로 들어온 결제)도 취소를 각자의 시각으로 셉니다(#78):
+        // 잔액 알림 전에 결제하고 뒤에 취소되면 돌아온 돈만 더해야 합니다. 결제는 원래 금액으로 빼고 취소는 아래에서 따로 더합니다.
+        for (c in s.txns.values) {
+            val orig = c.cancelOf?.let { s.txns[it] } ?: continue
+            if (orig.accountId != a.id || orig.kind != Kind.EXPENSE || !onAccount(a, orig) || covered(c.at)) continue
+            bal += c.amount
+        }
         for ((t, net) in live(s)) {
             if (covered(t.at)) continue
             if (t.accountId != null && t.accountId in cards) continue
             if (!onAccount(a, t)) continue
             when (t.kind) {
-                Kind.EXPENSE -> if (t.accountId == a.id) bal -= net
+                Kind.EXPENSE -> if (t.accountId == a.id) bal -= t.amount
                 Kind.INCOME -> if (t.accountId == a.id) bal += net
                 Kind.TRANSFER -> {
                     if (t.accountId == a.id) bal -= net
