@@ -184,6 +184,8 @@ fun HomeScreen(nav: Nav) {
             }
             if (showFamily) item { Spacer(Modifier.height(12.dp)); Hero(spent, income, totalBudget?.budget ?: 0, reserved, lastSame, pace, p, today) { nav.go(Route.Budget) } }
         } else item { Hero(spent, income, totalBudget?.budget ?: 0, reserved, lastSame, pace, p, today) { nav.go(Route.Budget) } }
+        // 정기결제 제안: 두 달 넘게 같은 가게·비슷한 금액·비슷한 날이면 등록할지 묻습니다.
+        item { SuggestCard(s, today, nav) }
         // 월말 마감(한 달 끝 3일·다음 달 첫 3일): 수입 → 빠진 지출 → 고정지출 → 저축 순서로 점검.
         com.jeiel85.doran.logic.Review.closingPeriod(today, start)?.let { cp ->
             if (!Hub.local.checked("closed.${cp.key}")) item { Spacer(Modifier.height(14.dp)); ClosingCard(s, cp, today, id.myMemberId, settings.showSenders, nav) }

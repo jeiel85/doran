@@ -216,7 +216,8 @@ fun LedgerScreen(nav: Nav) {
                         val (week, weekSum) = Stats.week(byDay, sel)
                         Row(Modifier.fillMaxWidth().padding(top = 18.dp, start = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text(Fmt.dayLabel(sel), style = MaterialTheme.typography.titleMedium, color = P.c.ink)
+                                Text(Fmt.dayLabel(sel) + (com.jeiel85.doran.logic.Holidays.name(sel)?.let { " · $it" } ?: ""),
+                                    style = MaterialTheme.typography.titleMedium, color = P.c.ink)
                                 if (sel == overDay) Text("지금 속도면 이날 이 달 예산을 넘어요", style = MaterialTheme.typography.bodySmall, color = P.c.expense)
                                 Text(if (movedView) (if (ex > 0) "옮긴 돈 ${Fmt.won(ex)}" else "옮긴 돈 없음")
                                     else listOfNotNull(if (ex > 0) "지출 ${Fmt.won(ex)}" else null, if (inc > 0) "수입 ${Fmt.won(inc)}" else null)
@@ -356,6 +357,7 @@ private fun DayCell(
     val spoken = buildString {
         append("${d.monthValue}월 ${d.dayOfMonth}일 ${d.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.KOREAN)}")
         if (isToday) append(", 오늘")
+        com.jeiel85.doran.logic.Holidays.name(d)?.let { append(", $it") }
         if (ex > 0) append(if (moved) ", 옮긴 돈 ${Fmt.won(ex)}" else ", 지출 ${Fmt.won(ex)}")
         if (inc > 0) append(", 수입 ${Fmt.won(inc)}")
         if (plannedText != null) append(", 나갈 예정 ${Fmt.won(planned)}")
@@ -387,7 +389,7 @@ private fun DayCell(
                 color = when {
                     isToday -> Color.White
                     !inMonth -> P.c.inkFaint.copy(alpha = 0.6f)
-                    d.dayOfWeek == DayOfWeek.SUNDAY -> P.c.expense
+                    d.dayOfWeek == DayOfWeek.SUNDAY || com.jeiel85.doran.logic.Holidays.isHoliday(d) -> P.c.expense
                     d.dayOfWeek == DayOfWeek.SATURDAY -> P.c.income
                     else -> P.c.ink
                 },

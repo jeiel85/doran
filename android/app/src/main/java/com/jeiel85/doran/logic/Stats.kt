@@ -374,13 +374,13 @@ object Stats {
     }
 
     /**
-     * 월 용돈의 [ym] 달 몫이 들어가는 날. 정한 날([day])이 토·일이면 월급이 먼저 들어오는 앞 금요일입니다(D-27).
+     * 월 용돈의 [ym] 달 몫이 들어가는 날. 정한 날([day])이 토·일이나 공휴일이면 월급이 먼저 들어오는 앞 영업일입니다(D-27, D-38 — 설·추석 연휴 포함).
      * 다만 앞당긴 날이 가계부 한 달([startDay]부터) 경계를 넘으면 앞당기지 않습니다: 정한 날이 한 달 시작일과 같거나 바로 뒤면
      * 그달 몫이 앞 달 합계로 넘어가 앞 달엔 두 번, 그달엔 0번 들어가기 때문입니다(#53 리뷰).
      */
     fun allowanceDue(ym: YearMonth, day: Int, startDay: Int): LocalDate {
         val nominal = ym.atDay(day.coerceIn(1, ym.lengthOfMonth()))
-        val early = beforeWeekend(nominal)
+        val early = Holidays.beforeOff(nominal)
         return if (periodOf(early, startDay).key == periodOf(nominal, startDay).key) early else nominal
     }
 

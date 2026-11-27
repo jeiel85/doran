@@ -191,3 +191,31 @@ fun ClosingCard(s: LedgerState, p: Period, today: LocalDate, me: String?, sender
         }
     }
 }
+
+/** 홈: "정기결제로 보이는 것" — 등록(그 내역으로 고정 규칙 채우기) / 아니에요(다시 묻지 않음). 없으면 그리지 않습니다. */
+@Composable
+fun SuggestCard(s: LedgerState, today: LocalDate, nav: Nav) {
+    var dismissed by remember { mutableStateOf(Hub.local.dismissedSuggestions()) }
+    val list = remember(s.version, today, dismissed) { com.jeiel85.doran.logic.Suggest.find(s, today, dismissed) }
+    if (list.isEmpty()) return
+    Column {
+        Spacer(Modifier.height(14.dp))
+        SoftCard(padding = androidx.compose.foundation.layout.PaddingValues(16.dp)) {
+            Text("정기결제로 보이는 것", style = MaterialTheme.typography.titleMedium, color = P.c.ink)
+            Text("등록하면 다음 달부터 홈·예산·달력에 미리 잡혀요", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+            list.take(3).forEach { r ->
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(r.merchant, style = MaterialTheme.typography.titleSmall, color = P.c.ink, maxLines = 1)
+                        Text("매달 ${r.day}일쯤 ${Fmt.won(r.amount)} · ${r.months}달째", style = MaterialTheme.typography.bodySmall.merge(Money), color = P.c.inkSoft)
+                    }
+                    androidx.compose.material3.TextButton(onClick = {
+                        Hub.local.dismissSuggestion(com.jeiel85.doran.logic.Suggest.key(r.merchant)); dismissed = Hub.local.dismissedSuggestions()
+                    }) { Text("아니에요", color = P.c.inkSoft) }
+                    SmallButton("등록") { nav.go(Route.RecurringEdit(null, fromTxn = r.latest.id)) }
+                }
+            }
+        }
+    }
+}
