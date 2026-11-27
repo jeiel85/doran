@@ -219,13 +219,27 @@ object Stats {
         val ratio: Float get() = if (budget <= 0) 0f else spent.toFloat() / budget
     }
 
-    fun budgets(s: LedgerState, e: List<Entry>): Pair<BudgetLine?, List<BudgetLine>> {
+    /** [carry]: 지난달에서 넘어온 예산([carryIn], D-39). 전체 예산에만 더합니다. */
+    fun budgets(s: LedgerState, e: List<Entry>, carry: Long = 0): Pair<BudgetLine?, List<BudgetLine>> {
         val spentBy = byCategory(e, Kind.EXPENSE, s).toMap()
-        val total = s.household.budget.takeIf { it > 0 }?.let { BudgetLine(null, it, expense(e)) }
+        val total = s.household.budget.takeIf { it > 0 }?.let { BudgetLine(null, it + carry, expense(e)) }
         val lines = s.budgets.values.filter { it.amount > 0 && s.categories.containsKey(it.categoryId) }
             .map { BudgetLine(it.categoryId, it.amount, spentBy[it.categoryId] ?: 0) }
             .sortedByDescending { it.ratio }
         return total to lines
+    }
+
+    /**
+     * 예산 이월(D-39): 켜 두면 바로 앞 한 달의 예산에서 남은 돈을 이번 달 전체 예산에 더합니다. 한 달치만(그 앞 달의 이월은 쌓지 않음),
+     * 예산을 넘은 달은 빼지 않습니다(0). 앞 달에 기록이 하나도 없으면(처음 쓰는 달) 이월하지 않습니다.
+     */
+    fun carryIn(s: LedgerState, p: Period, myMemberId: String?, includeSenders: Boolean = true): Long {
+        val budget = s.household.budget
+        if (!s.household.carryOver || budget <= 0) return 0
+        val prev = periodOf(p.start.minusDays(1), p.start.dayOfMonth.coerceIn(1, 28))
+        val e = entries(s, prev, myMemberId, includeSenders)
+        if (e.none { it.counted && !it.allowanceSummary }) return 0
+        return (budget - expense(e)).coerceAtLeast(0)
     }
 
     // --- 계좌·카드 ------------------------------------------------------------------------------
@@ -334,6 +348,22 @@ object Stats {
             if (!due.isBefore(end)) return due
             ym = ym.plusMonths(1)
         }
+    }
+
+    /**
+     * 카드 예산·실적 알림(열쇠·제목·내용, D-39): 실적 목표를 채웠으면 그것, 예산은 넘은 가장 높은 단계(100%·80%) 하나.
+     * 열쇠에 한 달([monthKey])·이용 기간 시작일을 넣어 한 번씩만 울립니다(`LocalSettings.once`).
+     */
+    fun cardAlerts(c: CardStatus, monthKey: String): List<Triple<String, String, String>> {
+        val a = c.account
+        val out = ArrayList<Triple<String, String, String>>()
+        if (a.perfGoal > 0 && c.cycleSpent >= a.perfGoal)
+            out += Triple("card.${a.id}.perf.${c.cycleStart}", "${a.name} 실적을 채웠어요", "이번 이용 기간 ${Fmt.won(c.cycleSpent)} / 목표 ${Fmt.won(a.perfGoal)}")
+        if (a.monthBudget > 0) listOf(100, 80).firstOrNull { c.monthSpent * 100 >= a.monthBudget * it }?.let { level ->
+            out += Triple("card.${a.id}.budget.$monthKey.$level", if (level == 100) "${a.name} 예산을 다 썼어요" else "${a.name} 예산의 80%를 썼어요",
+                "이번 달 ${Fmt.won(c.monthSpent)} / ${Fmt.won(a.monthBudget)}")
+        }
+        return out
     }
 
     fun card(s: LedgerState, a: Account, today: LocalDate = LocalDate.now(Fmt.zone)): CardStatus {
@@ -518,7 +548,7 @@ object Stats {
     fun paceNow(s: LedgerState, today: LocalDate, startDay: Int, myMemberId: String?, includeSenders: Boolean): Pace? {
         val p = current(s, today, startDay)
         val e = entries(s, p, myMemberId, includeSenders)
-        return pace(e, ahead(s, today, p.end.minusDays(1), includeSenders), p, today, budgets(s, e).first?.budget ?: 0)
+        return pace(e, ahead(s, today, p.end.minusDays(1), includeSenders), p, today, budgets(s, e, carryIn(s, p, myMemberId, includeSenders)).first?.budget ?: 0)
     }
 
     /**
@@ -531,7 +561,7 @@ object Stats {
         val todayRange = Period(p.label, today, today.plusDays(1))
         val spentToday = expense(e.filter { !it.allowanceSummary && it.txn.at in todayRange })
         val month = expense(e)
-        val budget = budgets(s, e).first?.budget ?: 0
+        val budget = budgets(s, e, carryIn(s, p, myMemberId, includeSenders)).first?.budget ?: 0
         val title = if (spentToday > 0) "오늘 ${Fmt.won(spentToday)} 썼어요" else "오늘은 아직 쓴 돈이 없어요"
         val text = when {
             budget <= 0 -> "이번 달 ${Fmt.won(month)}"

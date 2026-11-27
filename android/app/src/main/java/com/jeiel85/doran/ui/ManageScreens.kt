@@ -25,6 +25,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.rounded.Wallet
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -100,6 +101,13 @@ fun BudgetScreen(nav: Nav) {
                 Spacer(Modifier.height(12.dp))
                 AmountField("월 예산", total) { total = it }
                 Spacer(Modifier.height(12.dp))
+                // 예산 이월(D-39, 초록가계부): 지난달 남은 예산을 이번 달에 더함. 가족 공통 설정이라 가족 폰에도 같이.
+                val carry = Stats.carryIn(s, p, id.myMemberId)
+                ToggleRow("남은 예산 이월", if (s.household.carryOver) (if (carry > 0) "지난달 남은 ${Fmt.won(carry)}을 이번 달에 더했어요" else "지난달에 남은 예산이 없어요")
+                    else "지난달 예산에서 남은 돈을 이번 달 예산에 더해요(한 달치만)", Icons.Rounded.Wallet, P.c.pine, s.household.carryOver) { on ->
+                    Hub.ledger.saveHousehold(s.household.copy(carryOver = on))
+                }
+                Spacer(Modifier.height(8.dp))
                 PrimaryButton("저장") { Hub.ledger.saveHousehold(s.household.copy(budget = total.toLongOrNull() ?: 0)) }
             }
         }
@@ -443,6 +451,8 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
     var hidden by remember { mutableStateOf(o?.hidden ?: false) }
     var tail by remember { mutableStateOf(o?.last4 ?: "") }
     var payFrom by remember { mutableStateOf(o?.payFromId) }
+    var cardBudget by remember { mutableStateOf(o?.monthBudget?.takeIf { it > 0 }?.toString() ?: "") }
+    var perfGoal by remember { mutableStateOf(o?.perfGoal?.takeIf { it > 0 }?.toString() ?: "") }
     var confirmDelete by remember { mutableStateOf(false) }
     val used = o != null && s.txns.values.any { it.accountId == o.id || it.toAccountId == o.id }
     // 체크카드는 예전부터 잔액을 세던 체크카드(통장처럼 쓰던 것)일 때만 잔액 칸을 보여 줍니다(D-29). 다른 종류에서 체크카드로 바꾸면
@@ -469,6 +479,8 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
                 anchor = if (type == AccountType.CHECK && noBalance) null else if (changed) bal else base.anchor,
                 anchorAt = if (type == AccountType.CHECK && noBalance) null else if (changed) now else base.anchorAt,
                 opening = if (type == AccountType.CHECK && noBalance) 0 else base.opening,
+                monthBudget = if (type == AccountType.CARD || type == AccountType.CHECK) cardBudget.toLongOrNull() ?: 0 else 0,
+                perfGoal = if (type == AccountType.CARD || type == AccountType.CHECK) perfGoal.toLongOrNull() ?: 0 else 0,
             ))
             nav.back()
         }
@@ -496,6 +508,13 @@ fun AccountEditScreen(aid: String?, nav: Nav) {
                 // 리뷰(2026-11-20) "전월 잔액을 매번 입력해야 하나": 한 번만 적으면 되고, 은행 알림에 잔액이 있으면 저절로 맞춰져요.
                 if (type == AccountType.BANK) Text("한 번만 적으면 돼요. 이 은행 알림에 '잔액'이 적혀 오면 그때마다 저절로 맞춰져요.",
                     style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft, modifier = Modifier.padding(start = 8.dp, top = 4.dp))
+            }
+            if (type == AccountType.CARD || type == AccountType.CHECK) {
+                // 카드 예산·실적 목표(D-39, 비주얼·초록): 0이나 빈칸이면 쓰지 않음. 80%·100%와 실적을 채웠을 때 알려 줘요.
+                Spacer(Modifier.height(10.dp))
+                AmountField("이 카드 월 예산 (비우면 없음)", cardBudget) { cardBudget = it }
+                Spacer(Modifier.height(10.dp))
+                AmountField("실적 목표 (이용 기간 기준, 비우면 없음)", perfGoal) { perfGoal = it }
             }
             Spacer(Modifier.height(10.dp))
             Field("카드사·은행 (알림 연결용)", institution, { institution = it }, "예: 현대카드, KB국민은행")

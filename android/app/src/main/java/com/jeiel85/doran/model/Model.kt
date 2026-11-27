@@ -63,14 +63,17 @@ data class Household(
     val monthStartDay: Int = 1,
     /** 월 전체 예산. 0이면 없음. */
     val budget: Long = 0,
+    /** 예산 이월(D-39): 지난달 예산에서 남은 돈을 이번 달 예산에 더합니다(한 달치만, 넘은 달은 빼지 않음). */
+    val carryOver: Boolean = false,
 ) {
-    fun json(): JSONObject = JSONObject().put("name", name).put("monthStartDay", monthStartDay).put("budget", budget)
+    fun json(): JSONObject = JSONObject().put("name", name).put("monthStartDay", monthStartDay).put("budget", budget).put("carryOver", carryOver)
     companion object {
         const val ID = "home"
         fun from(o: JSONObject) = Household(
             name = o.str("name") ?: "우리집",
             monthStartDay = (o.int("monthStartDay") ?: 1).coerceIn(1, 28),
             budget = o.long("budget") ?: 0,
+            carryOver = o.optBoolean("carryOver"),
         )
     }
 }
@@ -139,12 +142,17 @@ data class Account(
     val color: Int = 0,
     val order: Int = 0,
     val hidden: Boolean = false,
+    /** 카드 월 예산(이번 가계부 한 달 이용액 기준, 0이면 없음, D-39). */
+    val monthBudget: Long = 0,
+    /** 카드 실적 목표(이용 기간 이용액 기준, 0이면 없음, D-39). 채우면 알려 줍니다. */
+    val perfGoal: Long = 0,
 ) {
     fun json(): JSONObject = JSONObject().put("name", name).put("type", type.code).putN("ownerId", ownerId)
         .putN("institution", institution).putN("last4", last4).put("opening", opening).put("openingAt", openingAt)
         .putN("anchor", anchor).putN("anchorAt", anchorAt).putN("billingDay", billingDay)
         .putN("cycleStartDay", cycleStartDay).putN("payFromId", payFromId).put("allowanceCard", allowanceCard)
         .put("family", family).put("color", color).put("order", order).put("hidden", hidden)
+        .put("monthBudget", monthBudget).put("perfGoal", perfGoal)
     companion object {
         fun from(id: String, o: JSONObject) = Account(
             id = id, name = o.str("name") ?: "계좌", type = AccountType.of(o.str("type")), ownerId = o.str("ownerId"),
@@ -152,7 +160,7 @@ data class Account(
             openingAt = o.long("openingAt") ?: 0, anchor = o.long("anchor"), anchorAt = o.long("anchorAt"),
             billingDay = o.int("billingDay"), cycleStartDay = o.int("cycleStartDay"), payFromId = o.str("payFromId"),
             allowanceCard = o.optBoolean("allowanceCard"), family = o.optBoolean("family"), color = o.int("color") ?: 0, order = o.int("order") ?: 0,
-            hidden = o.optBoolean("hidden"),
+            hidden = o.optBoolean("hidden"), monthBudget = o.long("monthBudget") ?: 0, perfGoal = o.long("perfGoal") ?: 0,
         )
     }
 }

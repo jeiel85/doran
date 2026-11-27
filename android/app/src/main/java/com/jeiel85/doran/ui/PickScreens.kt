@@ -125,6 +125,11 @@ fun CaptureLogScreen(nav: Nav) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SmallButton("골라서 보내기") { nav.go(Route.SendPicked(r.id)) }
                         SmallButton("숨기기", color = P.c.inkSoft) { Hub.db.updateCapture(r.id, "dismissed", "숨김", null); tick++ }
+                        // 카드·은행이 아닌 앱이 금액 알림을 자주 보내면 그 앱 읽기를 끕니다(#40 — 원문을 30일 남기지 않게). 설정 → 알림 읽기에서 다시 켤 수 있어요.
+                        if (r.source != "sms" && r.pkg != null) SmallButton("이 앱 끄기", color = P.c.inkSoft) {
+                            Hub.local.update { it.copy(mutedPackages = it.mutedPackages + r.pkg) }
+                            Hub.db.updateCapture(r.id, "dismissed", "이 앱 읽기 끔", null); tick++
+                        }
                     }
                 } else {
                     Text(r.result, style = MaterialTheme.typography.labelMedium, color = if (r.isFailed) P.c.inkSoft else P.c.pine)

@@ -158,6 +158,26 @@ fun StatsScreen(nav: Nav) {
                 }
             }
         }
+        // 반반 정산(D-39): 사람별로 쓴 돈을 똑같이 나누면. 가족 카드·공동 내역·보내는 가족은 빼고, 두 사람 이상일 때만.
+        val payers = byMember.filter { (mid, _) -> mid != null && mid != Stats.FAMILY && s.member(mid)?.isSender != true }
+            .associate { (mid, v) -> mid!! to v }
+        val settle = if (kind == Kind.EXPENSE) com.jeiel85.doran.logic.Settle.even(payers) else emptyList()
+        if (settle.isNotEmpty()) {
+            item { Spacer(Modifier.height(20.dp)); SectionTitle("반반 나누면") }
+            item {
+                SoftCard {
+                    Text("각자 쓴 ${payers.size}사람 몫을 똑같이 나눈다면(가족 카드·공동 내역 빼고) · 참고용",
+                        style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                    settle.forEach { t ->
+                        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("${s.member(t.from)?.name ?: "?"} → ${s.member(t.to)?.name ?: "?"}", style = MaterialTheme.typography.titleSmall,
+                                color = P.c.ink, modifier = Modifier.weight(1f))
+                            Text(Fmt.won(t.amount), style = MaterialTheme.typography.titleSmall.merge(Money), color = P.c.ink)
+                        }
+                    }
+                }
+            }
+        }
         if (kind == Kind.EXPENSE && top.isNotEmpty()) {
             item { Spacer(Modifier.height(20.dp)); SectionTitle("많이 쓴 곳") }
             item {
