@@ -61,6 +61,7 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -529,9 +530,13 @@ private fun PhotoButton(icon: androidx.compose.ui.graphics.vector.ImageVector, l
 fun Field(label: String, value: String, onChange: (String) -> Unit, placeholder: String = "", singleLine: Boolean = true, number: Boolean = false,
           /** 비밀값(API 키 등): 가려 보이고 자판이 기억·추천하지 않게. */
           secret: Boolean = false,
-          /** 금액: 숫자 자판, 세 자리 쉼표(쓰는 동안에도), 끝에 '원'. [value]는 숫자만 든 그대로입니다. */
+          /** 금액: 숫자 자판, 끝에 '원', 칸을 벗어나면 세 자리 쉼표. [value]는 숫자만 든 그대로입니다. */
           money: Boolean = false) {
+    // 쓰는 동안에는 쉼표 없이 숫자만, 칸을 벗어나면 쉼표로 나눠 보입니다(가족 리뷰 2026-11-27).
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
     OutlinedTextField(
+        interactionSource = interaction,
         value = value, onValueChange = onChange, label = { Text(label) }, placeholder = { Text(placeholder, color = P.c.inkFaint) },
         singleLine = singleLine, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
         suffix = if (money) ({ Text("원", color = P.c.inkSoft) }) else null,
@@ -543,7 +548,7 @@ fun Field(label: String, value: String, onChange: (String) -> Unit, placeholder:
         },
         visualTransformation = when {
             secret -> androidx.compose.ui.text.input.PasswordVisualTransformation()
-            money -> MoneyTransformation
+            money && !focused -> MoneyTransformation
             else -> androidx.compose.ui.text.input.VisualTransformation.None
         },
         colors = OutlinedTextFieldDefaults.colors(
@@ -675,7 +680,7 @@ private fun DateChip(at: Long, onClick: () -> Unit) {
 }
 
 /**
- * 금액 칸의 세 자리 쉼표. 저장 값은 숫자 그대로 두고 보이는 모양만 바꾸므로, 쓰는 중에도 쉼표가 보이고 커서·지우기가 숫자 단위로 움직입니다.
+ * 금액 칸의 세 자리 쉼표(칸을 벗어났을 때). 저장 값은 숫자 그대로 두고 보이는 모양만 바꿉니다.
  * 쉼표 규칙은 [Fmt.groupDigits]에 두어 화면 밖 시험(MoneyFormatTest)으로 확인합니다.
  */
 object MoneyTransformation : androidx.compose.ui.text.input.VisualTransformation {
