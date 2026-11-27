@@ -92,7 +92,24 @@ object Receipts {
             Hub.db.setKv(DEL_PENDING, left.joinToString(","))
         }
         retryUploads(context)
+        sweepOrphans(context)
     }
+
+    /**
+     * 어느 내역도 가리키지 않는 사진 파일(하루 넘은 것)을 지웁니다(#93): 지운 뒤 '되돌리기' 띠가 떠 있는 동안 앱이 꺼지면 뒷정리가 돌지 않아
+     * 파일이 남았습니다. 저장하지 않은 새 내역에 막 붙인 사진은 하루가 안 돼 건드리지 않습니다.
+     */
+    private suspend fun sweepOrphans(context: Context, now: Long = System.currentTimeMillis()) {
+        val files = dir(context).listFiles().orEmpty().filter { it.name.endsWith(".jpg") }
+        val referenced = Hub.ledger.value.txns.values.flatMapTo(HashSet()) { it.receiptIds }
+        for (id in orphans(files.associate { it.name.removeSuffix(".jpg") to it.lastModified() }, referenced, now)) delete(context, id)
+    }
+
+    /** [files]: 사진 id → 마지막으로 고친 시각. 내역이 가리키지 않고 [ORPHAN_AGE]보다 오래된 것. */
+    fun orphans(files: Map<String, Long>, referenced: Set<String>, now: Long): List<String> =
+        files.filter { (id, at) -> id !in referenced && now - at > ORPHAN_AGE }.keys.sorted()
+
+    const val ORPHAN_AGE = 86_400_000L
 
     /** 올리지 못한 사진 다시 올리기. */
     private suspend fun retryUploads(context: Context) {

@@ -209,6 +209,41 @@ object Twins {
         return a.takeUnless { used }
     }
 
+    /**
+     * 장부에 이미 두 번 들어 있는 같은 결제 쌍(#64): 두 사람 폰이 각자 기록했는데 동기화 전이라 서로 못 거른 것. 나만 보는 용돈·취소는 뺍니다.
+     * (남길 것, 지울 것) — 남길 것은 [keeper]. 최근 60일만 봅니다.
+     */
+    fun existingPairs(s: LedgerState, now: Long, days: Int = 60): List<Pair<Txn, Txn>> {
+        val since = now - days * 86_400_000L
+        val list = s.txns.values.filter { it.at >= since && !it.private && !it.personal && it.cancelOf == null && it.source.captured }
+            .sortedBy { it.at }
+        val used = HashSet<String>()
+        val out = ArrayList<Pair<Txn, Txn>>()
+        for (i in list.indices) {
+            val a = list[i]
+            if (a.id in used) continue
+            for (j in i + 1 until list.size) {
+                val b = list[j]
+                if (b.at - a.at > WINDOW) break
+                if (b.id in used || a.memberId == b.memberId && a.createdBy == b.createdBy || !same(a, b)) continue
+                val keep = keeper(a, b)
+                out += keep to (if (keep === a) b else a)
+                used += a.id; used += b.id
+                break
+            }
+        }
+        return out
+    }
+
+    /**
+     * 같은 결제 쌍을 하나로 줄일 때 지울 쪽([gone])에 붙은 승인 취소를 어떻게 할지(#95 리뷰): 남길 쪽에 취소가 없으면 그 취소를 남길 쪽으로
+     * 옮기고(돌려주는 값), 남길 쪽에도 취소가 있으면 같은 취소를 두 폰이 각자 기록한 것이라 옮기지 않습니다(지울 쪽과 함께 지워짐).
+     */
+    fun cancelsToMove(s: LedgerState, keep: Txn, gone: Txn): List<Txn> {
+        if (s.txns.values.any { it.cancelOf == keep.id }) return emptyList()
+        return s.txns.values.filter { it.cancelOf == gone.id }.map { it.copy(cancelOf = keep.id, accountId = keep.accountId) }
+    }
+
     /** 둘 중 남길 것: 먼저 기록된 쪽(카드 주인 폰이 대개 먼저 받음), 같으면 id가 작은 쪽. */
     fun keeper(a: Txn, b: Txn): Txn =
         when {

@@ -41,15 +41,19 @@ object Suggest {
             if (byMonth.size < 2) continue
             val runs = byMonth.entries.toList()
             var streak = 1
+            var exact = true
             for (i in 1 until runs.size) {
                 val (ym0, a) = runs[i - 1]; val (ym1, b) = runs[i]
                 val next = ym0.plusMonths(1) == ym1
                 val close = abs(a.amount - b.amount) <= maxOf(a.amount, b.amount) * DRIFT
                 val dayA = Fmt.date(a.at).dayOfMonth; val dayB = Fmt.date(b.at).dayOfMonth
                 val sameDay = abs(dayA - dayB) <= DAY_SLACK || abs(dayA - dayB) >= 28 - DAY_SLACK // 말일 근처는 달 길이로 어긋남
-                streak = if (next && close && sameDay) streak + 1 else 1
+                if (next && close && sameDay) { streak++; exact = exact && a.amount == b.amount }
+                else { streak = 1; exact = true }
             }
-            if (streak < 2) continue
+            // 두 달뿐이면 금액이 원 단위까지 같아야(구독·자동이체), 금액이 조금씩 다르면 세 달 넘게 이어져야 제안합니다(#93 — 매달 비슷한
+            // 날 비슷한 금액이 나가는 주유·장보기까지 묻지 않게).
+            if (streak < 2 || streak == 2 && !exact) continue
             val latest = runs.last().value
             out += Recurring(latest.merchant, latest.amount, Fmt.date(latest.at).dayOfMonth, latest, streak)
         }

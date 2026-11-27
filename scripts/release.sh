@@ -19,6 +19,9 @@ grep -q '^database_id = "00000000' relay/wrangler.toml && { echo "✗ 중계 서
 [ -z "$(git status --porcelain)" ] || { echo "✗ 작업 트리가 깨끗하지 않아요"; exit 1; }
 git fetch -q origin && [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || { echo "✗ main이 origin/main과 다릅니다"; exit 1; }
 grep -q "^## \[$VER\]\|^## v$VER" CHANGELOG.md || { echo "✗ CHANGELOG.md에 $VER 항목이 없어요"; exit 1; }
+# 공휴일 표(D-38)는 해마다 손으로 더합니다. 다음 해 표가 없으면 알립니다(달력 빨간 날·용돈 날 앞당기기가 그 해에 빠짐, #93).
+LAST_HOLIDAY_YEAR=$(grep -oE 'add\(20[0-9]{2}' android/app/src/main/java/com/jeiel85/doran/logic/Holidays.kt | grep -oE '[0-9]{4}' | sort -n | tail -1)
+[ "${LAST_HOLIDAY_YEAR:-0}" -gt "$(date +%Y)" ] || echo "! 공휴일 표가 ${LAST_HOLIDAY_YEAR}년까지예요 — 다음 해 월력요항으로 logic/Holidays.kt를 더하세요(BACKLOG '해마다 할 일')"
 
 (cd relay && npm test --silent >/dev/null) && echo "✓ relay tests"
 (cd android && ./gradlew.bat --console=plain -q -Papp.version="$VER" testGithubDebugUnitTest testPlayDebugUnitTest assembleGithubRelease)

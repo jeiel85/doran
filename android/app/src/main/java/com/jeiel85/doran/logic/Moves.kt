@@ -196,6 +196,15 @@ object Moves {
     }
 
     /** 기억할 규칙의 열쇠: 은행 + 받는 분·메모 칸. 메모가 비면 기억하지 않습니다. */
+    /**
+     * "앞으로도 이렇게" 기억이 사람 이름에 걸리는지(#50): 받는 분이 사람 이름이면 그 사람에게 보낸 진짜 지출까지 같은 판정이 됩니다.
+     * 한글 두~네 글자(가린 '*' 포함)이고 숫자·영문·가게 낱말이 없으면 사람 이름으로 봅니다. 안내만 하고 막지는 않습니다.
+     */
+    fun looksLikePerson(merchant: String): Boolean {
+        val m = merchant.trim().substringBefore('_')
+        return m.length in 2..4 && m.all { it in '가'..'힣' || it == '*' } && m.count { it == '*' } < m.length - 1
+    }
+
     fun ruleKey(issuer: String?, merchant: String): String? {
         val memo = Categorizer.normalize(merchant)
         if (issuer.isNullOrBlank() || memo.isEmpty()) return null

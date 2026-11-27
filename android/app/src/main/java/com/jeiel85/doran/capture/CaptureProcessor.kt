@@ -431,6 +431,15 @@ class CaptureProcessor(
             memberId = com.jeiel85.doran.logic.Fixed.memberFor(planned, txn)) else txn
         ledger.saveTxn(saved)
         settings.markUnseen(listOf(saved.id))
+        // 은행 출금 문자가 먼저 와 이은 통장에 출금으로 기록돼 있으면, 같은 돈이라 그 출금을 지웁니다(#78 — 반대 순서는 위에서 거름).
+        if (p.type == Parsed.Type.APPROVAL && account.type == AccountType.CHECK && com.jeiel85.doran.logic.Banks.countsOnBank(saved)) {
+            com.jeiel85.doran.logic.Banks.bankTwinOfCardPayment(ledger.value, account, p.amount, at, sameMinutes, identity.installId)
+                ?.let { twin ->
+                    // 그 출금의 알림 기록을 카드 결제로 옮겨, '카드 결제 하나에 은행 출금 알림 하나' 거르기가 계속 맞게 합니다(#95 리뷰).
+                    db.relinkCaptures(twin.id, saved.id, "이미 기록됨(이은 체크카드 결제의 출금 알림)")
+                    ledger.delete(com.jeiel85.doran.model.T.TXN, twin.id); settings.markSeen(listOf(twin.id))
+                }
+        }
         return Outcome(if (planned != null) "${com.jeiel85.doran.logic.Fixed.label(planned.kind)}과 맞춤" else "기록함", saved.id)
     }
 

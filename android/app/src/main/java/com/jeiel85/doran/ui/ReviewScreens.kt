@@ -219,3 +219,41 @@ fun SuggestCard(s: LedgerState, today: LocalDate, nav: Nav) {
         }
     }
 }
+
+/** 홈: 두 폰이 각자 기록해 두 번 들어간 같은 결제(#64) — 남길 쪽만 두고 지웁니다. 지운 뒤 빈 자동 계좌도 정리합니다. */
+@Composable
+fun DuplicatesCard(s: LedgerState) {
+    val pairs = remember(s.version) { com.jeiel85.doran.logic.Twins.existingPairs(s, System.currentTimeMillis()) }
+    if (pairs.isEmpty()) return
+    fun drop(pair: Pair<com.jeiel85.doran.model.Txn, com.jeiel85.doran.model.Txn>) {
+        val (keep, gone) = pair
+        // 지울 쪽에만 붙은 승인 취소는 남길 쪽으로 옮긴 뒤 지웁니다(지우면 취소까지 사라져 쓴 돈이 부풀었어요, #95 리뷰).
+        val moved = com.jeiel85.doran.logic.Twins.cancelsToMove(Hub.ledger.value, keep, gone)
+        if (moved.isNotEmpty()) Hub.ledger.putAll(moved.map { Triple(com.jeiel85.doran.model.T.TXN, it.id, it.json()) })
+        Hub.ledger.deleteTxn(gone.id)
+        com.jeiel85.doran.logic.Twins.leftoverAccount(Hub.ledger.value, gone)?.let { Hub.ledger.delete(com.jeiel85.doran.model.T.ACCOUNT, it.id) }
+    }
+    Column {
+        Spacer(Modifier.height(14.dp))
+        SoftCard(padding = androidx.compose.foundation.layout.PaddingValues(16.dp)) {
+            Text("같은 결제가 두 번 들어 있어요 (${pairs.size}건)", style = MaterialTheme.typography.titleMedium, color = P.c.ink)
+            Text("두 폰이 같은 알림을 각자 기록한 것으로 보여요. 먼저 기록된 쪽만 남겨요", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+            pairs.take(3).forEach { pair ->
+                val (keep, gone) = pair
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("${keep.merchant.ifBlank { gone.merchant.ifBlank { "결제" } }} ${Fmt.won(keep.amount)}", style = MaterialTheme.typography.titleSmall, color = P.c.ink, maxLines = 1)
+                        Text("${Fmt.date(keep.at).let { "${it.monthValue}/${it.dayOfMonth}" }} · ${s.member(keep.memberId)?.name ?: "가족"} 기록과 ${s.member(gone.memberId)?.name ?: "가족"} 기록",
+                            style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                    }
+                    SmallButton("하나만 남기기") { drop(pair) }
+                }
+            }
+            if (pairs.size > 1) {
+                Spacer(Modifier.height(10.dp))
+                SmallButton("${pairs.size}건 모두 정리") { pairs.forEach(::drop) }
+            }
+        }
+    }
+}

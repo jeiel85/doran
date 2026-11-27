@@ -184,7 +184,11 @@ class ParserTest {
         assertEquals("c.food", com.jeiel85.doran.capture.Categorizer.categorize(
             com.jeiel85.doran.data.LedgerState(), cu.merchant, com.jeiel85.doran.model.Kind.EXPENSE))
         val mega = Parser.parse("3,400원 결제\n토스뱅크 체크카드 | 메가MGC(인증)(2) 네이버페이_CJ 잔액 3,650원", now, hint = "토스")!!
-        assertEquals("메가MGC(인증)(2) 네이버페이_CJ", mega.merchant)
+        // 결제대행 꼬리 "_CJ"와 "(인증)"은 가게 이름이 아니라 뗌(#13). 예전엔 "메가MGC(인증)(2) 네이버페이_CJ"로 남았어요.
+        assertEquals("메가MGC(2) 네이버페이", mega.merchant)
+        assertEquals("구글플레이", Parser.parse("9,900원 결제\n토스뱅크 체크카드 | 구글플레이_TOSS 잔액 3,650원", now, hint = "토스")!!.merchant)
+        // 메모 꼬리는 그대로(받는 분 "_축의"는 결제대행이 아님)
+        assertEquals("홍길순_축의", Parser.parse("[신한]11/23 14:17 입금 100,000원 홍길순_축의", now)!!.merchant)
         assertEquals("c.cafe", com.jeiel85.doran.capture.Categorizer.categorize(
             com.jeiel85.doran.data.LedgerState(), mega.merchant, com.jeiel85.doran.model.Kind.EXPENSE))
         // 낱말을 지우고 남은 빈 괄호·짝 없는 괄호는 가맹점이 아님
