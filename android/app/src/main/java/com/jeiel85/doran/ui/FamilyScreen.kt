@@ -88,13 +88,16 @@ fun FamilyScreen(nav: Nav) {
     val scope = rememberCoroutineScope()
     var error by remember { mutableStateOf<String?>(null) }
     var devices by remember { mutableStateOf<Relay.SpaceInfo?>(null) }
+    // 기기 목록을 받는 중인지: 받는 동안 '영수증 사진 정리'를 따로 그렸다가 목록이 오면 카드 안으로 옮겨 깜빡였어요(#8).
+    var loadingDevices by remember { mutableStateOf(true) }
     var removeTarget by remember { mutableStateOf<Relay.SpaceMember?>(null) }
     var rename by remember { mutableStateOf<Member?>(null) }
     var revokeTarget by remember { mutableStateOf<Member?>(null) }
 
     LaunchedEffect(id.spaceId) {
-        val space = id.spaceId ?: return@LaunchedEffect
+        val space = id.spaceId ?: run { loadingDevices = false; return@LaunchedEffect }
         devices = withContext(Dispatchers.IO) { runCatching { Relay { Hub.identity.token }.space(space) }.getOrNull() }
+        loadingDevices = false
     }
 
     SubScreen("가족", { nav.back() }) {
@@ -178,7 +181,11 @@ fun FamilyScreen(nav: Nav) {
                 }
             }
             // 서버에 닿지 못해 기기 목록이 없어도 사진 정리는 할 수 있어요(못 지운 사진은 나중에 다시 지움, #8).
-            if (devices == null) item {
+            if (devices == null && loadingDevices) item {
+                Spacer(Modifier.height(20.dp))
+                Text("연결된 기기를 불러오는 중…", style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint, modifier = Modifier.padding(start = 8.dp))
+            }
+            if (devices == null && !loadingDevices) item {
                 Spacer(Modifier.height(20.dp))
                 SoftCard(padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
                     ListRow("영수증 사진 정리", "사진이 붙은 내역을 오래된 것부터 보고 사진만 지워요", Icons.Rounded.Photo, P.c.apricot,
