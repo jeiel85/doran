@@ -17,9 +17,9 @@ shift
 # 화면 고정 속성·라이브러리 매니페스트가 필수 기능을 늘리면 그 기능이 없는 기기가 Play에서 빠지는데, 올린 뒤에야 알았어요
 # (0.1.0~0.1.14의 screen.portrait — #24, #25). 정말 필요한 기능이면 여기에 이름을 넣습니다.
 ALLOWED_REQUIRED_FEATURES=""
-# 브라우저로 Play Console에 올릴 때의 파일 한도(10MB)에 가까우면 알립니다. 넘으면 손으로 올리거나 의존성을 줄여야 해요(#45).
-# 기준과 아래 표시 모두 10진 MB(1,000,000바이트)입니다(0.3.7 때 기준은 KiB·표시는 MiB라 "9.42MB인데 9.5MB를 넘어요"로 찍혔어요).
-AAB_WARN_BYTES=9500000
+# 업로드는 0.3.12부터 Play API(전역 스킬 play-publish, 상한 150MB)로 합니다. 예전 브라우저 업로드 한도(10MB) 경고는 뺐고(#87),
+# 크기가 크게 늘었는지만 보도록 큰 기준을 둡니다. 기준과 아래 표시 모두 10진 MB(1,000,000바이트)입니다.
+AAB_WARN_BYTES=50000000
 
 [ -f android/app/google-services.json ] || { echo "✗ android/app/google-services.json 없음 (scripts/finish-firebase.sh)"; exit 1; }
 [ -f android/play-upload-signing.properties ] || [ -n "${DORAN_PLAY_UPLOAD_STORE_FILE:-}" ] || { echo "✗ Play 업로드 키 설정 없음"; exit 1; }
@@ -67,5 +67,5 @@ echo "✓ $OUT"
 echo "  commit $(git rev-parse HEAD)"
 echo "  sha256 $SHA"
 echo "  size   $(awk -v b="$SIZE" 'BEGIN { printf "%.2fMB", b / 1000000 }') ($SIZE bytes)"
-[ "$SIZE" -le "$AAB_WARN_BYTES" ] || echo "! AAB가 9.5MB를 넘어요 — 브라우저 업로드 한도(10MB)에 가까워요. 넘으면 Play Console에 손으로 올려야 합니다"
+[ "$SIZE" -le "$AAB_WARN_BYTES" ] || echo "! AAB가 50MB를 넘어요 — 의존성이 크게 늘었는지 확인하세요(API 업로드 상한 150MB)"
 keytool -printcert -jarfile "$OUT" | grep -m1 SHA256 | sed 's/^\s*/  signer /'

@@ -36,7 +36,7 @@ object Xlsx {
                 if (t.kind == Kind.TRANSFER) e.net else if (t.kind == Kind.EXPENSE) -e.net else e.net,
                 if (e.canceled) "취소됨" else if (e.net != t.amount) "부분취소" else "",
                 s.account(t.accountId)?.name ?: t.cardLabel ?: "",
-                com.jeiel85.doran.logic.Moves.destination(s, t) ?: "",
+                com.jeiel85.doran.logic.Moves.destination(s, t)?.let { "→ $it" } ?: com.jeiel85.doran.logic.Moves.origin(s, t)?.let { "← $it" } ?: "",
                 s.member(t.memberId)?.name ?: "",
                 if (t.installment > 1) "${t.installment}개월" else "",
                 t.memo,
@@ -53,7 +53,7 @@ object Xlsx {
             listOf(a.name, a.type.label, s.member(a.ownerId)?.name ?: "", Stats.balance(s, a))
         }
         val sheets = listOf(
-            Sheet("내역", listOf("일시", "구분", "카테고리", "내용", "금액", "취소", "계좌·카드", "받는 계좌", "사람", "할부", "메모", "기록 방법", "합계"),
+            Sheet("내역", listOf("일시", "구분", "카테고리", "내용", "금액", "취소", "계좌·카드", "옮긴 곳(→ 받은 곳 / ← 보낸 곳)", "사람", "할부", "메모", "기록 방법", "합계"),
                 txRows, listOf(17, 6, 12, 24, 13, 8, 16, 14, 8, 7, 24, 10, 6)),
             Sheet("카테고리별", listOf("월", "구분", "카테고리", "금액"), catRows, listOf(10, 6, 14, 14)),
             Sheet("자산", listOf("이름", "종류", "주인", "잔액"), accRows, listOf(20, 12, 8, 16)),

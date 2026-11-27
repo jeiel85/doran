@@ -124,7 +124,19 @@ object Banks {
      * 최근 [MAX_KEPT]건씩만 둡니다(그만큼 쌓이는 동안 잔액 알림이 한 번도 없을 일은 드묾).
      */
     data class Kept(val checks: List<Check> = emptyList(), val bills: List<Bill> = emptyList()) {
-        fun pruned(): Kept = Kept(checks.distinctBy { it.id }.takeLast(MAX_KEPT), bills.distinctBy { it.key }.takeLast(MAX_KEPT))
+        /**
+         * 은행마다 마지막 잔액 알림([anchors], 은행 → 잔액·시각)보다 늦은 것은 잔액에 들어가므로 몇 건이든 모두 남기고, 그보다 이른 것은
+         * 통장 화면 목록용으로 최근 [MAX_KEPT]건만 둡니다(#78 — 전에는 500건을 넘으면 잔액에 들어갈 결제까지 빠질 수 있었어요).
+         */
+        fun pruned(anchors: Map<String, Pair<Long, Long>> = emptyMap()): Kept {
+            fun after(bank: String, at: Long) = anchors[bank]?.let { at > it.second } ?: false
+            fun <T> keep(list: List<T>, bank: (T) -> String, at: (T) -> Long): List<T> {
+                val (live, old) = list.partition { after(bank(it), at(it)) }
+                val kept = (live + old.takeLast(MAX_KEPT)).toHashSet()
+                return list.filter { it in kept }
+            }
+            return Kept(keep(checks.distinctBy { it.id }, { it.bank }, { it.at }), keep(bills.distinctBy { it.key }, { it.bank }, { it.at }))
+        }
 
         fun json(): String = org.json.JSONObject()
             .put("checks", org.json.JSONArray(checks.map { org.json.JSONObject().put("id", it.id).put("bank", it.bank).put("at", it.at) }))
@@ -141,6 +153,19 @@ object Banks {
                 )
             }
         }
+    }
+
+    /**
+     * 통장 [bankId]의 출금 알림이 그 통장에 이은 체크카드로 이미 기록한 결제와 같은 돈인지(#78): 같은 금액, 앞뒤 [window] 안의
+     * 알림·문자로 기록된 체크카드 결제(취소 아님). 은행이 체크카드 결제를 출금 문자로도 알려 주면 통장에서 두 번 빠지기 때문입니다.
+     */
+    fun linkedCardPayment(s: LedgerState, bankId: String, amount: Long, at: Long, window: Long): Txn? {
+        val cards = s.accounts.values.filter { it.type == AccountType.CHECK && it.payFromId == bankId }.mapTo(HashSet()) { it.id }
+        if (cards.isEmpty()) return null
+        return s.txns.values.filter {
+            it.accountId in cards && it.kind == Kind.EXPENSE && it.cancelOf == null && it.amount == amount &&
+                kotlin.math.abs(it.at - at) <= window && it.source.captured
+        }.minByOrNull { kotlin.math.abs(it.at - at) }
     }
 
     /** [Kept]에 남기는 최대 건수(은행 잔액 알림이 오래 없을 때의 상한). */

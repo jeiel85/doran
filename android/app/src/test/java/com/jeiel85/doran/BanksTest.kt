@@ -156,6 +156,19 @@ class BanksTest {
         assertEquals(110_000L, Stats.balance(s, a))
     }
 
+    @Test fun aRefundOfADirectBankPaymentAfterTheNoticeComesBack() {
+        // 통장에 바로 기록된 결제(토스뱅크 체크카드 등)도 이은 카드와 같게: 결제(−10분) → 잔액 알림(0분) → 취소(+10분)면 돌아온 돈만 더함(#78)
+        val a = bank("a", anchor = 100_000, anchorAt = at(0))
+        val s = state(listOf(a), listOf(
+            txn("pay", "a", 30_000, -10),
+            txn("refund", "a", 10_000, 10, cancelOf = "pay"),
+        ))
+        assertEquals(110_000L, Stats.balance(s, a))
+        // 결제와 취소가 둘 다 알림 뒤면 결제 − 취소
+        val both = state(listOf(a), listOf(txn("pay", "a", 30_000, 5), txn("refund", "a", 10_000, 10, cancelOf = "pay")))
+        assertEquals(80_000L, Stats.balance(both, a))
+    }
+
     @Test fun aCheckCardThatKeepsItsOwnBalanceIsNotSubtractedTwice() {
         val a = bank("a", anchor = 500_000, anchorAt = at(0))
         val old = check("c", payFrom = "a").copy(anchor = 80_000, anchorAt = at(0)) // 예전에 통장처럼 잔액을 적은 체크카드(D-29)
@@ -221,6 +234,30 @@ class BanksTest {
         assertEquals(Banks.MAX_KEPT, many.checks.size)
         assertEquals("c21", many.checks.first().id) // 가장 오래된 것부터 버림
         assertEquals(Banks.Kept(), Banks.Kept.from("{깨진"))
+    }
+
+    @Test fun aBankWithdrawalForALinkedCheckCardPaymentIsTheSameMoney() {
+        val a = bank("a")
+        val card = check("c", payFrom = "a")
+        val other = check("o") // 다른 통장(또는 이지 않은) 카드
+        val s = state(listOf(a, card, other), listOf(txn("pay", "c", 12_000, 0), txn("x", "o", 12_000, 1)))
+        val win = 3 * 60_000L
+        assertEquals("pay", Banks.linkedCardPayment(s, "a", 12_000, at(2), win)?.id)
+        assertNull(Banks.linkedCardPayment(s, "a", 12_000, at(5), win)) // 3분 넘음
+        assertNull(Banks.linkedCardPayment(s, "a", 11_000, at(1), win)) // 금액 다름
+        assertNull(Banks.linkedCardPayment(s, "b", 12_000, at(1), win)) // 이은 카드 없음
+    }
+
+    @Test fun keptFlowsAfterTheLastBalanceNoticeAreNeverDropped() {
+        // 잔액 알림(0분) 뒤 결제가 500건을 넘어도 잔액에 들어갈 것은 모두 남기고, 알림 전 것은 최근 500건만(#78)
+        val after = (1..Banks.MAX_KEPT + 20).map { Banks.Check("a$it", kb, at(it)) }
+        val before = (1..30).map { Banks.Check("b$it", kb, at(-100 + it)) }
+        val k = Banks.Kept(before + after).pruned(mapOf(kb to (100_000L to at(0))))
+        assertEquals(after.size, k.checks.count { it.id.startsWith("a") })
+        // 알림 전 것은 (이미 넉넉해) 그대로 30건
+        assertEquals(30, k.checks.count { it.id.startsWith("b") })
+        // 알림이 없는 은행은 예전처럼 최근 500건
+        assertEquals(Banks.MAX_KEPT, Banks.Kept(after).pruned(emptyMap()).checks.size)
     }
 
 

@@ -122,6 +122,8 @@ cd relay && npm install && npm test
   - 보내기 전용 가족: "보내 줄 가족 초대" 링크로 `push-sender "<링크>"`(링크 키로 가구 설정을 바꾸려는 op가 버려지는지도 확인). 가족 화면 "연결된 기기"에 "어머니 폰"으로 보이는지, "끊기" 뒤 `sender-again`이 중계에서 거절되는지 확인
   - 부모님 폰 쪽: `host-sender`(가짜 가구가 어머니 초대 링크 출력) → 에뮬레이터가 그 링크로 합류 → `adb emu sms send …` → `sender-pull`로 받은 내역 확인, `kick-senders` 뒤 다음 결제에 "더 보내지 않아요" 알림
   - 스토어 화면용 예시 장부: `host` → 에뮬레이터 합류 → `demo` (로컬 중계에서만)
+  - 가족 돈(D-28 C·D-32): `host-wife` → 에뮬레이터가 남편으로 합류 → `push-withdrawal <금액> [몇 분 전]`(가짜 아내의 가계부 통장 출금) → 에뮬레이터에 범위 밖 은행 입금 알림 → 그보다 적은 출금 알림. 입금이 "가족 돈", 출금이 "가족 돈에서 나감"인지 확인
+  - **공유 범위를 바꾼 뒤에는 동기화가 끝난 것을 먼저 확인하고 알림을 보내세요**(홈을 당기거나 가족 화면의 마지막 동기화 시각). 바뀐 범위가 오기 전에 온 알림은 옛 범위로 기록됩니다(#74)
 - 실시간 알림(FCM)은 `android/app/google-services.json`과 중계의 `FCM_SERVICE_ACCOUNT` 비밀값이 있어야 켜집니다([design/FIREBASE_SETUP.md](design/FIREBASE_SETUP.md)). 없으면 15분마다·앱을 열 때·홈을 당길 때 동기화합니다.
 - 그림 리소스: `python design/make_art.py` (원본·프롬프트: [design/art/SOURCES.md](design/art/SOURCES.md)), 스토어 그림: `python design/make_play.py` → `design/play/`
 
@@ -147,5 +149,5 @@ scripts/release.sh 0.1.2
 scripts/play-bundle.sh 0.1.2
 ```
 
-`release.sh`는 GitHub 채널(시험 → 빌드 → 태그·릴리스(`doran.apk` + SHA-256) → 연결된 폰 설치 → 하드닝 이슈), `play-bundle.sh`는 Play 업로드 키로 서명한 `dist/doran-play-<버전>-<커밋>.aab`를 만듭니다(Play Console에 올림, 같은 이름이 있으면 멈춤, 빌드 기록은 `dist/play-builds.log`).
+`release.sh`는 GitHub 채널(시험 → 빌드 → 태그·릴리스(`doran.apk` + SHA-256) → 연결된 폰 설치 → 하드닝 이슈), `play-bundle.sh`는 Play 업로드 키로 서명한 `dist/doran-play-<버전>-<커밋>.aab`를 만듭니다(같은 이름이 있으면 멈춤, 빌드 기록은 `dist/play-builds.log`). AAB는 전역 스킬 `play-publish`(Play API)로 내부 테스트와 Alpha 두 트랙에 올립니다 — 먼저 `-ShowTracks`, 첫 트랙에 `-AabPath`로 올리고 둘째 트랙엔 `-ExpectedVersionCode`로 붙입니다(0.3.12부터, 브라우저 10MB 한도와 무관).
 소개·연결 페이지는 GitHub Pages(`main` 브랜치 `/docs`)로 나갑니다. 서명 키는 git 밖 `.keystore/`에 있고 백업돼 있습니다(Play 업로드 키를 잃었을 때 절차는 DECISIONS.md D-16). FCM 서비스 계정 키 교체는 `scripts/rotate-fcm-key.sh`. 실기기 확인 목록은 [design/VERIFY.md](design/VERIFY.md), 남은 일은 [BACKLOG.md](BACKLOG.md).

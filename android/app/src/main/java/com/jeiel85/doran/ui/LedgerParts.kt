@@ -136,6 +136,7 @@ private fun txnBits(e: Entry, s: LedgerState, showDate: Boolean): List<String> {
                 !e.counted -> add("용돈 · 합계 제외")
             }
             moves.destination(s, t)?.let { add("→ $it") }
+            moves.origin(s, t)?.let { add("← $it") }
             if (t.installment > 1) add("${t.installment}개월")
             if (t.source == Source.RECURRING) add("고정")
             if (!showDate) add(Fmt.time(t.at))
@@ -152,7 +153,7 @@ internal fun spokenTxn(name: String, kind: Kind, amount: Long, isCancel: Boolean
         else -> "지출"
     }
     // 화살표·가운뎃점은 읽으면 어색해서 말로 바꿉니다.
-    return (listOf(name, "$what ${amountText ?: Fmt.won(amount)}") + rest.map { it.replace("→ ", "받는 곳 ").replace(" · ", ", ") }).joinToString(", ")
+    return (listOf(name, "$what ${amountText ?: Fmt.won(amount)}") + rest.map { it.replace("→ ", "받는 곳 ").replace("← ", "보낸 곳 ").replace(" · ", ", ") }).joinToString(", ")
 }
 
 /** 날짜 머리 + 그날 합계. */

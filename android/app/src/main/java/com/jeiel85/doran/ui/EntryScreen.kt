@@ -123,7 +123,10 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
     }
     LaunchedEffect(route.txnId) { route.txnId?.let { Hub.local.markSeen(listOf(it)) } }
     // 복제: 새 내역이지만 칸은 그 내역으로 채웁니다. 저장하면 손으로 쓴 새 내역이 되고 알림 원문·영수증·고정지출 연결은 따라오지 않습니다.
-    val template = remember(route.copyOf) { if (original == null) route.copyOf?.let { s.txns[it] } else null }
+    // 고치던 화면에서 복제하면 저장 안 한 고침까지 담은 모습([Nav.copyDraft])을 씁니다(#87). 없으면 저장된 내역.
+    val template = remember(route.copyOf) {
+        if (original == null) route.copyOf?.let { c -> nav.copyDraft?.takeIf { it.id == c }.also { nav.copyDraft = null } ?: s.txns[c] } else null
+    }
     val from = original ?: template
 
     var kind by remember { mutableStateOf(from?.kind ?: route.kind) }
@@ -169,10 +172,10 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
         this.value = original?.let { o -> withContext(Dispatchers.IO) { Hub.capture.isBankWithdrawal(o) } } == true
     }
     var rememberMove by remember { mutableStateOf(false) }
+    var allFunds by remember { mutableStateOf(false) }
 
-    /** 화면의 고침을 장부에 씁니다(닫지 않음). */
-    fun persist() {
-        val t = (original ?: Txn(id = newId(), kind = kind, amount = 0, at = at, source = Source.MANUAL,
+    /** 화면에 보이는 그대로의 내역(저장하지 않음). */
+    fun current(): Txn = (original ?: Txn(id = newId(), kind = kind, amount = 0, at = at, source = Source.MANUAL,
             createdBy = Hub.identity.installId, createdAt = System.currentTimeMillis())).copy(
             kind = kind, amount = value, at = at, merchant = merchant.trim(), memo = memo.trim(),
             categoryId = if (kind == Kind.TRANSFER) null else categoryId ?: Categorizer.categorize(s, merchant, kind),
@@ -183,6 +186,10 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
             // 종류를 손으로 바꾼 은행 출금은 사용자가 정한 것이라 다시 자동 판정하지 않습니다(D-26).
             move = original?.move?.let { m -> if (kind == original.kind) m else if (kind == Kind.TRANSFER) Moves.USER else Moves.KEPT },
         )
+
+    /** 화면의 고침을 장부에 씁니다(닫지 않음). */
+    fun persist() {
+        val t = current()
         Hub.ledger.saveTxn(t)
         // 가족 카드에서 용돈으로 옮겼던 결제를 다시 공유로 돌리면, 대신 남겨 둔 금액 자리를 지웁니다(D-20).
         if (original?.private == true && !t.private) stubId(t.id).takeIf { s.txns.containsKey(it) }?.let { Hub.ledger.delete(com.jeiel85.doran.model.T.TXN, it) }
@@ -235,7 +242,7 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
             Text(if (template != null) "복제한 내역" else if (original == null) "새 내역" else "내역", style = MaterialTheme.typography.titleLarge, color = P.c.ink, modifier = Modifier.weight(1f))
             // 복제: 같은 자동이체가 두 번 나갔거나 장보기를 나눠 낸 것처럼, 날짜·금액만 바꿔 하나 더 쓸 때(비주얼 가계부).
             // 금액 자리만 남긴 기록(용돈으로 옮긴 가족 카드 결제)은 복제하지 않습니다.
-            if (original != null && !original.personal) IconButton(onClick = { nav.back(); nav.go(Route.Entry(copyOf = original.id)) }) {
+            if (original != null && !original.personal) IconButton(onClick = { nav.copyDraft = current(); nav.back(); nav.go(Route.Entry(copyOf = original.id)) }) {
                 Icon(Icons.Rounded.ContentCopy, "복제", tint = P.c.ink)
             }
             if (original != null) IconButton(onClick = { picker = "delete" }) { Icon(Icons.Rounded.DeleteOutline, "지우기", tint = P.c.danger) }
@@ -325,7 +332,8 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                                 Text("가족이 보내 준 돈으로 냈으면 골라 주세요", style = MaterialTheme.typography.bodySmall, color = P.c.ink)
                                 Spacer(Modifier.height(6.dp))
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    choices.take(3).forEach { d ->
+                                    // 처음엔 3개, '더 보기'로 35일 안 후보 전부(#74 — 많으면 원하는 것이 안 보였어요).
+                                    (if (allFunds) choices else choices.take(3)).forEach { d ->
                                         val src = Moves.fundOf(d)?.let { s.txns[it] }
                                         val who = src?.let { if (it.memberId == id.myMemberId) "내" else s.member(it.memberId)?.name } ?: "가족"
                                         Chip("${Fmt.date(d.at).let { "${it.monthValue}/${it.dayOfMonth}" }} $who ${Fmt.won(d.amount)}", false, {
@@ -334,6 +342,7 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                                             nav.back()
                                         })
                                     }
+                                    if (!allFunds && choices.size > 3) Chip("더 보기 (${choices.size - 3})", false, { allFunds = true })
                                 }
                             }
                             if (Moves.ruleKey(o.issuer, o.merchant) != null) {
