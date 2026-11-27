@@ -117,7 +117,7 @@ fun ShareScreen(memberId: String, nav: Nav) {
                 Text("보내는 카드는 '가족 카드'로 표시돼요(카드 설정에서 바꿀 수 있어요). 본인 계좌에서 나가는 그 외 카드값 출금은 두 번 세지 않게 기록하지 않아요.",
                     style = MaterialTheme.typography.bodySmall, color = P.c.inkFaint, modifier = Modifier.padding(top = 4.dp))
                 Spacer(Modifier.height(16.dp))
-                Field("월 용돈(원)", allowance, { allowance = it.filter(Char::isDigit).take(9) }, "예: 350000", number = true)
+                Field("월 용돈", allowance, { allowance = it.filter(Char::isDigit).take(9) }, "예: 350,000", money = true)
                 (allowance.toLongOrNull()?.takeIf { it > 0 })?.let {
                     Text("${Fmt.won(it)} · 매달 '${m.name} 용돈' 고정지출로 가계부에 한 번 들어가고, 그 안에서 쓴 것은 합계에 더하지 않아요",
                         style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft,

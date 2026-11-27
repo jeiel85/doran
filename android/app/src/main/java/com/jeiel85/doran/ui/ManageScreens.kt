@@ -59,10 +59,8 @@ private fun digits(s: String) = s.filter(Char::isDigit).take(12)
 
 @Composable
 private fun AmountField(label: String, value: String, onChange: (String) -> Unit) {
-    Field(label, value, { onChange(digits(it)) }, "0", number = true)
-    value.toLongOrNull()?.takeIf { it > 0 }?.let {
-        Text(Fmt.won(it), style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft, modifier = Modifier.padding(start = 8.dp, top = 4.dp))
-    }
+    // 칸 안에 쉼표와 '원'이 보이므로(Field money) 아래에 금액을 한 번 더 적던 줄은 뺐습니다.
+    Field(label, value, { onChange(digits(it)) }, "0", money = true)
 }
 
 // --- 예산 -----------------------------------------------------------------------------------------

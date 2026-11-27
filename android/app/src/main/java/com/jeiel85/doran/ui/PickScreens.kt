@@ -257,7 +257,7 @@ fun SendPickedScreen(logId: Long, nav: Nav) {
             Spacer(Modifier.height(14.dp))
             Field(if (isCard) "카드사 이름" else "은행 이름", issuer, { issuer = it.take(20) }, "예: 현대카드, 토스")
             Spacer(Modifier.height(10.dp))
-            Field("금액(원)", amount, { amount = it.filter(Char::isDigit).take(11) }, "0", number = true)
+            Field("금액", amount, { amount = it.filter(Char::isDigit).take(11) }, "0", money = true)
             if (value > 0) Text(Fmt.won(value), style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft, modifier = Modifier.padding(start = 8.dp, top = 4.dp))
             Spacer(Modifier.height(10.dp))
             Field("가맹점·내용", merchant, { merchant = it.take(40) }, "예: 스타벅스")

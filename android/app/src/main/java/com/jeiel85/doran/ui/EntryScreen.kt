@@ -528,17 +528,24 @@ private fun PhotoButton(icon: androidx.compose.ui.graphics.vector.ImageVector, l
 @Composable
 fun Field(label: String, value: String, onChange: (String) -> Unit, placeholder: String = "", singleLine: Boolean = true, number: Boolean = false,
           /** 비밀값(API 키 등): 가려 보이고 자판이 기억·추천하지 않게. */
-          secret: Boolean = false) {
+          secret: Boolean = false,
+          /** 금액: 숫자 자판, 세 자리 쉼표(쓰는 동안에도), 끝에 '원'. [value]는 숫자만 든 그대로입니다. */
+          money: Boolean = false) {
     OutlinedTextField(
         value = value, onValueChange = onChange, label = { Text(label) }, placeholder = { Text(placeholder, color = P.c.inkFaint) },
         singleLine = singleLine, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
+        suffix = if (money) ({ Text("원", color = P.c.inkSoft) }) else null,
+        textStyle = if (money) androidx.compose.ui.text.TextStyle.Default.merge(Money) else androidx.compose.ui.text.TextStyle.Default,
         keyboardOptions = when {
             secret -> KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false)
-            number -> KeyboardOptions(keyboardType = KeyboardType.Number)
+            number || money -> KeyboardOptions(keyboardType = KeyboardType.Number)
             else -> KeyboardOptions.Default
         },
-        visualTransformation = if (secret) androidx.compose.ui.text.input.PasswordVisualTransformation()
-            else androidx.compose.ui.text.input.VisualTransformation.None,
+        visualTransformation = when {
+            secret -> androidx.compose.ui.text.input.PasswordVisualTransformation()
+            money -> MoneyTransformation
+            else -> androidx.compose.ui.text.input.VisualTransformation.None
+        },
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = P.c.pine, unfocusedBorderColor = P.c.line, focusedContainerColor = P.c.surface,
             unfocusedContainerColor = P.c.surface, focusedLabelColor = P.c.pine, cursorColor = P.c.pine,
@@ -664,5 +671,21 @@ private fun DateChip(at: Long, onClick: () -> Unit) {
         Icon(Icons.Rounded.CalendarToday, null, tint = P.c.pine, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(8.dp))
         Text(Fmt.dayLabel(d), style = MaterialTheme.typography.labelLarge, color = if (today) P.c.ink else P.c.pine)
+    }
+}
+
+/**
+ * 금액 칸의 세 자리 쉼표. 저장 값은 숫자 그대로 두고 보이는 모양만 바꾸므로, 쓰는 중에도 쉼표가 보이고 커서·지우기가 숫자 단위로 움직입니다.
+ * 쉼표 규칙은 [Fmt.groupDigits]에 두어 화면 밖 시험(MoneyFormatTest)으로 확인합니다.
+ */
+object MoneyTransformation : androidx.compose.ui.text.input.VisualTransformation {
+    override fun filter(text: androidx.compose.ui.text.AnnotatedString): androidx.compose.ui.text.input.TransformedText {
+        val raw = text.text
+        val shown = Fmt.groupDigits(raw)
+        val map = object : androidx.compose.ui.text.input.OffsetMapping {
+            override fun originalToTransformed(offset: Int) = Fmt.groupedOffset(raw, offset)
+            override fun transformedToOriginal(offset: Int) = Fmt.digitOffset(raw, offset)
+        }
+        return androidx.compose.ui.text.input.TransformedText(androidx.compose.ui.text.AnnotatedString(shown), map)
     }
 }
