@@ -166,13 +166,15 @@ data class Category(
     val color: Int = 0,
     val order: Int = 0,
     val hidden: Boolean = false,
+    /** 하위 카테고리면 상위 카테고리 id(DECISIONS.md D-37). 한 단계만 둡니다. 통계·예산은 상위로 묶어 셉니다. */
+    val parentId: String? = null,
 ) {
     fun json(): JSONObject = JSONObject().put("name", name).put("kind", kind.code).put("icon", icon)
-        .put("color", color).put("order", order).put("hidden", hidden)
+        .put("color", color).put("order", order).put("hidden", hidden).putN("parentId", parentId)
     companion object {
         fun from(id: String, o: JSONObject) = Category(
             id = id, name = o.str("name") ?: "기타", kind = Kind.of(o.str("kind")), icon = o.str("icon") ?: "etc",
-            color = o.int("color") ?: 0, order = o.int("order") ?: 0, hidden = o.optBoolean("hidden"),
+            color = o.int("color") ?: 0, order = o.int("order") ?: 0, hidden = o.optBoolean("hidden"), parentId = o.str("parentId"),
         )
     }
 }

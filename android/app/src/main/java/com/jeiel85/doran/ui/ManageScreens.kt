@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -72,7 +75,7 @@ fun BudgetScreen(nav: Nav) {
     val settings by Hub.settings.collectAsStateWithLifecycle()
     val p = Stats.current(s, startDay = Stats.viewStart(s, settings.monthStartDay))
     val entries = Stats.entries(s, p, id.myMemberId)
-    val spent = Stats.byCategory(entries, Kind.EXPENSE).toMap()
+    val spent = Stats.byCategory(entries, Kind.EXPENSE, s).toMap()
     var total by remember { mutableStateOf(s.household.budget.takeIf { it > 0 }?.toString() ?: "") }
     var edit by remember { mutableStateOf<Category?>(null) }
     val me = s.member(id.myMemberId)
@@ -133,7 +136,8 @@ fun BudgetScreen(nav: Nav) {
         item { Spacer(Modifier.height(20.dp)); SectionTitle("카테고리별 예산") }
         item {
             SoftCard(padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
-                s.categories.values.filter { it.kind == Kind.EXPENSE && !it.hidden }.sortedBy { it.order }.forEach { c ->
+                // 예산은 상위 카테고리에만(하위의 쓴 돈은 상위로 묶여 셉니다, D-37).
+                s.categories.values.filter { it.kind == Kind.EXPENSE && !it.hidden && Stats.topCategory(s, it.id) == it.id }.sortedBy { it.order }.forEach { c ->
                     val b = s.budgets[Budget.idFor(c.id)]
                     val sp = spent[c.id] ?: 0
                     ListRow(c.name, if (b != null) "${Fmt.won(sp)} / ${Fmt.won(b.amount)}" else "이번 달 ${Fmt.won(sp)}",
@@ -625,8 +629,21 @@ fun CategoriesScreen(nav: Nav) {
         item { Segmented(listOf("지출", "수입"), if (kind == Kind.INCOME) 1 else 0) { kind = if (it == 1) Kind.INCOME else Kind.EXPENSE }; Spacer(Modifier.height(12.dp)) }
         item {
             SoftCard(padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
-                s.categories.values.filter { it.kind == kind }.sortedBy { it.order }.forEach { c ->
-                    ListRow(c.name + if (c.hidden) " (숨김)" else "", null, leading = { CatTile(c.icon, 40.dp) }, onClick = { edit = c })
+                // 상위 카테고리 순서대로, 하위는 그 아래 들여서. 화살표로 순서를 바꿉니다(같은 층 안에서).
+                val all = s.categories.values.filter { it.kind == kind }
+                val tops = all.filter { c -> c.parentId == null || all.none { it.id == c.parentId } }.sortedBy { it.order }
+                fun move(list: List<Category>, i: Int, by: Int) {
+                    val j = i + by
+                    if (j !in list.indices) return
+                    val re = list.toMutableList().apply { add(j, removeAt(i)) }
+                    re.forEachIndexed { k, c -> if (c.order != k) Hub.ledger.saveCategory(c.copy(order = k)) }
+                }
+                tops.forEachIndexed { i, c ->
+                    CategoryRow(c, indent = false, canUp = i > 0, canDown = i < tops.lastIndex, onUp = { move(tops, i, -1) }, onDown = { move(tops, i, 1) }) { edit = c }
+                    val subs = all.filter { it.parentId == c.id }.sortedBy { it.order }
+                    subs.forEachIndexed { k, sc ->
+                        CategoryRow(sc, indent = true, canUp = k > 0, canDown = k < subs.lastIndex, onUp = { move(subs, k, -1) }, onDown = { move(subs, k, 1) }) { edit = sc }
+                    }
                 }
             }
         }
@@ -635,6 +652,10 @@ fun CategoriesScreen(nav: Nav) {
         var name by remember(c.id) { mutableStateOf(c.name) }
         var icon by remember(c.id) { mutableStateOf(c.icon) }
         var hidden by remember(c.id) { mutableStateOf(c.hidden) }
+        var parentId by remember(c.id) { mutableStateOf(c.parentId) }
+        // 하위 카테고리는 한 단계만: 자기 아래에 하위가 있으면 다른 카테고리 아래로 갈 수 없습니다.
+        val hasChildren = s.categories.values.any { it.parentId == c.id }
+        val parents = s.categories.values.filter { it.kind == c.kind && it.id != c.id && it.parentId == null }.sortedBy { it.order }
         AlertDialog(onDismissRequest = { edit = null }, containerColor = P.c.bg, title = { Text(if (c.name.isEmpty()) "카테고리 추가" else "카테고리") },
             text = {
                 Column {
@@ -649,9 +670,18 @@ fun CategoriesScreen(nav: Nav) {
                     }
                     Spacer(Modifier.height(8.dp))
                     ToggleRow("숨기기", "입력 화면에서 빼요(지난 내역은 그대로)", Icons.Rounded.VisibilityOff, P.c.inkSoft, hidden) { hidden = it }
+                    if (!hasChildren && parents.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text("상위 카테고리(고르면 그 아래 세부로 들어가고, 통계·예산은 상위로 묶여요)", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                        Spacer(Modifier.height(6.dp))
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Chip("없음", parentId == null, { parentId = null })
+                            parents.forEach { pc -> Chip(pc.name, parentId == pc.id, { parentId = pc.id }) }
+                        }
+                    }
                 }
             },
-            confirmButton = { TextButton({ Hub.ledger.saveCategory(c.copy(name = name.trim(), icon = icon, hidden = hidden)); edit = null }, enabled = name.isNotBlank()) { Text("저장") } },
+            confirmButton = { TextButton({ Hub.ledger.saveCategory(c.copy(name = name.trim(), icon = icon, hidden = hidden, parentId = parentId.takeIf { !hasChildren })); edit = null }, enabled = name.isNotBlank()) { Text("저장") } },
             dismissButton = { TextButton({ edit = null }) { Text("취소") } })
     }
 }
@@ -692,6 +722,19 @@ fun SearchScreen(nav: Nav) {
     }
 }
 
+/** 카테고리 목록 한 줄: 하위면 들여 쓰고, 위·아래 화살표로 같은 층 안 순서를 바꿉니다. */
+@Composable
+private fun CategoryRow(c: Category, indent: Boolean, canUp: Boolean, canDown: Boolean, onUp: () -> Unit, onDown: () -> Unit, onClick: () -> Unit) {
+    Box(Modifier.padding(start = if (indent) 28.dp else 0.dp)) {
+        ListRow(c.name + if (c.hidden) " (숨김)" else "", if (indent) "세부" else null, leading = { CatTile(c.icon, if (indent) 32.dp else 40.dp) }, onClick = onClick) {
+            Row {
+                IconButton(onClick = onUp, enabled = canUp) { Icon(Icons.Rounded.KeyboardArrowUp, "${c.name} 위로", tint = if (canUp) P.c.inkSoft else P.c.line) }
+                IconButton(onClick = onDown, enabled = canDown) { Icon(Icons.Rounded.KeyboardArrowDown, "${c.name} 아래로", tint = if (canDown) P.c.inkSoft else P.c.line) }
+            }
+        }
+    }
+}
+
 // --- 카테고리별 내역(통계에서 누름) ---------------------------------------------------------------
 
 @Composable
@@ -703,7 +746,11 @@ fun CategoryTxnsScreen(categoryId: String, month: String, nav: Nav) {
     val p = remember(month, start) { Stats.period(java.time.YearMonth.parse(month), start) }
     val cat = s.category(categoryId)
     val list = remember(s.version, p, categoryId) {
-        Stats.entries(s, p, id.myMemberId).filter { it.txn.kind != Kind.TRANSFER && (it.txn.categoryId ?: Defaults.EXPENSE_FALLBACK) == categoryId }
+        // 상위 카테고리를 누르면 하위 카테고리 내역도 함께(D-37). 하위를 누르면 그것만.
+        Stats.entries(s, p, id.myMemberId).filter { e ->
+            val c = e.txn.categoryId ?: Defaults.EXPENSE_FALLBACK
+            e.txn.kind != Kind.TRANSFER && (c == categoryId || Stats.topCategory(s, c) == categoryId)
+        }
     }
     SubScreen("${cat?.name ?: "카테고리"} · ${Fmt.month(p.label)}", { nav.back() }) {
         item {

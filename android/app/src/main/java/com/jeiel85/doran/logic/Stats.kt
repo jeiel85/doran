@@ -150,10 +150,14 @@ object Stats {
     fun expense(e: List<Entry>) = e.filter { it.counted && it.txn.kind == Kind.EXPENSE }.sumOf { it.net }
     fun income(e: List<Entry>) = e.filter { it.counted && it.txn.kind == Kind.INCOME }.sumOf { it.net }
 
-    fun byCategory(e: List<Entry>, kind: Kind): List<Pair<String, Long>> =
+    /** 카테고리별 합계. [s]를 주면 하위 카테고리를 상위로 묶습니다(D-37 — 통계 도넛·예산). 엑셀은 세부 그대로. */
+    fun byCategory(e: List<Entry>, kind: Kind, s: LedgerState? = null): List<Pair<String, Long>> =
         e.filter { it.counted && it.txn.kind == kind && it.net > 0 }
-            .groupBy { it.txn.categoryId ?: if (kind == Kind.INCOME) Defaults.INCOME_FALLBACK else Defaults.EXPENSE_FALLBACK }
+            .groupBy { (it.txn.categoryId ?: if (kind == Kind.INCOME) Defaults.INCOME_FALLBACK else Defaults.EXPENSE_FALLBACK).let { c -> s?.let { topCategory(it, c) } ?: c } }
             .map { (k, v) -> k to v.sumOf { it.net } }.sortedByDescending { it.second }
+
+    /** 하위 카테고리면 상위 id, 아니면 그대로. 상위가 지워졌으면 그대로 둡니다. */
+    fun topCategory(s: LedgerState, id: String): String = s.categories[id]?.parentId?.takeIf { s.categories.containsKey(it) } ?: id
 
     /** 사람별 합계. 가족 카드 결제는 쓴 사람이 아니라 [FAMILY] 칸으로 묶습니다(DECISIONS.md D-20). */
     fun byMember(e: List<Entry>, kind: Kind = Kind.EXPENSE, s: LedgerState? = null): List<Pair<String?, Long>> =
@@ -212,7 +216,7 @@ object Stats {
     }
 
     fun budgets(s: LedgerState, e: List<Entry>): Pair<BudgetLine?, List<BudgetLine>> {
-        val spentBy = byCategory(e, Kind.EXPENSE).toMap()
+        val spentBy = byCategory(e, Kind.EXPENSE, s).toMap()
         val total = s.household.budget.takeIf { it > 0 }?.let { BudgetLine(null, it, expense(e)) }
         val lines = s.budgets.values.filter { it.amount > 0 && s.categories.containsKey(it.categoryId) }
             .map { BudgetLine(it.categoryId, it.amount, spentBy[it.categoryId] ?: 0) }

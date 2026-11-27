@@ -56,7 +56,7 @@ fun StatsScreen(nav: Nav) {
     val p = remember(cur, offset, start) { Stats.period(cur.label.minusMonths(offset.toLong()), start) }
     val entries = remember(s.version, p, id.myMemberId) { Stats.entries(s, p, id.myMemberId) }
     val kind = if (mode == 0) Kind.EXPENSE else Kind.INCOME
-    val cats = remember(entries, kind) { Stats.byCategory(entries, kind) }
+    val cats = remember(entries, kind) { Stats.byCategory(entries, kind, s) }
     val total = cats.sumOf { it.second }
     val prev = remember(s.version, p, id.myMemberId) {
         Stats.entries(s, Stats.period(p.label.minusMonths(1), start), id.myMemberId)

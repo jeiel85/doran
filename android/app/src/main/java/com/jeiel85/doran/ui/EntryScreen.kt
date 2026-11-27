@@ -93,6 +93,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jeiel85.doran.capture.Categorizer
 import com.jeiel85.doran.core.Fmt
+import com.jeiel85.doran.logic.Stats
 import com.jeiel85.doran.core.Hub
 import com.jeiel85.doran.core.newId
 import com.jeiel85.doran.feature.Receipts
@@ -416,10 +417,12 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                 Spacer(Modifier.height(18.dp))
                 Text("카테고리", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
                 Spacer(Modifier.height(10.dp))
-                val cats = s.categories.values.filter { it.kind == kind && !it.hidden }.sortedBy { it.order }
+                // 상위 카테고리만 칸으로, 고른 것에 세부가 있으면 아래 칩으로(D-37).
+                val cats = s.categories.values.filter { it.kind == kind && !it.hidden && (it.parentId == null || s.categories[it.parentId] == null) }.sortedBy { it.order }
+                val topSel = categoryId?.let { Stats.topCategory(s, it) }
                 FlowRow(Modifier.fillMaxWidth(), maxItemsInEachRow = 4, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     cats.forEach { c ->
-                        val sel = c.id == categoryId
+                        val sel = c.id == topSel
                         Column(
                             Modifier.weight(1f).clip(RoundedCornerShape(18.dp))
                                 .background(if (sel) P.c.pineSoft else P.c.surface)
@@ -433,6 +436,14 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
                         }
                     }
                     repeat((4 - cats.size % 4) % 4) { Spacer(Modifier.weight(1f)) }
+                }
+                val subs = topSel?.let { t -> s.categories.values.filter { it.parentId == t && !it.hidden }.sortedBy { it.order } }.orEmpty()
+                if (subs.isNotEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    ChipRow {
+                        Chip("${s.category(topSel)?.name ?: ""} 전체", categoryId == topSel, { categoryId = topSel; touchedCategory = true })
+                        subs.forEach { sc -> Chip(sc.name, categoryId == sc.id, { categoryId = sc.id; touchedCategory = true }) }
+                    }
                 }
             }
 
