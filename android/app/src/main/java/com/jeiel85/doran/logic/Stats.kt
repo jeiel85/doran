@@ -167,6 +167,14 @@ object Stats {
         }
 
     /**
+     * '이체'만 볼 때 달력 칸의 금액: 그날 옮긴 돈(이체와, 가계부 통장끼리 옮겨 합계에서 뺀 출금 쪽). 지출·수입 달력에는 이 돈이 안 보여
+     * 어디로 얼마를 옮겼는지 날짜로 보려면 이 보기가 필요합니다(초록·비주얼 '제외 내역'). 둘째 값은 늘 0입니다.
+     */
+    fun byDayMoved(e: List<Entry>): Map<LocalDate, Pair<Long, Long>> =
+        e.filter { !it.allowanceSummary && it.txn.cancelOf == null && (it.txn.kind == Kind.TRANSFER || it.txn.kind == Kind.EXPENSE && Moves.linked(it.txn)) }
+            .groupBy { Fmt.date(it.txn.at) }.mapValues { (_, v) -> v.sumOf { it.net } to 0L }
+
+    /**
      * 달력에 그리는 날들(D-30): [month] 1일이 든 주의 일요일부터 말일이 든 주의 토요일까지. 끝(second)은 그다음 날(배타).
      * 앞뒤 달 날짜도 흐리게 금액을 보여 주므로 내역도 이 범위로 읽습니다.
      */
@@ -503,6 +511,26 @@ object Stats {
         val p = current(s, today, startDay)
         val e = entries(s, p, myMemberId, includeSenders)
         return pace(e, ahead(s, today, p.end.minusDays(1), includeSenders), p, today, budgets(s, e).first?.budget ?: 0)
+    }
+
+    /**
+     * 알림창 한 줄의 제목·내용: "오늘 15,000원 썼어요" / "남은 예산 380,000원 · 이번 달 1,620,000원". 홈과 같은 셈(이 폰의 한 달, 보내는 가족 설정).
+     * 예산이 없으면 이번 달 쓴 돈만, 예산을 넘었으면 넘은 금액.
+     */
+    fun statusLine(s: LedgerState, today: LocalDate, startDay: Int, myMemberId: String?, includeSenders: Boolean): Pair<String, String> {
+        val p = current(s, today, startDay)
+        val e = entries(s, p, myMemberId, includeSenders)
+        val todayRange = Period(p.label, today, today.plusDays(1))
+        val spentToday = expense(e.filter { !it.allowanceSummary && it.txn.at in todayRange })
+        val month = expense(e)
+        val budget = budgets(s, e).first?.budget ?: 0
+        val title = if (spentToday > 0) "오늘 ${Fmt.won(spentToday)} 썼어요" else "오늘은 아직 쓴 돈이 없어요"
+        val text = when {
+            budget <= 0 -> "이번 달 ${Fmt.won(month)}"
+            month <= budget -> "남은 예산 ${Fmt.won(budget - month)} · 이번 달 ${Fmt.won(month)}"
+            else -> "예산보다 ${Fmt.won(month - budget)} 더 썼어요 · 이번 달 ${Fmt.won(month)}"
+        }
+        return title to text
     }
 
     fun upcoming(s: LedgerState, days: Int, today: LocalDate = LocalDate.now(Fmt.zone)): List<Pair<Recurring, LocalDate>> =

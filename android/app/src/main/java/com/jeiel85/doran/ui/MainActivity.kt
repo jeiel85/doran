@@ -189,6 +189,11 @@ class MainActivity : FragmentActivity() {
             intent.data = null
             return
         }
+        if (intent?.getBooleanExtra(Notifier.EXTRA_NEW, false) == true) {
+            intent.removeExtra(Notifier.EXTRA_NEW)
+            nav.home(); nav.go(Route.Entry())
+            return
+        }
         val txn = intent?.getStringExtra(Notifier.EXTRA_TXN) ?: return
         nav.home()
         nav.go(Route.Entry(txnId = txn))

@@ -20,7 +20,11 @@ object Notifier {
     const val RECURRING = "recurring"
     const val UPDATE = "update"
     const val SYSTEM = "system"
+    const val STATUS = "status"
     const val EXTRA_TXN = "txnId"
+    /** 알림의 '쓰기'를 눌러 새 내역 화면으로. */
+    const val EXTRA_NEW = "newEntry"
+    private const val STATUS_ID = 6001
 
     fun channels(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -40,6 +44,11 @@ object Notifier {
             NotificationChannel(UPDATE, "업데이트", NotificationManager.IMPORTANCE_DEFAULT),
             NotificationChannel(SYSTEM, "연결·백업", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "새 기기가 연결되거나 백업할 때가 되면 알려 줘요"
+            },
+            // 늘 떠 있는 한 줄: 소리·진동 없이 알림창에만(상태 표시줄 아이콘도 숨김).
+            NotificationChannel(STATUS, "오늘 지출 한 줄", NotificationManager.IMPORTANCE_MIN).apply {
+                description = "알림창에 오늘 쓴 돈과 남은 예산을 늘 보여 주고, 눌러서 바로 기록해요"
+                setShowBadge(false)
             },
         ))
     }
@@ -66,6 +75,30 @@ object Notifier {
     private fun post(context: Context, id: Int, n: NotificationCompat.Builder) {
         if (can(context)) NotificationManagerCompat.from(context).notify(id, n.build())
     }
+
+    /**
+     * 알림창에 늘 떠 있는 한 줄(비주얼 가계부 상단바 위젯): "오늘 15,000원 · 남은 예산 380,000원" + '쓰기'.
+     * 잠금 화면에는 금액을 가린 "둥지"만 보입니다. 같은 id를 고쳐 쓰고 울리지 않습니다.
+     */
+    @Suppress("MissingPermission")
+    fun status(context: Context, title: String, text: String) {
+        if (!can(context)) return
+        val write = PendingIntent.getActivity(context, STATUS_ID,
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP).putExtra(EXTRA_NEW, true),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val n = NotificationCompat.Builder(context, STATUS)
+            .setSmallIcon(R.drawable.ic_stat_doran).setColor(0xFF2E7A62.toInt())
+            .setContentTitle(title).setContentText(text)
+            .setOngoing(true).setOnlyAlertOnce(true).setSilent(true).setShowWhen(false)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(NotificationCompat.Builder(context, STATUS).setSmallIcon(R.drawable.ic_stat_doran).setContentTitle("둥지").build())
+            .setContentIntent(open(context, req = STATUS_ID + 1))
+            .addAction(0, "쓰기", write)
+        NotificationManagerCompat.from(context).notify(STATUS_ID, n.build())
+    }
+
+    fun clearStatus(context: Context) = NotificationManagerCompat.from(context).cancel(STATUS_ID)
 
     /** 이미 띄운 용돈 알림 묶음([key])을 거둡니다: 그 안의 결제가 모두 옮긴 돈으로 바뀐 경우(D-26). */
     fun cancelAllowance(context: Context, key: String) = NotificationManagerCompat.from(context).cancel(key.hashCode())
