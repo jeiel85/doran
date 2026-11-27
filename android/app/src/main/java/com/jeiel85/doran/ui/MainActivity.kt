@@ -61,6 +61,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
@@ -155,6 +157,8 @@ class MainActivity : FragmentActivity() {
                         !id.onboarded -> Onboarding(pendingInvite)
                         else -> Root(nav)
                     }
+                    // 지운 뒤 되돌리기 띠: 하단 막대(높이 약 86dp) 위에 띄웁니다.
+                    if (!locked && id.onboarded) UndoBar(Modifier.align(Alignment.BottomCenter).padding(bottom = navBarBottom(96.dp)))
                     // 화면은 시스템 바 밑까지 그려지므로(edge-to-edge) 스크롤한 내용이 위 상태 표시줄·아래 뒤로/홈/최근 앱 버튼과
                     // 겹쳐 보이지 않게 그 자리에 배경색 띠를 덮습니다. 제스처 탐색이면 아래 띠는 얇은 막대 높이만큼만 생깁니다.
                     Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(P.c.bg))
@@ -313,7 +317,8 @@ private fun MainTabs(nav: Nav) {
 private fun BottomBar(nav: Nav, modifier: Modifier) {
     Box(modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp)) {
         Row(
-            Modifier.fillMaxWidth().height(66.dp)
+            // 큰 글꼴에서 탭 글자가 잘리지 않게 높이는 최소값만 둡니다(BENCHMARK.md 7-4).
+            Modifier.fillMaxWidth().heightIn(min = 66.dp)
                 .shadow(18.dp, RoundedCornerShape(24.dp), ambientColor = P.c.shadow, spotColor = Color(0x22000000))
                 .clip(RoundedCornerShape(24.dp)).background(P.c.surface).padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -341,12 +346,13 @@ private fun TabItem(tab: Tab, nav: Nav, modifier: Modifier) {
     val selected = nav.tab == tab
     Column(
         // 내역 탭에 있는데 한 번 더 누르면 오늘로 돌아옵니다(다른 화면을 다녀와도 보던 날에 남아 있으므로).
-        modifier.clip(RoundedCornerShape(16.dp)).clickable {
+        // 탭 역할·선택 상태를 화면 읽기에 알리고, 아이콘 설명은 빼서 "내역 내역"으로 두 번 읽히지 않게 합니다.
+        modifier.clip(RoundedCornerShape(16.dp)).selectable(selected = selected, role = androidx.compose.ui.semantics.Role.Tab) {
             if (selected && tab == Tab.LEDGER) nav.ledger.show(LocalDate.now(com.jeiel85.doran.core.Fmt.zone)) else nav.tab = tab
         }.padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(tab.icon, tab.label, tint = if (selected) P.c.pine else P.c.inkFaint, modifier = Modifier.size(24.dp))
+        Icon(tab.icon, null, tint = if (selected) P.c.pine else P.c.inkFaint, modifier = Modifier.size(24.dp))
         Text(tab.label, style = MaterialTheme.typography.labelMedium, color = if (selected) P.c.pine else P.c.inkFaint)
     }
 }
