@@ -500,7 +500,8 @@ class CaptureProcessor(
     }
 
     /** 나만 보는 용돈의 은행 출금 [w]를 쓴 돈·옮긴 돈으로 가립니다(D-26, [com.jeiel85.doran.logic.Moves]). */
-    private fun judgeMove(w: Txn): Txn {
+    /** 나만 보는 은행 출금의 '쓴 돈 / 옮긴 돈' 판정(D-26). 공유 범위가 좁혀져 나만 보기로 돌리는 출금에도 씁니다(#74). */
+    fun judgeMove(w: Txn): Txn {
         val s = ledger.value
         val rule = settings.movedBy(com.jeiel85.doran.logic.Moves.ruleKey(w.issuer, w.merchant))
         return com.jeiel85.doran.logic.Moves.judge(s, w, s.member(w.memberId)?.allowance ?: 0, rule)
@@ -872,7 +873,9 @@ class CaptureProcessor(
             if (routed !== items) saveSent(link, routed)
             return Sent("${link.label}: 이미 보냄", true)
         }
-        val accountId = "acc.${link.memberId}.${Categorizer.normalize(p.issuer)}"
+        // 부모님 폰이 보낸 체크카드는 같은 카드사의 신용카드와 계좌를 나눕니다(D-40, #60): 한 계좌에 둘이 섞이면 보낼 때마다
+        // 종류가 신용↔체크로 바뀌어, 체크카드 결제가 '갚을 돈'에 들어갔다 빠졌다 했어요. 신용카드 쪽 id는 예전 그대로라 옛 기록은 그대로 이어집니다.
+        val accountId = "acc.${link.memberId}.${Categorizer.normalize(p.issuer)}" + if (p.isCard && p.checkCard) ".check" else ""
         val original = if (isCancel) SentLog.original(items, p, at) else null
         if (isCancel && original == null) return Sent("${link.label}: 원래 승인을 찾지 못해 보내지 않음", false)
 
@@ -884,7 +887,8 @@ class CaptureProcessor(
             categoryId = if (isCancel) null else Categorizer.categorize(LedgerState(categories = ledger.value.categories), p.merchant, kind),
             createdBy = identity.installId, createdAt = System.currentTimeMillis(),
         )
-        val account = Account(id = accountId, name = p.issuer, type = if (p.isCard) AccountType.CARD else AccountType.BANK,
+        val account = Account(id = accountId, name = p.issuer + if (p.isCard && p.checkCard) " 체크" else "",
+            type = if (p.isCard && p.checkCard) AccountType.CHECK else if (p.isCard) AccountType.CARD else AccountType.BANK,
             ownerId = link.memberId, institution = p.issuer, cycleStartDay = 1)
         for ((type, id, json) in listOf(Triple(T.ACCOUNT, accountId, account.json()), Triple(T.TXN, txn.id, txn.json()))) {
             val h = ledger.hlc.next()
