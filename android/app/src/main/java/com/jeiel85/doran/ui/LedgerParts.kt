@@ -55,7 +55,11 @@ fun TxnRow(e: Entry, s: LedgerState, isNew: Boolean, showDate: Boolean = false, 
     }
     // 화면 읽기: 줄 하나를 "스타벅스, 지출 5,000원, 현대카드, 오후 2:30, 새 내역"처럼 한 번에 읽습니다.
     // 전에는 '-' 부호와 아이콘 이름이 따로 읽혀 지출인지 수입인지 들리지 않았어요(BENCHMARK.md 7-4).
+    // 원화 금액이 아직 없는 해외 결제는 줄에 보이는 외화 금액을 그대로 읽습니다(#89 리뷰).
+    val foreignOnly = t.needsReview && t.amount == 0L
     val spoken = spokenTxn(name, t.kind, if (t.isCancel || e.canceled) t.amount else e.net, t.isCancel,
+        amountText = if (foreignOnly) t.foreign ?: "원화 금액 확인 필요" else null,
+        rest =
         bits + listOfNotNull(status, if (t.private) "나만 보는 용돈" else null, if (t.receiptIds.isNotEmpty()) "영수증 있음" else null,
             if (isNew) "새 내역" else null))
     Row(
@@ -140,7 +144,7 @@ private fun txnBits(e: Entry, s: LedgerState, showDate: Boolean): List<String> {
 }
 
 /** 내역 한 줄의 화면 읽기 문장. 지출·수입·이체를 말로 밝히고 금액은 원 단위로. */
-internal fun spokenTxn(name: String, kind: Kind, amount: Long, isCancel: Boolean, rest: List<String>): String {
+internal fun spokenTxn(name: String, kind: Kind, amount: Long, isCancel: Boolean, rest: List<String>, amountText: String? = null): String {
     val what = when {
         isCancel -> "돌아온 돈"
         kind == Kind.INCOME -> "수입"
@@ -148,7 +152,7 @@ internal fun spokenTxn(name: String, kind: Kind, amount: Long, isCancel: Boolean
         else -> "지출"
     }
     // 화살표·가운뎃점은 읽으면 어색해서 말로 바꿉니다.
-    return (listOf(name, "$what ${Fmt.won(amount)}") + rest.map { it.replace("→ ", "받는 곳 ").replace(" · ", ", ") }).joinToString(", ")
+    return (listOf(name, "$what ${amountText ?: Fmt.won(amount)}") + rest.map { it.replace("→ ", "받는 곳 ").replace(" · ", ", ") }).joinToString(", ")
 }
 
 /** 날짜 머리 + 그날 합계. */

@@ -186,7 +186,9 @@ fun EntryScreen(route: Route.Entry, nav: Nav) {
         Hub.ledger.saveTxn(t)
         // 가족 카드에서 용돈으로 옮겼던 결제를 다시 공유로 돌리면, 대신 남겨 둔 금액 자리를 지웁니다(D-20).
         if (original?.private == true && !t.private) stubId(t.id).takeIf { s.txns.containsKey(it) }?.let { Hub.ledger.delete(com.jeiel85.doran.model.T.TXN, it) }
-        scope.launch { receipts.forEach { Receipts.upload(context, it) } }
+        // 목록을 먼저 떠 둡니다. '저장하고 하나 더'가 곧바로 receipts를 비워, 올리기 전에 빈 목록을 돌던 일을 막습니다(#89 리뷰).
+        val ids = receipts.toList()
+        scope.launch { ids.forEach { Receipts.upload(context, it) } }
     }
 
     // 연속 입력(편한가계부 '계속'): 장 본 영수증 여러 장처럼 같은 날 여러 건을 쓸 때 화면을 닫지 않고 다음 건으로.

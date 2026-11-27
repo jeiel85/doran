@@ -19,6 +19,11 @@ class A11yUndoTest {
             spokenTxn("이체", Kind.TRANSFER, 100_000, false, listOf("→ 신한은행", "옮긴 돈 · 합계 제외")))
     }
 
+    @Test fun foreignOnlyAmountIsReadAsShown() {
+        assertEquals("AMAZON, 지출 USD 12.99, 확인 필요",
+            spokenTxn("AMAZON", Kind.EXPENSE, 0, false, listOf("확인 필요"), amountText = "USD 12.99"))
+    }
+
     @Test fun undoRestoresAndSkipsCleanup() {
         var restored = 0; var cleaned = 0
         Undo.show("지웠어요", { restored++ }, { cleaned++ })
