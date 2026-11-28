@@ -592,6 +592,38 @@ class CaptureProcessor(
         }
     }
 
+    // --- 들어온 돈을 나간 돈으로 읽은 예전 기록 (#106) ---------------------------------------------------
+
+    /** 알림 원문(30일)을 지금 판정으로 다시 읽으면 은행 입금인 내 쓴 돈·옮긴 돈: (지금 모양, 바뀔 모양). IO 스레드에서. */
+    fun misreadDeposits(): List<Pair<Txn, Txn>> {
+        val me = identity.value.myMemberId ?: return emptyList()
+        val s = ledger.value
+        val kept = settings.keptMisread()
+        val since = System.currentTimeMillis() - com.jeiel85.doran.logic.Misread.DAYS * 86_400_000
+        return s.txns.values
+            .filter { it.id !in kept && com.jeiel85.doran.logic.Misread.candidate(it, me, identity.installId, since) }
+            .filter { t -> com.jeiel85.doran.logic.Misread.allDeposits(db.capturesOf(t.id).map(::reparse)) }
+            .sortedByDescending { it.at }
+            .map { it to com.jeiel85.doran.logic.Misread.asDeposit(s, it) }
+    }
+
+    /** "모두 바로잡기": 보여 준 뒤 그사이 바뀐 기록은 건드리지 않습니다. */
+    @Synchronized
+    fun fixMisreadDeposits(items: List<Pair<Txn, Txn>>) {
+        for ((before, _) in items) {
+            if (ledger.value.txns[before.id] != before) continue
+            val next = com.jeiel85.doran.logic.Misread.asDeposit(ledger.value, before)
+            ledger.saveTxn(next)
+            noteMove(next)
+        }
+    }
+
+    /** "그대로 두기": 다시 묻지 않습니다. */
+    fun keepMisreadDeposits(items: List<Pair<Txn, Txn>>) = settings.keepMisread(items.map { it.first.id })
+
+    private fun reparse(row: Db.CaptureRow): Parsed? =
+        Parser.parse(listOfNotNull(row.title, row.text).joinToString("\n"), Fmt.dateTime(row.at), row.label)
+
     // --- 알림 없이 나간 돈 (D-31) --------------------------------------------------------------------
 
     /**
