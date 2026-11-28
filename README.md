@@ -150,4 +150,6 @@ scripts/play-bundle.sh 0.1.2
 ```
 
 `release.sh`는 GitHub 채널(시험 → 빌드 → 태그·릴리스(`doran.apk` + SHA-256) → 연결된 폰 설치 → 하드닝 이슈), `play-bundle.sh`는 Play 업로드 키로 서명한 `dist/doran-play-<버전>-<커밋>.aab`를 만듭니다(같은 이름이 있으면 멈춤, 빌드 기록은 `dist/play-builds.log`). AAB는 전역 스킬 `play-publish`(Play API)로 내부 테스트와 Alpha 두 트랙에 올립니다 — 먼저 `-ShowTracks`, 첫 트랙에 `-AabPath`로 올리고 둘째 트랙엔 `-ExpectedVersionCode`로 붙입니다(0.3.12부터, 브라우저 10MB 한도와 무관).
+
+**Play는 CI로도 냅니다**(`.github/workflows/play-release.yml`): `release.sh`가 태그 `v<버전>`을 올리면 Actions가 같은 버전의 AAB를 빌드해(시험 포함) 내부 테스트와 Alpha에 올립니다. 비밀값(업로드 키·`google-services.json`·Play 서비스 계정)은 GitHub 환경 `play`에만 있고, 그 환경은 `main`과 `v*` 태그에서만 열립니다(실행마다 승인은 받지 않아 릴리스와 함께 바로 올라감). 손으로 돌릴 때는 Actions → Play release → 버전 입력(`dry_run`을 켜면 빌드·서명 확인·트랙 조회까지만). 업로드 스크립트는 전역 스킬을 복사한 `tools/play-publish.ps1`이라 고칠 때 둘을 함께 맞춥니다. 로컬 `play-bundle.sh` + 스킬 흐름도 그대로 씁니다(CI가 막힐 때).
 소개·연결 페이지는 GitHub Pages(`main` 브랜치 `/docs`)로 나갑니다. 서명 키는 git 밖 `.keystore/`에 있고 백업돼 있습니다(Play 업로드 키를 잃었을 때 절차는 DECISIONS.md D-16). FCM 서비스 계정 키 교체는 `scripts/rotate-fcm-key.sh`. 실기기 확인 목록은 [design/VERIFY.md](design/VERIFY.md), 남은 일은 [BACKLOG.md](BACKLOG.md).

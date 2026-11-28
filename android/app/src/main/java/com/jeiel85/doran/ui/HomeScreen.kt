@@ -209,6 +209,7 @@ fun HomeScreen(nav: Nav) {
         }
 
         item { FailedRecordsCard(nav) }
+        item { MisreadDepositsCard(nav) }
         item { StaleMovesCard(nav) }
         item { GapsCard(nav) }
         item { CandidatesCard(nav) }

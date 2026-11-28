@@ -194,6 +194,10 @@ class LocalSettings(context: Context) {
     fun dismissedSuggestions(): Set<String> = prefs.getStringSet("suggest.dismissed", emptySet())?.toSet() ?: emptySet()
     fun dismissSuggestion(key: String) = prefs.edit().putStringSet("suggest.dismissed", dismissedSuggestions() + key).apply()
 
+    // --- 입금 바로잡기 카드에서 "그대로 두기"를 고른 거래(이 폰에만, #106) ------------------------------
+    fun keptMisread(): Set<String> = prefs.getStringSet("misread.kept", emptySet())?.toSet() ?: emptySet()
+    fun keepMisread(ids: Collection<String>) = prefs.edit().putStringSet("misread.kept", keptMisread() + ids).apply()
+
     // --- 월말 마감 체크(이 폰에만) -----------------------------------------------------------------
     fun checked(key: String): Boolean = prefs.getBoolean("check.$key", false)
     fun setChecked(key: String, on: Boolean) = prefs.edit().putBoolean("check.$key", on).apply()

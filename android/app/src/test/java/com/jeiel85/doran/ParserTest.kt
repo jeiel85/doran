@@ -109,6 +109,44 @@ class ParserTest {
         assertEquals("홍길순", p("[토스뱅크] 자유입출금 출금 50,000원 홍길순")!!.merchant)
     }
 
+    /** 2026-11-28: 카카오뱅크 이자 입금 알림이 통장 이름 "입출금통장"의 '출금' 때문에 출금(용돈에서 쓴 돈)으로 기록됐습니다. */
+    @Test fun depositToAccountNamedWithWithdrawalWordIsDeposit() {
+        val r = Parser.parse("오늘은 정기이자 받는 날!\n입출금통장(0932)에 20원이 입금되었어요.", now, hint = "카카오뱅크")!!
+        assertEquals(Parsed.Type.DEPOSIT, r.type)
+        assertEquals("카카오뱅크", r.issuer)
+        assertEquals(20L, r.amount)
+        assertEquals("0932", r.last4)
+        assertEquals(Parsed.Type.DEPOSIT, p("[카카오뱅크] 입출금 통장(1234) 입금 50,000원 홍길순")!!.type)
+        assertEquals(Parsed.Type.DEPOSIT, p("[토스뱅크] 자유입출금 입금 50,000원 홍길순")!!.type)
+        // 통장 이름이 같아도 출금은 그대로 출금
+        assertEquals(Parsed.Type.WITHDRAWAL, p("[카카오뱅크] 입출금통장(1234) 출금 100,000원 홍길순")!!.type)
+    }
+
+    /** #106: 다른 통장·알림 이름 속 '입출금'도 방향이 아닙니다. 받는 분 이름에 남지도 않습니다. */
+    @Test fun otherAccountNamesWithWithdrawalWordAreNotDirection() {
+        for (t in listOf(
+            "[KB국민] 입출금 알림 입금 30,000원 홍길순",
+            "[우리은행] 수시입출금 입금 30,000원 홍길순",
+            "[신한] 입출금이 자유로운 예금 입금 30,000원 홍길순",
+            "[하나] 입출금계좌 입금 30,000원 홍길순",
+            "[NH농협] 입출금내역 입금 30,000원 홍길순",
+        )) {
+            val r = p(t)!!
+            assertEquals(t, Parsed.Type.DEPOSIT, r.type)
+            assertEquals(t, "홍길순", r.merchant)
+        }
+        assertEquals(Parsed.Type.WITHDRAWAL, p("[KB국민] 입출금 알림 출금 30,000원 홍길순")!!.type)
+    }
+
+    /** #106: 입금·출금 낱말이 함께 보이면 금액 바로 뒤 동사("N원이 입금되었어요")를 따릅니다. 받는 곳 안내("입금계좌")는 아닙니다. */
+    @Test fun amountVerbDecidesWhenBothWordsAppear() {
+        assertEquals(Parsed.Type.DEPOSIT, p("[카카오뱅크] 자동이체 통장(1234)에 30,000원이 입금되었습니다")!!.type)
+        assertEquals(Parsed.Type.WITHDRAWAL, p("[신한] 출금 50,000원 입금계좌 국민 홍길순")!!.type)
+        assertEquals(Parsed.Type.WITHDRAWAL, p("[신한] 50,000원이 출금되었습니다 입금은행 국민 홍길순")!!.type)
+        // 동사가 없으면 전처럼 출금
+        assertEquals(Parsed.Type.WITHDRAWAL, p("[신한] 이체출금 50,000원 입금 홍길순")!!.type)
+    }
+
     @Test fun checkCardApprovalFromBank() {
         val r = p("[카카오뱅크] 체크카드 승인 9,500원 11/17 12:10 김밥천국")!!
         assertEquals(Parsed.Type.APPROVAL, r.type)
