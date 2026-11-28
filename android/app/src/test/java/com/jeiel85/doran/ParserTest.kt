@@ -109,6 +109,19 @@ class ParserTest {
         assertEquals("홍길순", p("[토스뱅크] 자유입출금 출금 50,000원 홍길순")!!.merchant)
     }
 
+    /** 2026-11-28: 카카오뱅크 이자 입금 알림이 통장 이름 "입출금통장"의 '출금' 때문에 출금(용돈에서 쓴 돈)으로 기록됐습니다. */
+    @Test fun depositToAccountNamedWithWithdrawalWordIsDeposit() {
+        val r = Parser.parse("오늘은 정기이자 받는 날!\n입출금통장(0932)에 20원이 입금되었어요.", now, hint = "카카오뱅크")!!
+        assertEquals(Parsed.Type.DEPOSIT, r.type)
+        assertEquals("카카오뱅크", r.issuer)
+        assertEquals(20L, r.amount)
+        assertEquals("0932", r.last4)
+        assertEquals(Parsed.Type.DEPOSIT, p("[카카오뱅크] 입출금 통장(1234) 입금 50,000원 홍길순")!!.type)
+        assertEquals(Parsed.Type.DEPOSIT, p("[토스뱅크] 자유입출금 입금 50,000원 홍길순")!!.type)
+        // 통장 이름이 같아도 출금은 그대로 출금
+        assertEquals(Parsed.Type.WITHDRAWAL, p("[카카오뱅크] 입출금통장(1234) 출금 100,000원 홍길순")!!.type)
+    }
+
     @Test fun checkCardApprovalFromBank() {
         val r = p("[카카오뱅크] 체크카드 승인 9,500원 11/17 12:10 김밥천국")!!
         assertEquals(Parsed.Type.APPROVAL, r.type)

@@ -161,6 +161,8 @@ object Parser {
     /** "CU에서 3,610원 결제"처럼 금액 바로 앞의 '에서'. */
     private val AT_PLACE = Regex("""에서\s*$""")
     private val EMPTY_PARENS = Regex("""\(\s*\)""")
+    /** 통장 상품 이름 속의 입출금 낱말: 입금·출금을 가를 때는 지우고 봅니다. */
+    private val ACCOUNT_NAME = Regex("""입출금\s*통장|자유\s*입출금""")
     private val SPACES = Regex("""\s+""")
     private val KEYWORDS = Regex(
         // 은행 거래 방식 낱말("스마트폰출금", "인터넷이체", "타행입금"): 받는 분·메모 칸(적요)이 아니라 이체한 길입니다(2026-11-20 KB 알림).
@@ -294,8 +296,10 @@ object Parser {
         if (!ignoreFailure && (isFailure(text) || isScheduled(text))) return null
 
         val cancel = Regex("""취소""").containsMatchIn(text) && (text.contains("승인") || text.contains("카드") || text.contains("결제"))
-        val deposit = Regex("""입금""").containsMatchIn(text) && !text.contains("입금예정")
-        val withdrawal = Regex("""출금|자동이체|이체출금|지급""").containsMatchIn(text)
+        // 통장 이름 "입출금통장"·"자유입출금"의 '출금'은 거래가 아닙니다. 그대로 보면 이자 입금 알림이 출금(쓴 돈)이 됐습니다(2026-11-28 카카오뱅크).
+        val flow = ACCOUNT_NAME.replace(text, " ")
+        val deposit = Regex("""입금""").containsMatchIn(flow) && !flow.contains("입금예정")
+        val withdrawal = Regex("""출금|자동이체|이체출금|지급""").containsMatchIn(flow)
         val approval = Regex("""승인|결제|사용""").containsMatchIn(text)
         val check = text.contains("체크")
 
