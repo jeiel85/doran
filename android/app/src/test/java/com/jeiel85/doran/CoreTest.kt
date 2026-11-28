@@ -144,6 +144,10 @@ class CoreTest {
         assertEquals("c.cafe", Categorizer.categorize(s, "스타벅스 성수점", Kind.EXPENSE))
         assertEquals("c.subscription", Categorizer.categorize(s, "NETFLIX.COM", Kind.EXPENSE))
         assertEquals("c.salary", Categorizer.categorize(s, "(주)도란 급여", Kind.INCOME))
+        // 진료과 이름(2026-11-28: 소아청소년과가 기타로 갔음), 동물병원은 반려동물
+        for (m in listOf("삼성푸른소아청소년과", "튼튼이비인후과", "바른정형외과", "행복가정의학과", "미래산부인과", "서울비뇨의학과"))
+            assertEquals(m, "c.medical", Categorizer.categorize(s, m, Kind.EXPENSE))
+        assertEquals("c.pets", Categorizer.categorize(s, "24시동물병원", Kind.EXPENSE))
         assertEquals(Categorizer.normalize("(주)스타벅스코리아 성수점"), Categorizer.normalize("스타벅스코리아"))
         val learned = s.copy(rules = mapOf(Categorizer.ruleId("동네빵집") to com.jeiel85.doran.model.MerchantRule(Categorizer.ruleId("동네빵집"), "동네빵집", "c.food")))
         assertEquals("c.food", Categorizer.categorize(learned, "동네빵집", Kind.EXPENSE))

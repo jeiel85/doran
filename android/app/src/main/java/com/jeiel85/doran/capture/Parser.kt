@@ -162,14 +162,19 @@ object Parser {
     private val AT_PLACE = Regex("""에서\s*$""")
     private val EMPTY_PARENS = Regex("""\(\s*\)""")
     /** 통장 상품 이름 속의 입출금 낱말: 입금·출금을 가를 때는 지우고 봅니다. */
-    private val ACCOUNT_NAME = Regex("""입출금\s*통장|자유\s*입출금""")
+    private val ACCOUNT_NAME = Regex("""입출금\s*(?:통장|계좌|예금|알림|내역)|(?:자유|수시)\s*입출금|입출금이\s*자유로운""")
+    /**
+     * 금액 바로 뒤의 입금·출금 동사("…에 20원이 입금되었어요", "50,000원 출금 완료"): 입금·출금 낱말이 함께 보일 때 방향을 정합니다(#106).
+     * 뒤에 '되·됐·했·완료·처리'가 붙어야 해서, 출금 알림의 "50,000원 입금계좌 …" 같은 받는 곳 안내는 아닙니다.
+     */
+    private val AMOUNT_VERB = Regex("""\d[\d,]*\s*원\s*(?:이|가|을|를)?\s*(입금|출금)\s*(?:되|됐|했|완료|처리)""")
     private val SPACES = Regex("""\s+""")
     private val KEYWORDS = Regex(
         // 은행 거래 방식 낱말("스마트폰출금", "인터넷이체", "타행입금"): 받는 분·메모 칸(적요)이 아니라 이체한 길입니다(2026-11-20 KB 알림).
         // 낱말 하나로는 가게 이름에도 쓰여("스마트폰케이스몰") 입출금 낱말이 바로 붙을 때만 뗍니다. ATM·CD는 현금이라는 뜻이 있어 남깁니다.
         """(?:스마트폰|인터넷|모바일|폰뱅킹|오픈뱅킹|타행|당행|FB)(?=\s*(?:출금|입금|이체|지급|송금))|""" +
         // 통장 이름 "입출금통장"은 받는 분·메모가 아닙니다. '출금'만 떼면 "입 통장"이 가맹점으로 남았습니다(2026-11-23 카카오뱅크 알림).
-        """입출금\s*통장|입출금|""" +
+        """입출금이\s*자유로운\s*예금|입출금이\s*자유로운|수시\s*입출금|입출금\s*(?:통장|계좌|알림|내역)|입출금|""" +
         // 다른 통장 상품 이름도 받는 곳이 아닙니다(#81). '정기예금·적금'은 옮긴 곳을 알려 주는 메모일 수 있어 남깁니다.
         """(?:보통|저축|자유)\s*예금|자유\s*입출금|자유\s*저축|""" +
         """승인취소|취소승인|해외승인|승인|취소|체크카드|체크|신용|일시불|사용|결제|입금|출금|이체|지급|자동이체|전자금융|님""" +
@@ -300,6 +305,8 @@ object Parser {
         val flow = ACCOUNT_NAME.replace(text, " ")
         val deposit = Regex("""입금""").containsMatchIn(flow) && !flow.contains("입금예정")
         val withdrawal = Regex("""출금|자동이체|이체출금|지급""").containsMatchIn(flow)
+        // 둘 다 보이면 금액 바로 뒤 동사를 따릅니다. 없으면 전처럼 출금입니다.
+        val verb = if (deposit && withdrawal) AMOUNT_VERB.find(flow)?.groupValues?.get(1) else null
         val approval = Regex("""승인|결제|사용""").containsMatchIn(text)
         val check = text.contains("체크")
 
@@ -310,6 +317,7 @@ object Parser {
             issuer.card && (approval || !deposit && !withdrawal) -> Parsed.Type.APPROVAL
             !issuer.card && approval && check -> Parsed.Type.APPROVAL
             deposit && !withdrawal -> Parsed.Type.DEPOSIT
+            verb == "입금" -> Parsed.Type.DEPOSIT
             withdrawal -> Parsed.Type.WITHDRAWAL
             deposit -> Parsed.Type.DEPOSIT
             approval -> Parsed.Type.APPROVAL

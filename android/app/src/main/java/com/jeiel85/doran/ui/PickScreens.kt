@@ -408,6 +408,59 @@ fun StaleMovesCard(nav: Nav) {
 }
 
 /**
+ * 홈의 "들어온 돈을 쓴 돈으로 기록했어요" 카드(#106). 예전 앱이 입금 알림을 출금으로 읽어 쓴 돈·옮긴 돈으로 남긴 것을, 알림 원문을
+ * 지금 판정으로 다시 읽어 보여 주고 모두 바로잡거나 그대로 둡니다. 답하면 사라집니다.
+ */
+@Composable
+fun MisreadDepositsCard(nav: Nav) {
+    val tick = rememberResumeTick()
+    var done by remember { mutableIntStateOf(0) }
+    val items by produceState(emptyList<Pair<Txn, Txn>>(), tick, done) { value = withContext(Dispatchers.IO) { Hub.capture.misreadDeposits() } }
+    var open by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    if (items.isEmpty()) return
+    Spacer(Modifier.height(14.dp))
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(P.c.apricotSoft).padding(16.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text("들어온 돈 ${items.size}건이 쓴 돈으로 기록돼 있어요", style = MaterialTheme.typography.titleSmall, color = P.c.ink)
+            Text("예전 앱이 입금 알림을 출금으로 잘못 읽었어요. 바로잡으면 들어온 돈으로 바뀌어요",
+                style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+        }
+        SmallButton("보기", color = P.c.apricot) { open = true }
+    }
+    if (open) AlertDialog(onDismissRequest = { open = false }, containerColor = P.c.bg,
+        title = { Text("입금 바로잡기") },
+        text = {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                Text("알림 원문을 다시 읽어 보니 들어온 돈이에요. 하나씩 고치려면 내역을 눌러 주세요.", style = MaterialTheme.typography.bodySmall, color = P.c.inkSoft)
+                items.forEach { (cur, _) ->
+                    Spacer(Modifier.height(12.dp))
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { open = false; nav.go(Route.Entry(txnId = cur.id)) }
+                        .background(P.c.surface).padding(12.dp)) {
+                        Row {
+                            Text("${Fmt.date(cur.at).let { "${it.monthValue}/${it.dayOfMonth}" }} ${cur.issuer ?: ""} ${cur.merchant}".trim(),
+                                style = MaterialTheme.typography.titleSmall, color = P.c.ink, modifier = Modifier.weight(1f))
+                            Text(Fmt.won(cur.amount), style = MaterialTheme.typography.titleSmall.merge(Money), color = P.c.ink)
+                        }
+                        Text("${if (com.jeiel85.doran.logic.Moves.isMoved(cur)) "옮긴 돈" else "쓴 돈"} → 들어온 돈",
+                            style = MaterialTheme.typography.bodySmall, color = P.c.pine)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton({
+            val picked = items
+            open = false
+            scope.launch { withContext(Dispatchers.IO) { Hub.capture.fixMisreadDeposits(picked) }; done++ }
+        }) { Text("모두 바로잡기") } },
+        dismissButton = { TextButton({
+            val picked = items
+            open = false
+            scope.launch { withContext(Dispatchers.IO) { Hub.capture.keepMisreadDeposits(picked) }; done++ }
+        }) { Text("그대로 두기", color = P.c.inkSoft) } })
+}
+
+/**
  * 홈의 "알림 없이 나간 돈" 카드(D-31): 범위 밖 통장이 알려 준 잔액이 기록보다 더 줄었으면 옮긴 돈인지 쓴 돈인지 묻습니다(토스뱅크는
  * 내가 한 이체·송금에 출금 알림이 없어서). 답하면 사라지고, 쓴 돈은 어디에 썼는지 적을 수 있게 그 내역을 엽니다.
  */
